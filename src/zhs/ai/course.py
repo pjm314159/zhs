@@ -8,14 +8,16 @@ from typing import Any
 from loguru import logger
 
 from zhs.ai.models import AiCourseInfo, ExamInfo, Resource
+from zhs.ai.video import AiVideoPlayer
 from zhs.config import AIConfig
 from zhs.session import ZhsSession
+from zhs.utils.display import course_tag, msg_done, msg_skip, tree_print
 
 
 class AiCourseManager:
     """AI 课程管理
 
-    管理 AI 课程的知识点学习、资源完成、视频播放和考试。
+    管理 AI 课程的知识点学习、资源完成、视频播放和作业。
     """
 
     def __init__(self, session: ZhsSession) -> None:
@@ -66,81 +68,8 @@ class AiCourseManager:
         }
         self._ai_query(url, data)
 
-    def play_video(
-        self,
-        course_id: int,
-        class_id: int,
-        file_id: int,
-        knowledge_id: int,
-        start_at: int = 0,
-        speed: float = 1.5,
-    ) -> None:
-        """播放 AI 视频（speed*2, 2s 间隔）"""
-        # 获取视频长度
-        url = f"{self._session.urls.ai}/run/gateway/t/stu/resources-lab/get-video-time"
-        data = {"courseId": course_id, "classId": class_id, "videoIdList": [file_id]}
-        result = self._ai_query(url, data)
-        video_length = result["data"][0]["time"]
-
-        # 模拟真实播放（请求视频链接）
-        self._watch_video(file_id)
-
-        played_time = start_at
-
-        while played_time < video_length:
-            played_time = min(int(round(played_time + speed * 2)), video_length)
-            self._report_video_progress(course_id, class_id, file_id, knowledge_id, played_time)
-            time.sleep(2)
-
-    def _watch_video(self, file_id: int) -> None:
-        """模拟真实视频播放请求（独立线程）"""
-        import threading
-
-        def _request() -> None:
-            try:
-                import httpx
-
-                url = f"{self._session.urls.newbase}/video/initVideo"
-                client = httpx.Client(timeout=30.0)
-                client.get(url, params={"fileId": file_id})
-                client.close()
-            except Exception as e:
-                logger.debug(f"watchVideo 请求失败（可忽略）: {e}")
-
-        t = threading.Thread(target=_request, daemon=True)
-        t.start()
-
-    def _report_video_progress(
-        self,
-        course_id: int,
-        class_id: int,
-        file_id: int,
-        knowledge_id: int,
-        last_watch_time: int,
-    ) -> bool:
-        """上报视频进度"""
-        url = f"{self._session.urls.ai}/run/gateway/t/stu/studyRecord/report"
-        data = {
-            "courseId": course_id,
-            "classId": class_id,
-            "fileId": file_id,
-            "knowledgeId": knowledge_id,
-            "lastWatchTime": last_watch_time,
-            "studyTotalTime": 10,
-            "shareCourseId": "",
-            "nodeType": 0,
-            "watchUId": 1,
-            "dateFormate": int(time.time() * 1000),
-        }
-        try:
-            self._ai_query(url, data)
-            return True
-        except Exception as e:
-            logger.error(f"上报视频进度失败: {e}")
-            return False
-
-    def query_ai_exam(self, course_id: int, class_id: int, knowledge_id: int) -> ExamInfo | None:
-        """查询考试信息"""
+    def query_homework(self, course_id: int, class_id: int, knowledge_id: int) -> ExamInfo | None:
+        """查询作业信息"""
         url = f"{self._session.urls.ai}/run/gateway/t/stu/exam/questions-paper"
         data = {
             "scMapId": course_id,
@@ -152,7 +81,7 @@ class AiCourseManager:
             result = self._ai_query(url, data)
             return ExamInfo.model_validate(result["data"])
         except Exception as e:
-            logger.error(f"查询考试信息失败: {e}")
+            logger.error(f"查询作业信息失败: {e}")
             return None
 
     def _process_resource(
@@ -161,8 +90,8 @@ class AiCourseManager:
         class_id: int,
         knowledge_id: int,
         resource: Resource,
+        video_player: AiVideoPlayer,
         ppts: list[dict[str, str]] | None = None,
-        speed: float = 1.5,
     ) -> None:
         """处理单个资源"""
         ppts = ppts if ppts is not None else []
@@ -191,17 +120,17 @@ class AiCourseManager:
                 ppts.append({"name": detail.resources_name, "url": detail.resources_url})
         elif r_type == 1 and r_dist == 3:
             # 视频
-            self.play_video(course_id, class_id, detail.resources_file_id, knowledge_id, speed=speed)
+            video_player.play_video(course_id, class_id, detail.resources_file_id, knowledge_id)
         elif r_type == 2 and r_dist == 2:
             # 课程视频
-            self.play_video(course_id, class_id, detail.resources_file_id, knowledge_id, speed=speed)
+            video_player.play_video(course_id, class_id, detail.resources_file_id, knowledge_id)
         else:
             # 其他类型
             self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
 
-    def _should_take_exam(self, exam: ExamInfo, tried: int, no_exam: bool) -> bool:
-        """判断是否应参加考试"""
-        if no_exam:
+    def _should_do_homework(self, exam: ExamInfo, tried: int, no_homework: bool) -> bool:
+        """判断是否应做作业"""
+        if no_homework:
             return False
         if exam.mastery_score > 90:
             return False
@@ -212,27 +141,33 @@ class AiCourseManager:
         course_id: int,
         class_id: int,
         ai_config: AIConfig,
-        no_exam: bool = False,
+        no_homework: bool = False,
         speed: float = 1.5,
     ) -> None:
         """执行完整 AI 课程学习流程"""
-        from zhs.ai.exam import ExamCtx
+        from zhs.ai.homework import HomeworkCtx
         from zhs.ai.ppt import PptConverter
 
         # 获取知识点
         course_info = self.get_knowledge_points(course_id, class_id)
         logger.info(f"开始学习 AI 课程: {course_info.course_name}")
+        tree_print(f"{course_tag('ai')} 课程: {course_info.course_name}", enabled=True)
+
+        # 创建视频播放器
+        video_player = AiVideoPlayer(self._session, speed=speed)
 
         ppt_conf = getattr(ai_config, "ppt_processing", {})
         moonshot_key = getattr(ai_config, "moonshot_api_key", "")
 
         for theme in course_info.cake_theme_list:
             logger.info(f"主题: {theme.theme_name}")
+            tree_print(f"主题: {theme.theme_name}", depth=1, enabled=True)
 
             for knowledge in theme.knowledge_list:
                 ppts: list[dict[str, str]] = []
 
                 if knowledge.study_progress < 100:
+                    tree_print(f"知识点: {knowledge.knowledge_name}", depth=2, enabled=True)
                     # 未完成的知识点
                     try:
                         resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
@@ -243,14 +178,16 @@ class AiCourseManager:
                     for resource in resources:
                         try:
                             self._process_resource(
-                                course_id, class_id, knowledge.knowledge_id, resource, ppts, speed=speed
+                                course_id, class_id, knowledge.knowledge_id, resource, video_player, ppts
                             )
                         except Exception as e:
                             logger.error(f"处理资源失败: {e}")
 
                     logger.info(f"知识点完成: {knowledge.knowledge_name}")
+                    tree_print(msg_done(f"完成: {knowledge.knowledge_name}"), depth=3, enabled=True)
                 else:
                     # 已完成的知识点，仍收集 PPT
+                    tree_print(msg_skip(f"跳过(已完成): {knowledge.knowledge_name}"), depth=2, enabled=True)
                     if ppt_conf and moonshot_key:
                         try:
                             resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
@@ -271,14 +208,14 @@ class AiCourseManager:
                             logger.error(f"获取已完成知识点资源失败: {e}")
                     logger.info(f"知识点已完成: {knowledge.knowledge_name}")
 
-                # 考试循环
+                # 作业循环
                 tried = 0
                 while True:
-                    exam = self.query_ai_exam(course_id, class_id, knowledge.knowledge_id)
+                    exam = self.query_homework(course_id, class_id, knowledge.knowledge_id)
                     if exam is None or not exam.paper_id:
                         break
 
-                    if not self._should_take_exam(exam, tried, no_exam):
+                    if not self._should_do_homework(exam, tried, no_homework):
                         break
 
                     tried += 1
@@ -305,8 +242,8 @@ class AiCourseManager:
                             except Exception as e:
                                 logger.error(f"PPT 转换失败: {e}")
 
-                    # 执行考试
-                    exam_ctx = ExamCtx(
+                    # 执行作业
+                    homework_ctx = HomeworkCtx(
                         session=self._session,
                         course_id=course_id,
                         knowledge_id=knowledge.knowledge_id,
@@ -322,11 +259,11 @@ class AiCourseManager:
 
                     try:
                         is_success, correct, total = asyncio.run(
-                            exam_ctx.start(reference_materials=reference_materials)
+                            homework_ctx.start(reference_materials=reference_materials)
                         )
-                        logger.info(f"考试结果: {correct}/{total}")
+                        logger.info(f"作业结果: {correct}/{total}")
                     except Exception as e:
-                        logger.error(f"考试失败: {e}")
+                        logger.error(f"作业失败: {e}")
 
                     time.sleep(2)
 

@@ -91,7 +91,11 @@ class TestPrompts:
         """LM-10: 多选题 Prompt 包含"所有正确的答案" """
         prompt = build_choice_prompt(
             question="以下哪些是正确的？",
-            choices=[{"id": 1, "content": "A. 选项1"}, {"id": 2, "content": "B. 选项2"}, {"id": 3, "content": "C. 选项3"}],
+            choices=[
+                {"id": 1, "content": "A. 选项1"},
+                {"id": 2, "content": "B. 选项2"},
+                {"id": 3, "content": "C. 选项3"},
+            ],
             answer_type="多选题",
         )
         assert "所有正确的答案" in prompt
@@ -107,7 +111,7 @@ class TestPrompts:
 
     def test_parse_choice_answer(self) -> None:
         """选择题答案解析"""
-        result = parse_choice_answer("```answer\n[{\"id\": 1, \"content\": \"A\"}]\n```")
+        result = parse_choice_answer('```answer\n[{"id": 1, "content": "A"}]\n```')
         assert 1 in result
 
     def test_parse_fill_blank_answer(self) -> None:

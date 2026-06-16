@@ -82,7 +82,12 @@ class TestZhidaoContext:
 class TestZhidaoVideo:
     """知到视频播放"""
 
-    def test_video_player_init(self, logged_in_session: ZhsSession, zhidao_course: dict[str, Any], app_config: AppConfig) -> None:
+    def test_video_player_init(
+        self,
+        logged_in_session: ZhsSession,
+        zhidao_course: dict[str, Any],
+        app_config: AppConfig,
+    ) -> None:
         """Z-08: 视频播放器初始化成功"""
         from zhs.zhidao.video import ZhidaoVideoPlayer
 

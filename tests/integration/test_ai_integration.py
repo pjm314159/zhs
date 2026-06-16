@@ -109,7 +109,7 @@ class TestAiExam:
             pytest.skip("没有知识点")
 
         kp = info.cake_theme_list[0].knowledge_list[0]
-        exam = mgr.query_ai_exam(course_id, class_id, kp.knowledge_id)
+        exam = mgr.query_homework(course_id, class_id, kp.knowledge_id)
         # 考试可能不存在
         if exam is None:
             pytest.skip("该知识点没有考试")
@@ -120,15 +120,20 @@ class TestAiExam:
 class TestAiCourseFlow:
     """AI 课程完整流程"""
 
-    def test_run_course_no_exam(self, logged_in_session: ZhsSession, ai_course: dict[str, Any], app_config: AppConfig) -> None:
-        """A-17: no_exam 模式 — 只完成资源学习，不参加考试"""
+    def test_run_course_no_exam(
+        self,
+        logged_in_session: ZhsSession,
+        ai_course: dict[str, Any],
+        app_config: AppConfig,
+    ) -> None:
+        """A-17: no_homework 模式 — 只完成资源学习，不参加考试"""
         mgr = AiCourseManager(logged_in_session)
         course_id = int(ai_course["courseId"])
         class_id = int(ai_course["classId"])
 
-        # no_exam=True，避免影响真实成绩
+        # no_homework=True，避免影响真实成绩
         try:
-            mgr.run_course(course_id, class_id, app_config.ai, no_exam=True)
+            mgr.run_course(course_id, class_id, app_config.ai, no_homework=True)
         except Exception as e:
             # 部分资源可能已完成，导致异常
             if "已完成" not in str(e):

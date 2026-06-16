@@ -59,6 +59,7 @@ class ZhidaoVideoPlayer:
         course_name = course.course_info.name if course.course_info else course.course_name
         begin_time = time.time()
         tv = self._tree_view
+        logger.info(f"play_course: {course_name}, chapters={len(ctx.chapters)}")
         tree_print(f"{course_tag('zhidao')} 课程: {course_name}", enabled=tv)
 
         for chapter in ctx.chapters:
@@ -86,9 +87,16 @@ class ZhidaoVideoPlayer:
         played_time = float(video.study_total_time)
         watch_state = video.watch_state
 
+        logger.debug(
+            f"play_video: videoId={video_id}, name={video.name}, "
+            f"duration={video.video_sec}s, played={played_time}s, "
+            f"watchState={watch_state}, threshold={self.end_threshold}"
+        )
+
         # 已看完视频跳过（除非 end_threshold > 1.0 强制重看）
         if watch_state == 1 and self.end_threshold <= 1.0:
             tree_print(msg_skip(f"跳过(已完成): {video.name}"), depth=3, enabled=self._tree_view)
+            logger.debug(f"Skipping completed video: {video.name} (watchState=1)")
             return
 
         # 获取学习令牌（同时获取最新的学习时间）
@@ -110,12 +118,23 @@ class ZhidaoVideoPlayer:
             end_time = max(questions[-1].time_sec, end_time)
 
         # 时间限制检查
+        real_end_time = end_time  # 保存真实结束时间，用于进度条显示
         if self._time_limit > 0:
+            speed = self._speed or 1.5
             remaining = self._time_limit - ctx.fucked_time
             if remaining <= 0:
                 logger.info(f"Time limit reached, skipping {video.name}")
+                tree_print(msg_skip(f"跳过(时间限制): {video.name}"), depth=3, enabled=self._tree_view)
                 return
-            end_time = min(end_time, played_time + remaining)
+            # remaining 是真实秒数，视频以 speed 倍速前进，所以视频可前进 remaining * speed 秒
+            end_time = min(end_time, played_time + remaining * speed)
+            if end_time - played_time < 10:
+                logger.warning(
+                    f"Time limit nearly exhausted for {video.name}: "
+                    f"remaining={remaining:.0f}s (real), video_advance={remaining * speed:.0f}s, "
+                    f"played={played_time:.1f}s, end={end_time:.1f}s"
+                )
+                tree_print(msg_warn(f"时间不足: {video.name} (剩余{remaining:.0f}s)"), depth=3, enabled=self._tree_view)
 
         # 启动视频流请求（反检测）
         self._start_watch_thread(video.video_id)
@@ -124,7 +143,12 @@ class ZhidaoVideoPlayer:
         self._three_dimensional_course_ware(video.video_id)
 
         # 进入主循环
-        self._main_loop(rac_id, video_id, ctx, played_time, end_time, token_id, questions)
+        self._main_loop(rac_id, video_id, ctx, played_time, end_time, real_end_time, token_id, questions)
+
+        logger.info(
+            f"play_video done: videoId={video_id}, name={video.name}, "
+            f"end_time={end_time:.1f}s, played_time={played_time:.1f}s"
+        )
 
         # 人类延迟
         time.sleep(random() + 1)
@@ -136,6 +160,7 @@ class ZhidaoVideoPlayer:
         ctx: "ZhidaoContext",
         played_time: float,
         end_time: float,
+        real_end_time: float,
         token_id: str,
         questions: list["QuestionPoint"],
     ) -> None:
@@ -234,9 +259,9 @@ class ZhidaoVideoPlayer:
                 last_submit = played_time
                 wp.reset(int(played_time))
 
-            # 显示进度条
+            # 显示进度条（始终相对于真实结束时间，不受时间限制影响）
             if self._progressbar_view:
-                bar_current, bar_total = (60 - pause, 60) if pause else (int(played_time), int(end_time))
+                bar_current, bar_total = (60 - pause, 60) if pause else (int(played_time), int(real_end_time))
                 action = "pause" if pause else f"playing {video.video_id}" if answer_delay is None else "answering"
                 bar_str = progress_bar(bar_current, bar_total)
                 print(f"\r{action} {bar_str}", end="", flush=True)

@@ -1,4 +1,8 @@
-"""AI 考试上下文（异步执行）"""
+"""AI 作业上下文（异步执行）
+
+使用 LLM 提供者自动答题，支持两级缓存、并发控制和心跳。
+AI 课程的"考试"实际上是作业，统一命名为 homework。
+"""
 
 import asyncio
 import json
@@ -17,8 +21,8 @@ from zhs.session import ZhsSession
 from zhs.utils.path import get_data_dir
 
 
-class ExamCtx:
-    """AI 考试上下文（异步执行）
+class HomeworkCtx:
+    """AI 作业上下文（异步执行）
 
     使用 LLM 提供者自动答题，支持两级缓存、并发控制和心跳。
     """
@@ -48,7 +52,7 @@ class ExamCtx:
         self._answer_cache: dict[str, dict[str, Any]] = {}
         self._all_answer_cache: dict[str, dict[str, Any]] = {}
         self._sheet_content: list[QuestionSheet] | None = None
-        self._exam_stopped = False
+        self._stopped = False
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._reference_materials: list[dict[str, str]] = []
 
@@ -66,14 +70,14 @@ class ExamCtx:
             )
 
     async def start(self, reference_materials: list[dict[str, str]] | None = None) -> tuple[bool, int, int]:
-        """执行完整考试流程，返回 (是否全对, 正确数, 总题数)"""
+        """执行完整作业流程，返回 (是否全对, 正确数, 总题数)"""
         self._reference_materials = reference_materials or []
 
         # 加载缓存
         self._load_cache()
 
-        # 打开考试
-        await self._open_exam()
+        # 打开作业
+        await self._open_homework()
 
         # 启动心跳
         self._heartbeat_task = asyncio.create_task(self._heartbeat())
@@ -81,40 +85,40 @@ class ExamCtx:
         # 获取试卷内容
         sheets = await self._get_sheet_content()
         if not sheets:
-            self._exam_stopped = True
+            self._stopped = True
             raise ZhsError("试卷内容为空")
 
         # 并发答题
         tasks = [self._process_question(sheet) for sheet in sheets]
         await asyncio.gather(*tasks)
 
-        # 提交考试
-        await self._submit_exam()
+        # 提交作业
+        await self._submit_homework()
 
         # 检查结果并更新缓存
         correct_count, total_count = await self._check_results(sheets)
 
         # 取消心跳
-        self._exam_stopped = True
+        self._stopped = True
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
 
         return correct_count == total_count, correct_count, total_count
 
-    # --- 考试 API ---
+    # --- 作业 API ---
 
     @property
-    def _exam_base_url(self) -> str:
-        """考试 API 基础 URL"""
+    def _homework_base_url(self) -> str:
+        """作业 API 基础 URL"""
         return self._session.urls.exam
 
     async def _api_query(self, url: str, data: dict[str, Any], method: str = "POST") -> dict[str, Any]:
-        """异步考试 API 查询"""
+        """异步作业 API 查询"""
         return await self._session.ai_exam_query(url, data, method=method)
 
-    async def _open_exam(self, _retries: int = 0) -> None:
-        """打开考试"""
-        url = f"{self._exam_base_url}/gateway/t/v1/exam/user/openExam"
+    async def _open_homework(self, _retries: int = 0) -> None:
+        """打开作业"""
+        url = f"{self._homework_base_url}/gateway/t/v1/exam/user/openExam"
         data = {
             "examTestId": self._exam_test_id,
             "examPaperId": self._exam_paper_id,
@@ -125,7 +129,7 @@ class ExamCtx:
         except Exception as e:
             if _retries < 2:
                 logger.error(f"openExam 失败，重试 {_retries + 1}/3")
-                await self._open_exam(_retries + 1)
+                await self._open_homework(_retries + 1)
             else:
                 raise ZhsError("openExam 失败，已重试 3 次") from e
 
@@ -134,7 +138,7 @@ class ExamCtx:
         if self._sheet_content is not None:
             return self._sheet_content
 
-        url = f"{self._exam_base_url}/gateway/t/v1/exam/user/getExamSheetInfo"
+        url = f"{self._homework_base_url}/gateway/t/v1/exam/user/getExamSheetInfo"
         data = {
             "examTestId": self._exam_test_id,
             "examPaperId": self._exam_paper_id,
@@ -154,7 +158,7 @@ class ExamCtx:
 
     async def _get_question_content(self, question_id: int, version: int, _retries: int = 0) -> QuestionContent | None:
         """获取题目内容"""
-        url = f"{self._exam_base_url}/gateway/t/v1/question/getExamQuestionInfo"
+        url = f"{self._homework_base_url}/gateway/t/v1/question/getExamQuestionInfo"
         data = {
             "examTestId": self._exam_test_id,
             "examPaperId": self._exam_paper_id,
@@ -176,7 +180,7 @@ class ExamCtx:
         """保存答案"""
         if not answers:
             return False
-        url = f"{self._exam_base_url}/gateway/t/v1/answer/saveAnswer"
+        url = f"{self._homework_base_url}/gateway/t/v1/answer/saveAnswer"
         data = {
             "recruitId": self._course_id,
             "examTestId": self._exam_test_id,
@@ -192,9 +196,9 @@ class ExamCtx:
             logger.error(f"saveAnswer 失败: {e}")
             return False
 
-    async def _submit_exam(self, _retries: int = 0) -> None:
-        """提交考试"""
-        url = f"{self._exam_base_url}/gateway/t/v1/exam/user/submit"
+    async def _submit_homework(self, _retries: int = 0) -> None:
+        """提交作业"""
+        url = f"{self._homework_base_url}/gateway/t/v1/exam/user/submit"
         data = {
             "examTestId": self._exam_test_id,
             "courseId": self._course_id,
@@ -207,23 +211,23 @@ class ExamCtx:
         except Exception as e:
             if _retries < 2:
                 logger.error(f"submitExam 失败，重试 {_retries + 1}/3")
-                await self._submit_exam(_retries + 1)
+                await self._submit_homework(_retries + 1)
             else:
                 raise ZhsError("submitExam 失败，已重试 3 次") from e
         finally:
-            self._exam_stopped = True
+            self._stopped = True
 
     # --- 心跳 ---
 
     async def _heartbeat(self, interval: int = 10) -> None:
-        """异步心跳，定期更新考试用时"""
-        url = f"{self._exam_base_url}/gateway/t/v1/exam/user/updateUserUsedTime"
+        """异步心跳，定期更新作业用时"""
+        url = f"{self._homework_base_url}/gateway/t/v1/exam/user/updateUserUsedTime"
         data = {
             "examTestId": self._exam_test_id,
             "examPaperId": self._exam_paper_id,
             "heartbeatTime": interval,
         }
-        while not self._exam_stopped:
+        while not self._stopped:
             try:
                 await self._api_query(url, data)
             except Exception as e:
@@ -381,7 +385,7 @@ class ExamCtx:
             except (json.JSONDecodeError, OSError):
                 pass
 
-        # 加载 answer_cache（当前考试）
+        # 加载 answer_cache（当前作业）
         exam_path = cache_dir / f"{self._exam_test_id}.json"
         if exam_path.exists():
             try:
@@ -406,7 +410,7 @@ class ExamCtx:
             json.dump(self._all_answer_cache, f, ensure_ascii=False, indent=4)
 
     async def _check_results(self, sheets: list[QuestionSheet]) -> tuple[int, int]:
-        """检查考试结果并更新缓存"""
+        """检查作业结果并更新缓存"""
         correct_count = 0
         total_count = len(sheets)
 

@@ -25,8 +25,21 @@ _TOP_KEYS = (
     "image_path",
     "limit",
     "threshold",
+    "homework_threshold",
+    "max_submit",
 )
-_DISPLAY_KEYS = ("speed", "log_level", "tree_view", "progressbar_view", "qr_extra", "image_path", "limit", "threshold")
+_DISPLAY_KEYS = (
+    "speed",
+    "log_level",
+    "tree_view",
+    "progressbar_view",
+    "qr_extra",
+    "image_path",
+    "limit",
+    "threshold",
+    "homework_threshold",
+    "max_submit",
+)
 _MIGRATE_KEYS = (
     "save_cookies",
     "proxies",
@@ -65,6 +78,8 @@ class UrlConfig(BaseModel):
     ai: str = "https://kg-ai-run.zhihuishu.com"
     ai_chat: str = "https://ai-knowledge-map-platform.zhihuishu.com/knowledgemap/gateway/t/qa/platform/stream"
     exam: str = "https://studentexamtest.zhihuishu.com"
+    homework: str = "https://studentexam-api.zhihuishu.com"
+    ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"
     newbase: str = "https://newbase.zhihuishu.com"
 
 
@@ -95,6 +110,8 @@ class AppConfig(BaseModel):
     image_path: str = ""  # 默认在运行时设为 .zhs/qrcode.png
     limit: int = 0
     threshold: float = 0.91
+    homework_threshold: int = 100
+    max_submit: int = 3
     crypto: CryptoConfig = CryptoConfig()
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()

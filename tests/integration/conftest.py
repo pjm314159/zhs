@@ -43,7 +43,7 @@ def cookies_path() -> Path:
 
 
 @pytest.fixture(scope="session")
-def logged_in_session(app_config: AppConfig, cookies_path: Path) -> Generator[ZhsSession, None, None]:
+def logged_in_session(app_config: AppConfig, cookies_path: Path) -> Generator[ZhsSession]:
     """已登录的 ZhsSession
 
     优先从 .zhs/cookies.json 恢复 Cookie；

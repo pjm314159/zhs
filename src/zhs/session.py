@@ -283,6 +283,41 @@ class ZhsSession:
 
         return result
 
+    def homework_query(
+        self,
+        url: str,
+        data: dict[str, Any],
+        key: bytes | None = None,
+        ok_code: int = 200,
+        method: str = "POST",
+        content_type: str = "form",
+    ) -> dict[str, Any]:
+        """知到作业 API 查询（AES-128-CBC + exam_key，无 dateFormate）
+
+        与 zhidao_query 的区别：
+        - 不发送 dateFormate 字段
+        - 使用 exam_key 加密
+        - ok_code 默认 200
+        """
+        if key is None:
+            key = self.crypto.key_bytes("exam_key")
+        iv = self.crypto.key_bytes("iv")
+
+        cipher = Cipher(key, iv)
+        encrypted_data = cipher.encrypt(json.dumps(data))
+
+        form_data: dict[str, Any] = {
+            "secretStr": encrypted_data,
+        }
+
+        result = self.api_query(url, data=form_data, method=method, content_type=content_type)
+
+        code = result.get("code", 0)
+        if code != ok_code:
+            raise ApiError(code=code, message=result.get("message", ""))
+
+        return result
+
     def close(self) -> None:
         """关闭客户端"""
         if self._client:

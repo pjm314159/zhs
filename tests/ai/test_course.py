@@ -110,8 +110,9 @@ class TestResourceTypeRouting:
         """(2,1) 文本 → complete_resource"""
         detail = ResourceDetail(resources_uid=1, resources_name="文本", resources_type=2, resources_distribute_type=1)
         resource = Resource(study_status=0, resources_detail=detail)
+        video_player = MagicMock()
         with patch.object(manager, "complete_resource") as mock_complete:
-            manager._process_resource(100, 200, 1, resource)
+            manager._process_resource(100, 200, 1, resource, video_player)
             mock_complete.assert_called_once()
 
     def test_ppt_resource_completes_and_collects_url(self, manager: AiCourseManager) -> None:
@@ -125,13 +126,14 @@ class TestResourceTypeRouting:
         )
         resource = Resource(study_status=0, resources_detail=detail)
         ppts: list[dict[str, str]] = []
+        video_player = MagicMock()
         with patch.object(manager, "complete_resource"):
-            manager._process_resource(100, 200, 1, resource, ppts=ppts)
+            manager._process_resource(100, 200, 1, resource, video_player, ppts=ppts)
             assert len(ppts) == 1
             assert ppts[0]["url"] == "https://example.com/ppt.pptx"
 
     def test_video_resource_plays_video(self, manager: AiCourseManager) -> None:
-        """(1,3) 视频 → play_video"""
+        """(1,3) 视频 → video_player.play_video"""
         detail = ResourceDetail(
             resources_uid=1,
             resources_name="视频",
@@ -140,12 +142,12 @@ class TestResourceTypeRouting:
             resources_file_id=500,
         )
         resource = Resource(study_status=0, resources_detail=detail)
-        with patch.object(manager, "play_video") as mock_play:
-            manager._process_resource(100, 200, 1, resource)
-            mock_play.assert_called_once()
+        video_player = MagicMock()
+        manager._process_resource(100, 200, 1, resource, video_player)
+        video_player.play_video.assert_called_once()
 
     def test_course_video_plays_video(self, manager: AiCourseManager) -> None:
-        """(2,2) 课程视频 → play_video"""
+        """(2,2) 课程视频 → video_player.play_video"""
         detail = ResourceDetail(
             resources_uid=1,
             resources_name="课程视频",
@@ -154,9 +156,9 @@ class TestResourceTypeRouting:
             resources_file_id=600,
         )
         resource = Resource(study_status=0, resources_detail=detail)
-        with patch.object(manager, "play_video") as mock_play:
-            manager._process_resource(100, 200, 1, resource)
-            mock_play.assert_called_once()
+        video_player = MagicMock()
+        manager._process_resource(100, 200, 1, resource, video_player)
+        video_player.play_video.assert_called_once()
 
     def test_other_resource_completes(self, manager: AiCourseManager) -> None:
         """其他类型 → complete_resource"""
@@ -167,8 +169,9 @@ class TestResourceTypeRouting:
             resources_distribute_type=5,
         )
         resource = Resource(study_status=0, resources_detail=detail)
+        video_player = MagicMock()
         with patch.object(manager, "complete_resource") as mock_complete:
-            manager._process_resource(100, 200, 1, resource)
+            manager._process_resource(100, 200, 1, resource, video_player)
             mock_complete.assert_called_once()
 
     def test_completed_ppt_still_collects_url(self, manager: AiCourseManager) -> None:
@@ -182,36 +185,36 @@ class TestResourceTypeRouting:
         )
         resource = Resource(study_status=1, resources_detail=detail)
         ppts: list[dict[str, str]] = []
+        video_player = MagicMock()
         with patch.object(manager, "complete_resource") as mock_complete:
-            manager._process_resource(100, 200, 1, resource, ppts=ppts)
+            manager._process_resource(100, 200, 1, resource, video_player, ppts=ppts)
             mock_complete.assert_not_called()  # 已完成不调用
             assert len(ppts) == 1  # 但仍收集 URL
 
 
-class TestExamLoop:
-    """考试循环"""
+class TestHomeworkLoop:
+    """作业循环"""
 
     def test_mastery_score_above_90_exits(self, manager: AiCourseManager) -> None:
         """mastery_score > 90 → 退出"""
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=95)
-        with patch.object(manager, "query_ai_exam", return_value=exam):
-            result = manager._should_take_exam(exam, tried=0, no_exam=False)
-            assert result is False
+        result = manager._should_do_homework(exam, tried=0, no_homework=False)
+        assert result is False
 
     def test_mastery_score_below_30_tried_over_4_gives_up(self, manager: AiCourseManager) -> None:
         """mastery_score < 30 且 tried > 4 → 放弃"""
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=20)
-        result = manager._should_take_exam(exam, tried=5, no_exam=False)
+        result = manager._should_do_homework(exam, tried=5, no_homework=False)
         assert result is False
 
-    def test_no_exam_flag_skips(self, manager: AiCourseManager) -> None:
-        """no_exam=True 跳过考试"""
+    def test_no_homework_flag_skips(self, manager: AiCourseManager) -> None:
+        """no_homework=True 跳过作业"""
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=50)
-        result = manager._should_take_exam(exam, tried=0, no_exam=True)
+        result = manager._should_do_homework(exam, tried=0, no_homework=True)
         assert result is False
 
-    def test_should_take_exam(self, manager: AiCourseManager) -> None:
-        """mastery_score 30-90 且 tried <= 4 → 应考试"""
+    def test_should_do_homework(self, manager: AiCourseManager) -> None:
+        """mastery_score 30-90 且 tried <= 4 → 应做作业"""
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=50)
-        result = manager._should_take_exam(exam, tried=0, no_exam=False)
+        result = manager._should_do_homework(exam, tried=0, no_homework=False)
         assert result is True
