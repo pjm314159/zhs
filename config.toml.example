@@ -1,0 +1,97 @@
+# ZHS 智慧树自动刷课配置文件
+# 复制此文件为 config.toml 并填入实际值
+
+# ============================================================
+# 基础设置
+# ============================================================
+
+# 是否保存 Cookie（避免重复登录）
+save_cookies = true
+
+# 知到视频播放速度（默认 1.5，最高 2.0）
+zhidao_speed = 1.5
+
+# Hike 视频播放速度（默认 1.25，最高 2.0）
+hike_speed = 1.25
+
+# AI 课程视频播放速度（默认 1.5，最高 2.0）
+ai_speed = 1.5
+
+# 代理设置（留空则不使用代理）
+# 示例: { "http" = "http://127.0.0.1:7890", "https" = "http://127.0.0.1:7890" }
+[proxies]
+
+# 日志级别: DEBUG, INFO, WARNING, ERROR
+log_level = "INFO"
+
+# 是否显示课程资源树
+tree_view = true
+
+# 是否显示进度条
+progressbar_view = true
+
+# 二维码额外参数（一般无需修改）
+[qr_extra]
+
+# 二维码图片保存路径（留空则使用临时目录）
+image_path = ""
+
+# 刷课时间限制（分钟，0 = 不限制）
+# 超过时间限制后自动跳过当前课程
+limit = 0
+
+# 视频结束阈值（0.0-1.0，默认 0.91）
+# 视频播放进度超过此比例视为已完成
+threshold = 0.91
+
+# ============================================================
+# AI 配置（用于 AI 课程自动答题）
+# ============================================================
+
+[ai]
+# 是否使用智慧树内置 AI（默认开启，无需 API Key，使用 moonshot-v1-32k 模型）
+# 设为 false 则使用下方自定义 OpenAI 兼容接口
+use_zhidao_ai = true
+
+# OpenAI 兼容 API Key（仅 use_zhidao_ai = false 时需要）
+# 支持 MoonShot、DeepSeek 等兼容接口
+api_key = ""
+
+# API Base URL（仅 use_zhidao_ai = false 时生效）
+base_url = "https://api.openai.com/v1"
+
+# 模型名称（仅 use_zhidao_ai = false 时生效）
+model = "gpt-4o-mini"
+
+# MoonShot API Key（用于 PPT 转文本，AI 课程需要，与上方答题 API 可独立配置）
+moonshot_api_key = ""
+
+# 最大 Token 数
+max_token = 27900
+
+# ============================================================
+# 加密密钥（一般无需修改，与智慧树 API 对应）
+# ============================================================
+
+[crypto]
+iv = "1g3qqdh4jvbskb9x"
+home_key = "7q9oko0vqb3la20r"
+video_key = "azp53h0kft7qi78q"
+qa_key = "kcGOlISPkYKRksSK"
+ai_key = "hw2fdlwcj4cs1mx7"
+exam_key = "onbfhdyvz8x7otrp"
+hike_salt = "o6xpt3b#Qy$Z"
+ev_key = "zzpttjd"
+ai_sign_prefix = "8ZflKEagfL"
+
+# ============================================================
+# API URL（一般无需修改，智慧树 API 地址）
+# ============================================================
+
+[urls]
+base = "https://onlineservice-api.zhihuishu.com"
+passport = "https://passport.zhihuishu.com"
+study = "https://studyservice-api.zhihuishu.com"
+hike = "https://hike.zhihuishu.com"
+ai = "https://kg-ai-run.zhihuishu.com"
+newbase = "https://newbase.zhihuishu.com"

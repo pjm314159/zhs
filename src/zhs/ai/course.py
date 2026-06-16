@@ -1,0 +1,334 @@
+"""AI 课程管理"""
+
+import asyncio
+import time
+from random import randint
+from typing import Any
+
+from loguru import logger
+
+from zhs.ai.models import AiCourseInfo, ExamInfo, Resource
+from zhs.config import AIConfig
+from zhs.session import ZhsSession
+
+
+class AiCourseManager:
+    """AI 课程管理
+
+    管理 AI 课程的知识点学习、资源完成、视频播放和考试。
+    """
+
+    def __init__(self, session: ZhsSession) -> None:
+        self._session = session
+
+    def _ai_query(self, url: str, data: dict[str, Any], content_type: str = "json") -> dict[str, Any]:
+        """AI 课程 API 查询（使用 ai_key，默认 JSON）"""
+        return self._session.zhidao_query(
+            url, data, key=self._session.crypto.key_bytes("ai_key"), ok_code=200, content_type=content_type
+        )
+
+    def get_ai_course_list(self) -> list[dict[str, Any]]:
+        """获取 AI 课程列表"""
+        url = f"{self._session.urls.base}/gateway/t/v1/student/queryStudentAICourseList"
+        data = {"status": 3}
+        try:
+            result = self._session.zhidao_query(url, data, key=self._session.crypto.key_bytes("home_key"), ok_code=0)
+            rt = result.get("rt", [])
+            return rt if isinstance(rt, list) else []
+        except Exception as e:
+            logger.error(f"获取 AI 课程列表失败: {e}")
+            return []
+
+    def get_knowledge_points(self, course_id: int, class_id: int) -> AiCourseInfo:
+        """获取知识点列表"""
+        url = f"{self._session.urls.ai}/run/gateway/t/stu/knowledge-study/course-basic"
+        data = {"courseId": course_id, "classId": class_id}
+        result = self._ai_query(url, data)
+        return AiCourseInfo.model_validate(result["data"])
+
+    def list_knowledge_resources(self, course_id: int, class_id: int, knowledge_id: int) -> list[Resource]:
+        """获取知识点资源列表"""
+        url = f"{self._session.urls.ai}/run/gateway/t/stu/resources/list-knowledge-resource"
+        data = {"courseId": course_id, "classId": class_id, "knowledgeId": knowledge_id}
+        result = self._ai_query(url, data)
+        raw_list = result["data"].get("resourceList", [])
+        return [Resource.model_validate(r) for r in raw_list]
+
+    def complete_resource(self, course_id: int, class_id: int, knowledge_id: int, resources_uid: int) -> None:
+        """完成资源"""
+        url = f"{self._session.urls.ai}/run/gateway/t/stu/studyRecord/completed"
+        data = {
+            "courseId": course_id,
+            "classId": class_id,
+            "knowledgeId": knowledge_id,
+            "resourcesUid": resources_uid,
+            "watchUId": 1,
+        }
+        self._ai_query(url, data)
+
+    def play_video(
+        self,
+        course_id: int,
+        class_id: int,
+        file_id: int,
+        knowledge_id: int,
+        start_at: int = 0,
+        speed: float = 1.5,
+    ) -> None:
+        """播放 AI 视频（speed*2, 2s 间隔）"""
+        # 获取视频长度
+        url = f"{self._session.urls.ai}/run/gateway/t/stu/resources-lab/get-video-time"
+        data = {"courseId": course_id, "classId": class_id, "videoIdList": [file_id]}
+        result = self._ai_query(url, data)
+        video_length = result["data"][0]["time"]
+
+        # 模拟真实播放（请求视频链接）
+        self._watch_video(file_id)
+
+        played_time = start_at
+
+        while played_time < video_length:
+            played_time = min(int(round(played_time + speed * 2)), video_length)
+            self._report_video_progress(course_id, class_id, file_id, knowledge_id, played_time)
+            time.sleep(2)
+
+    def _watch_video(self, file_id: int) -> None:
+        """模拟真实视频播放请求（独立线程）"""
+        import threading
+
+        def _request() -> None:
+            try:
+                import httpx
+
+                url = f"{self._session.urls.newbase}/video/initVideo"
+                client = httpx.Client(timeout=30.0)
+                client.get(url, params={"fileId": file_id})
+                client.close()
+            except Exception as e:
+                logger.debug(f"watchVideo 请求失败（可忽略）: {e}")
+
+        t = threading.Thread(target=_request, daemon=True)
+        t.start()
+
+    def _report_video_progress(
+        self,
+        course_id: int,
+        class_id: int,
+        file_id: int,
+        knowledge_id: int,
+        last_watch_time: int,
+    ) -> bool:
+        """上报视频进度"""
+        url = f"{self._session.urls.ai}/run/gateway/t/stu/studyRecord/report"
+        data = {
+            "courseId": course_id,
+            "classId": class_id,
+            "fileId": file_id,
+            "knowledgeId": knowledge_id,
+            "lastWatchTime": last_watch_time,
+            "studyTotalTime": 10,
+            "shareCourseId": "",
+            "nodeType": 0,
+            "watchUId": 1,
+            "dateFormate": int(time.time() * 1000),
+        }
+        try:
+            self._ai_query(url, data)
+            return True
+        except Exception as e:
+            logger.error(f"上报视频进度失败: {e}")
+            return False
+
+    def query_ai_exam(self, course_id: int, class_id: int, knowledge_id: int) -> ExamInfo | None:
+        """查询考试信息"""
+        url = f"{self._session.urls.ai}/run/gateway/t/stu/exam/questions-paper"
+        data = {
+            "scMapId": course_id,
+            "courseId": class_id,
+            "classId": class_id,
+            "knowledgeId": knowledge_id,
+        }
+        try:
+            result = self._ai_query(url, data)
+            return ExamInfo.model_validate(result["data"])
+        except Exception as e:
+            logger.error(f"查询考试信息失败: {e}")
+            return None
+
+    def _process_resource(
+        self,
+        course_id: int,
+        class_id: int,
+        knowledge_id: int,
+        resource: Resource,
+        ppts: list[dict[str, str]] | None = None,
+        speed: float = 1.5,
+    ) -> None:
+        """处理单个资源"""
+        ppts = ppts if ppts is not None else []
+        detail = resource.resources_detail
+        r_type = detail.resources_type
+        r_dist = detail.resources_distribute_type
+
+        # 已完成的资源
+        if resource.study_status == 1:
+            # 已完成的 PPT 仍收集 URL
+            if r_type == 1 and r_dist == 4 and detail.resources_url:
+                ppts.append({"name": detail.resources_name, "url": detail.resources_url})
+            return
+
+        # 随机延迟（模拟人类行为）
+        time.sleep(randint(1, 10) * 0.2)
+
+        # 未完成的资源
+        if r_type == 2 and r_dist == 1:
+            # 文本
+            self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
+        elif r_type == 1 and r_dist == 4:
+            # PPT
+            self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
+            if detail.resources_url:
+                ppts.append({"name": detail.resources_name, "url": detail.resources_url})
+        elif r_type == 1 and r_dist == 3:
+            # 视频
+            self.play_video(course_id, class_id, detail.resources_file_id, knowledge_id, speed=speed)
+        elif r_type == 2 and r_dist == 2:
+            # 课程视频
+            self.play_video(course_id, class_id, detail.resources_file_id, knowledge_id, speed=speed)
+        else:
+            # 其他类型
+            self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
+
+    def _should_take_exam(self, exam: ExamInfo, tried: int, no_exam: bool) -> bool:
+        """判断是否应参加考试"""
+        if no_exam:
+            return False
+        if exam.mastery_score > 90:
+            return False
+        return not (exam.mastery_score < 30 and tried > 4)
+
+    def run_course(
+        self,
+        course_id: int,
+        class_id: int,
+        ai_config: AIConfig,
+        no_exam: bool = False,
+        speed: float = 1.5,
+    ) -> None:
+        """执行完整 AI 课程学习流程"""
+        from zhs.ai.exam import ExamCtx
+        from zhs.ai.ppt import PptConverter
+
+        # 获取知识点
+        course_info = self.get_knowledge_points(course_id, class_id)
+        logger.info(f"开始学习 AI 课程: {course_info.course_name}")
+
+        ppt_conf = getattr(ai_config, "ppt_processing", {})
+        moonshot_key = getattr(ai_config, "moonshot_api_key", "")
+
+        for theme in course_info.cake_theme_list:
+            logger.info(f"主题: {theme.theme_name}")
+
+            for knowledge in theme.knowledge_list:
+                ppts: list[dict[str, str]] = []
+
+                if knowledge.study_progress < 100:
+                    # 未完成的知识点
+                    try:
+                        resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
+                    except Exception as e:
+                        logger.error(f"获取资源列表失败: {e}")
+                        continue
+
+                    for resource in resources:
+                        try:
+                            self._process_resource(
+                                course_id, class_id, knowledge.knowledge_id, resource, ppts, speed=speed
+                            )
+                        except Exception as e:
+                            logger.error(f"处理资源失败: {e}")
+
+                    logger.info(f"知识点完成: {knowledge.knowledge_name}")
+                else:
+                    # 已完成的知识点，仍收集 PPT
+                    if ppt_conf and moonshot_key:
+                        try:
+                            resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
+                            for resource in resources:
+                                detail = resource.resources_detail
+                                if (
+                                    detail.resources_type == 1
+                                    and detail.resources_distribute_type == 4
+                                    and detail.resources_url
+                                ):
+                                    ppts.append(
+                                        {
+                                            "name": detail.resources_name,
+                                            "url": detail.resources_url,
+                                        }
+                                    )
+                        except Exception as e:
+                            logger.error(f"获取已完成知识点资源失败: {e}")
+                    logger.info(f"知识点已完成: {knowledge.knowledge_name}")
+
+                # 考试循环
+                tried = 0
+                while True:
+                    exam = self.query_ai_exam(course_id, class_id, knowledge.knowledge_id)
+                    if exam is None or not exam.paper_id:
+                        break
+
+                    if not self._should_take_exam(exam, tried, no_exam):
+                        break
+
+                    tried += 1
+
+                    # PPT 转文本
+                    reference_materials: list[dict[str, str]] = []
+                    if ppts:
+                        converter = PptConverter(
+                            api_key=moonshot_key,
+                            base_url=getattr(ai_config, "base_url", "https://api.moonshot.cn/v1"),
+                        )
+                        for ppt in ppts:
+                            try:
+                                content = converter.convert(ppt["url"])
+                                if content:
+                                    ppt["content"] = content
+                                    reference_materials.append(
+                                        {
+                                            "name": ppt["name"],
+                                            "url": ppt["url"],
+                                            "content": content,
+                                        }
+                                    )
+                            except Exception as e:
+                                logger.error(f"PPT 转换失败: {e}")
+
+                    # 执行考试
+                    exam_ctx = ExamCtx(
+                        session=self._session,
+                        course_id=course_id,
+                        knowledge_id=knowledge.knowledge_id,
+                        exam_test_id=exam.exam_test_id,
+                        exam_paper_id=exam.paper_id,
+                        ai_config=ai_config,
+                        op_extra={
+                            "courseName": course_info.course_name,
+                            "theme": theme.theme_name,
+                            "knowledgePoint": knowledge.knowledge_name,
+                        },
+                    )
+
+                    try:
+                        is_success, correct, total = asyncio.run(
+                            exam_ctx.start(reference_materials=reference_materials)
+                        )
+                        logger.info(f"考试结果: {correct}/{total}")
+                    except Exception as e:
+                        logger.error(f"考试失败: {e}")
+
+                    time.sleep(2)
+
+            # 主题间随机延迟
+            time.sleep(randint(1, 2))
