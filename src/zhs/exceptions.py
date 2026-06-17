@@ -18,6 +18,10 @@ class CaptchaRequired(ZhsError):
     """服务端要求验证码（API 返回 code -12）"""
 
 
+class SliderVerificationRequired(ZhsError):
+    """作业答题需要滑块验证"""
+
+
 class LoginFailed(ZhsError):
     """登录失败"""
 

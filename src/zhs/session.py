@@ -9,10 +9,11 @@ import time
 from typing import Any
 
 import httpx
+from loguru import logger
 
 from zhs.config import AppConfig, CryptoConfig, UrlConfig
 from zhs.crypto import Cipher, sign_hike
-from zhs.exceptions import ApiError, CaptchaRequired
+from zhs.exceptions import ApiError, CaptchaRequired, ZhsError
 
 
 class ZhsSession:
@@ -288,7 +289,7 @@ class ZhsSession:
         url: str,
         data: dict[str, Any],
         key: bytes | None = None,
-        ok_code: int = 200,
+        ok_status: str = "200",
         method: str = "POST",
         content_type: str = "form",
     ) -> dict[str, Any]:
@@ -297,7 +298,7 @@ class ZhsSession:
         与 zhidao_query 的区别：
         - 不发送 dateFormate 字段
         - 使用 exam_key 加密
-        - ok_code 默认 200
+        - 检查 status 字段（"200"）而非 code 字段
         """
         if key is None:
             key = self.crypto.key_bytes("exam_key")
@@ -312,11 +313,263 @@ class ZhsSession:
 
         result = self.api_query(url, data=form_data, method=method, content_type=content_type)
 
-        code = result.get("code", 0)
-        if code != ok_code:
-            raise ApiError(code=code, message=result.get("message", ""))
+        status = result.get("status", "")
+        if status != ok_status:
+            raise ApiError(code=int(status) if status.isdigit() else -1, message=result.get("msg", ""))
 
         return result
+
+    def homework_redo(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        course_id: int,
+    ) -> dict[str, Any]:
+        """重做作业（saveCourseTran），重置已提交作业的状态
+
+        已提交的作业（state=4）直接调用 doHomework 会返回"试卷已提交"，
+        需要先调用此接口重置状态，然后才能重新答题。
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID
+            course_id: 课程 ID
+        """
+        url = f"{self.urls.homework}/studentExam/gateway/t/v1/student/saveCourseTran"
+        data = {
+            "recruitId": recruit_id,
+            "examId": exam_id,
+            "description": "",
+            "courseId": course_id,
+        }
+        return self.homework_query(url, data)
+
+    def homework_do(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        student_exam_id: str,
+        school_id: str,
+        course_id: str,
+    ) -> dict[str, Any]:
+        """开始做作业（doHomework），获取题目详情（含 eid）"""
+        url = f"{self.urls.homework}/studentExam/gateway/t/v1/student/doHomework"
+        data = {
+            "recruitId": recruit_id,
+            "examId": exam_id,
+            "studentExamId": student_exam_id,
+            "schoolId": school_id,
+            "courseId": course_id,
+        }
+        return self.homework_query(url, data)
+
+    def homework_save_answer(
+        self,
+        answer_item: dict[str, Any],
+        recruit_id: str,
+    ) -> dict[str, Any]:
+        """保存单题答案（saveStudentAnswer）
+
+        Args:
+            answer_item: 答案项字典（含 examId/eid/answer/questionType 等）
+            recruit_id: 招募 ID
+        """
+        url = f"{self.urls.homework}/studentExam/gateway/t/v1/answer/saveStudentAnswer"
+        data = {
+            "stuExamAnswer": json.dumps([answer_item]),
+            "recruitId": recruit_id,
+        }
+        return self.homework_query(url, data)
+
+    def homework_submit(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        stu_exam_id: str,
+        achieve_count: int,
+    ) -> dict[str, Any]:
+        """提交作业（submit）
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID
+            stu_exam_id: 作业 ID
+            achieve_count: 已答题数目
+
+        Returns:
+            含 rt.score（得分）的响应
+        """
+        url = f"{self.urls.homework}/studentExam/gateway/t/v1/answer/submit"
+        data = {
+            "recruitId": recruit_id,
+            "examId": exam_id,
+            "stuExamId": stu_exam_id,
+            "achieveCount": str(achieve_count),
+        }
+        return self.homework_query(url, data)
+
+    def homework_look(
+        self,
+        recruit_id: str,
+        student_exam_id: str,
+        exam_id: str,
+        school_id: str,
+        course_id: str,
+    ) -> dict[str, Any]:
+        """查看已提交作业（lookHomework），获取题目详情（数字型 id）"""
+        url = f"{self.urls.homework}/studentExam/gateway/t/v1/student/lookHomework"
+        data = {
+            "recruitId": recruit_id,
+            "studentExamId": student_exam_id,
+            "examId": exam_id,
+            "schoolId": school_id,
+            "courseId": course_id,
+        }
+        return self.homework_query(url, data)
+
+    def homework_get_answer(
+        self,
+        recruit_id: str,
+        stu_exam_id: str,
+        exam_id: str,
+        school_id: str,
+        course_id: str,
+        question_ids: list[int],
+    ) -> dict[str, Any]:
+        """获取学生答案信息（getStuAnswerInfo，数字型 id 为键）
+
+        用于查看已提交作业时获取每题对错信息。
+        """
+        url = f"{self.urls.homework}/studentExam/gateway/t/v1/answer/getStuAnswerInfo"
+        data = {
+            "recruitId": recruit_id,
+            "stuExamId": stu_exam_id,
+            "examId": exam_id,
+            "schoolId": school_id,
+            "courseId": course_id,
+            "questionIds": ",".join(str(qid) for qid in question_ids),
+        }
+        return self.homework_query(url, data)
+
+    def ai_analysis_run(
+        self,
+        course_id: int,
+        recruit_id: str,
+        question_id: int,
+        thread_id: str = "",
+        run_id: str | None = None,
+        regenerate: bool = False,
+        timeout: float = 60.0,
+    ) -> str:
+        """调用 AI 解析 run API（SSE 流式），返回完整解析内容
+
+        使用 ai-course-assistant-api 域名，明文 JSON POST，SSE 流式响应。
+        与作业 API 不同：不加密、不同域名、流式响应。
+
+        Args:
+            course_id: 课程 ID
+            recruit_id: 招募 ID
+            question_id: 题目数字型 ID（来自 lookHomework 的 id 字段）
+            thread_id: 会话线程 ID（首次为空字符串）
+            run_id: 运行 ID（首次为 None）
+            regenerate: 是否重新生成
+            timeout: 请求超时时间（秒）
+
+        Returns:
+            AI 解析完整文本内容
+        """
+        client = self._get_client()
+
+        # 先获取 userId
+        user_id = 0
+        try:
+            info_url = f"{self.urls.ai_analysis}/api/v1/user/info"
+            info_resp = client.get(
+                info_url,
+                params={
+                    "userId": "0",
+                    "courseId": str(course_id),
+                    "recruitId": recruit_id,
+                },
+            )
+            info_data = info_resp.json()
+            user_id = int(info_data.get("data", {}).get("userId", 0))
+        except Exception as e:
+            logger.warning(f"获取 AI 解析 userId 失败: {e}")
+
+        if not user_id:
+            logger.warning("无法获取 AI 解析 userId，跳过 AI 解析")
+            return ""
+
+        run_url = f"{self.urls.ai_analysis}/api/v1/question/analysis/thread/run"
+        run_data = {
+            "courseId": str(course_id),
+            "recruitId": recruit_id,
+            "userRole": "STUDENT",
+            "userId": user_id,
+            "threadId": thread_id,
+            "questionId": question_id,
+            "regenerate": regenerate,
+            "runId": run_id,
+        }
+
+        full_content: list[str] = []
+
+        try:
+            with client.stream("POST", run_url, json=run_data, timeout=timeout) as resp:
+                if resp.status_code != 200:
+                    logger.warning(f"AI 解析 API 返回状态码 {resp.status_code}")
+                    return ""
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
+                        try:
+                            data = json.loads(data_str)
+                            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            is_stop = data.get("stop", False)
+                            if content:
+                                full_content.append(content)
+                            if is_stop:
+                                break
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            logger.error(f"AI 解析请求失败: {e}")
+            return ""
+
+        return "".join(full_content)
+
+    def exam_sso_login(self) -> None:
+        """通过 CAS SSO 认证 studentexam-api 域名
+
+        studentexam-api 不像 studyservice-api 有 /login/gologin，
+        需要通过 passport CAS SSO 获取认证。
+        流程: 访问 passport/cas/login?service=xxx → 302 带 ticket → ticket 验证设置 session cookie
+
+        Raises:
+            ZhsError: CAS 认证失败（CASTGC 过期，需要重新登录）
+        """
+        client = self._get_client()
+        service_url = f"{self.urls.homework}/studentExam/gateway/t/v1/student/getStudentHomework"
+        cas_login_url = f"{self.urls.passport}/cas/login?service={service_url}"
+
+        resp = client.get(cas_login_url, follow_redirects=False)
+        if resp.status_code == 302:
+            ticket_url = resp.headers.get("location", "")
+            if "ticket=" in ticket_url:
+                client.get(ticket_url, follow_redirects=True)
+                logger.debug("CAS SSO 认证成功")
+                return
+            # 302 但无 ticket，可能是重定向到登录页
+            logger.warning(f"CAS SSO 302 但无 ticket: {ticket_url[:100]}")
+        elif resp.status_code == 200:
+            logger.warning("CAS SSO 返回 200，CASTGC 可能已过期")
+
+        raise ZhsError(
+            "CAS SSO 认证失败，请重新登录: zhs login\n  原因: CASTGC cookie 已过期，studentexam-api 无法认证"
+        )
 
     def close(self) -> None:
         """关闭客户端"""

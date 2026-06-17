@@ -27,6 +27,9 @@ _TOP_KEYS = (
     "threshold",
     "homework_threshold",
     "max_submit",
+    "homework_delay_min",
+    "homework_delay_max",
+    "homework_page_size",
 )
 _DISPLAY_KEYS = (
     "speed",
@@ -39,6 +42,9 @@ _DISPLAY_KEYS = (
     "threshold",
     "homework_threshold",
     "max_submit",
+    "homework_delay_min",
+    "homework_delay_max",
+    "homework_page_size",
 )
 _MIGRATE_KEYS = (
     "save_cookies",
@@ -112,6 +118,9 @@ class AppConfig(BaseModel):
     threshold: float = 0.91
     homework_threshold: int = 100
     max_submit: int = 3
+    homework_delay_min: float = 1.0
+    homework_delay_max: float = 2.0
+    homework_page_size: int = 100
     crypto: CryptoConfig = CryptoConfig()
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()

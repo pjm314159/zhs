@@ -221,7 +221,7 @@ class TestHomeworkQuery:
     def test_encrypts_data_without_dateformate(self, session: ZhsSession, mock_http: Any) -> None:
         """homework_query 加密数据但不发送 dateFormate"""
         route = respx.post("https://homework.example.com/api").mock(
-            return_value=httpx.Response(200, json={"code": 200, "data": {}})
+            return_value=httpx.Response(200, json={"status": "200", "data": {}})
         )
         session.homework_query("https://homework.example.com/api", data={"key": "value"})
         assert route.called
@@ -230,22 +230,22 @@ class TestHomeworkQuery:
         assert "secretStr" in body
         assert "dateFormate" not in body
 
-    def test_default_ok_code_200(self, session: ZhsSession, mock_http: Any) -> None:
-        """默认 ok_code=200"""
+    def test_default_ok_status_200(self, session: ZhsSession, mock_http: Any) -> None:
+        """默认 ok_status='200'"""
         respx.post("https://homework.example.com/api").mock(
-            return_value=httpx.Response(200, json={"code": 200, "data": {}})
+            return_value=httpx.Response(200, json={"status": "200", "data": {}})
         )
         result = session.homework_query("https://homework.example.com/api", data={})
-        assert result["code"] == 200
+        assert result["status"] == "200"
 
-    def test_non_200_code_raises_api_error(self, session: ZhsSession, mock_http: Any) -> None:
-        """非 200 code 抛 ApiError"""
+    def test_non_200_status_raises_api_error(self, session: ZhsSession, mock_http: Any) -> None:
+        """非 '200' status 抛 ApiError"""
         respx.post("https://homework.example.com/api").mock(
-            return_value=httpx.Response(200, json={"code": 500, "message": "error"})
+            return_value=httpx.Response(200, json={"status": "-1", "msg": "error"})
         )
         with pytest.raises(ApiError) as exc_info:
             session.homework_query("https://homework.example.com/api", data={})
-        assert exc_info.value.code == 500
+        assert exc_info.value.code == -1
 
 
 # ---------------------------------------------------------------------------

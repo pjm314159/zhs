@@ -390,7 +390,7 @@ class TestTypeFilterInRunAll:
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
 
-        result = runner.invoke(app, ["play", "--type", "ai"])
+        runner.invoke(app, ["play", "--type", "ai"])
         mock_run_all.assert_called_once()
         # 验证 course_type 参数传入了 "ai"
         call_args = mock_run_all.call_args

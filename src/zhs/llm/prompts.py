@@ -46,6 +46,12 @@ def build_choice_prompt(
             ctx += f"本次考察知识点为{knowledge_point}。\n"
         parts.append(ctx)
 
+    # 额外提示（排除选项、历史AI解析等）
+    known_keys = {"courseName", "theme", "knowledgePoint"}
+    for key, value in extra.items():
+        if key not in known_keys and value:
+            parts.append(f"【{key}】\n{value}")
+
     # 指令
     select_text = "所有正确的答案" if answer_type == "多选题" else "最合适的答案"
     instruction = (
@@ -104,6 +110,12 @@ def build_fill_blank_prompt(
         if knowledge_point:
             ctx += f"本次考察知识点为{knowledge_point}。\n"
         parts.append(ctx)
+
+    # 额外提示（排除选项、历史AI解析等）
+    known_keys = {"courseName", "theme", "knowledgePoint"}
+    for key, value in extra.items():
+        if key not in known_keys and value:
+            parts.append(f"【{key}】\n{value}")
 
     # 指令
     instruction = (

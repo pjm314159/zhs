@@ -18,6 +18,7 @@ import typer
 from loguru import logger
 
 from zhs.config import AppConfig, ConfigManager
+from zhs.llm.base import LLMProvider
 from zhs.login import LoginManager
 from zhs.session import ZhsSession
 
@@ -286,6 +287,7 @@ def play(
 def homework(
     course: list[str] | None = typer.Option(None, "-c", "--course", help="课程 ID"),  # noqa: B008
     course_type: str | None = typer.Option(None, "--type", help="课程类型: zhidao/ai/auto"),  # noqa: B008
+    url: str | None = typer.Option(None, "--url", help="作业 URL（从浏览器复制）"),  # noqa: B008
     ai_course: int | None = typer.Option(None, "--ai-course", help="AI 课程 courseId"),  # noqa: B008
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
     no_ai: bool = typer.Option(False, "--no-ai", help="不使用 AI 模型（随机生成）"),  # noqa: B008
@@ -314,8 +316,16 @@ def homework(
     if max_submit is not None:
         config.max_submit = max_submit
 
+    # --url 模式：直接指定作业
+    if url:
+        try:
+            _run_homework_from_url(session, config, url)
+        except Exception as e:
+            logger.error(f"URL 作业处理失败: {e}")
+            print(f"URL 作业处理失败: {e}")
+            raise typer.Exit(1) from e
     # AI 课程走 --ai-course + --ai-class
-    if ai_course is not None and ai_class is not None:
+    elif ai_course is not None and ai_class is not None:
         try:
             _run_ai_homework(session, config, ai_course, ai_class)
         except Exception as e:
@@ -327,6 +337,8 @@ def homework(
             try:
                 if detected_type == "ai":
                     _run_ai_homework_by_str(session, config, c)
+                elif detected_type == "zhidao":
+                    _run_zhidao_homework_by_course(session, config, c)
                 else:
                     logger.warning(f"暂不支持 {detected_type} 课程的作业功能")
                     print(f"暂不支持 {detected_type} 课程的作业功能")
@@ -620,6 +632,14 @@ def _run_all_homework(session: ZhsSession, config: AppConfig, course_type: str |
     from zhs.ai.course import AiCourseManager
     from zhs.utils.display import course_tag
 
+    # 知到课程作业
+    if course_type in (None, "auto", "zhidao"):
+        try:
+            _run_all_zhidao_homework(session, config)
+        except Exception as e:
+            logger.error(f"知到课程作业处理失败: {e}")
+            print(f"知到课程作业处理失败: {e}")
+
     # AI 课程作业
     if course_type in (None, "auto", "ai"):
         try:
@@ -642,8 +662,203 @@ def _run_all_homework(session: ZhsSession, config: AppConfig, course_type: str |
         except Exception as e:
             logger.error(f"获取 AI 课程列表失败: {e}")
 
-    if course_type in (None, "auto", "zhidao"):
-        logger.warning("知到课程作业功能暂未实现")
+
+def _parse_homework_url(url: str) -> dict[str, str]:
+    """解析作业 URL
+
+    URL 格式:
+    https://onlineexamh5new.zhihuishu.com/stuExamWeb.html#/webExamList/dohomework/{recruitId}/{stuExamId}/{examId}/{courseId}/{schoolId}/0
+
+    注意: URL 中参数顺序是 stuExamId 在前，examId 在后，与 HomeworkItem 字段名相反。
+
+    Returns:
+        包含 recruit_id, exam_id, stu_exam_id, course_id, school_id 的字典
+    """
+    import re
+
+    # 匹配 dohomework/ 后的路径参数
+    pattern = r"dohomework/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)"
+    m = re.search(pattern, url)
+    if not m:
+        raise ValueError(
+            f"无法解析作业 URL，"
+            f"格式应为: dohomework/{{recruitId}}/{{stuExamId}}/"
+            f"{{examId}}/{{courseId}}/{{schoolId}}/...\n"
+            f"实际 URL: {url}"
+        )
+
+    return {
+        "recruit_id": m.group(1),
+        "stu_exam_id": m.group(2),  # URL 第 2 个参数是 stuExamId
+        "exam_id": m.group(3),  # URL 第 3 个参数是 examId
+        "course_id": m.group(4),
+        "school_id": m.group(5),
+    }
+
+
+def _init_llm(config: AppConfig) -> LLMProvider | None:
+    """初始化 LLM 提供者"""
+    from zhs.llm.openai import OpenAIProvider
+
+    ai = config.ai
+    if not ai.enabled:
+        return None
+    if ai.use_zhidao_ai:
+        return None
+    if not ai.api_key:
+        logger.warning("API key 为空，LLM 不可用，将使用随机答题")
+        return None
+    return OpenAIProvider(
+        api_key=ai.api_key,
+        base_url=ai.base_url,
+        model_name=ai.model,
+        max_token=ai.max_token,
+    )
+
+
+def _run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> None:
+    """从 URL 运行作业"""
+    from zhs.utils.display import course_tag
+
+    params = _parse_homework_url(url)
+    logger.info(
+        f"解析 URL: recruitId={params['recruit_id']}, examId={params['exam_id']}, "
+        f"stuExamId={params['stu_exam_id']}, courseId={params['course_id']}, schoolId={params['school_id']}"
+    )
+
+    # CAS SSO
+    session.exam_sso_login()
+
+    # 扫描该课程的所有作业
+    from zhs.zhidao.homework.cache import HomeworkCache
+    from zhs.zhidao.homework.models import HomeworkItem
+    from zhs.zhidao.homework.scanner import HomeworkScanner
+    from zhs.zhidao.homework.worker import HomeworkWorker
+
+    scanner = HomeworkScanner(session, config)
+    course_id = int(params["course_id"])
+    all_items = scanner.scan_homework(params["recruit_id"], course_id)
+
+    # 找到指定的作业
+    target = None
+    for item in all_items:
+        if item.exam_id == params["exam_id"]:
+            target = item
+            break
+
+    if target is None:
+        # URL 指定的作业不在列表中，构造一个 HomeworkItem
+        logger.info(f"作业 {params['exam_id']} 不在扫描列表中，使用 URL 参数构造")
+        target = HomeworkItem(
+            id=params["stu_exam_id"],
+            exam_id=params["exam_id"],
+            state=1,
+            course_id=course_id,
+            course_name="",
+            exam_name="指定作业",
+            total_score="10",
+        )
+
+    print(f"\n{course_tag('zhidao')} 作业: {target.exam_name}")
+    logger.info(
+        f"  state={target.state}, score={target.score}, backNum={target.back_num}, isMarking={target.is_marking}"
+    )
+
+    llm = _init_llm(config)
+    cache = HomeworkCache()
+    worker = HomeworkWorker(session, config, cache, llm=llm)
+    score_rate = worker.run_homework(target, params["recruit_id"], params["school_id"])
+
+    from zhs.utils.display import msg_done, msg_warn
+
+    if score_rate >= config.homework_threshold:
+        print(msg_done(f"作业 {target.exam_name} 达标: {score_rate:.1f}%"))
+    else:
+        print(msg_warn(f"作业 {target.exam_name} 未达标: {score_rate:.1f}%"))
+
+
+def _run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, course_id: str) -> None:
+    """按课程 ID 运行知到作业"""
+    from zhs.zhidao.course import ZhidaoCourseManager
+
+    # CAS SSO
+    session.exam_sso_login()
+
+    # 获取 recruit_id
+    mgr = ZhidaoCourseManager(session)
+    courses = mgr.get_course_list()
+    recruit_id = None
+    for c in courses:
+        if c.secret == course_id and c.recruit_id:
+            recruit_id = str(c.recruit_id)
+            break
+
+    if not recruit_id:
+        logger.error(f"未找到课程 {course_id} 的 recruitId")
+        print(f"未找到课程 {course_id} 的 recruitId")
+        return
+
+    _run_zhidao_homework(session, config, recruit_id, int(course_id) if course_id.isdigit() else 0)
+
+
+def _run_zhidao_homework(session: ZhsSession, config: AppConfig, recruit_id: str, course_id: int) -> None:
+    """运行知到课程的所有待处理作业"""
+    from zhs.utils.display import course_tag, msg_done, msg_warn
+    from zhs.zhidao.homework.cache import HomeworkCache
+    from zhs.zhidao.homework.scanner import HomeworkScanner
+    from zhs.zhidao.homework.worker import HomeworkWorker
+
+    scanner = HomeworkScanner(session, config)
+    all_items = scanner.scan_homework(recruit_id, course_id)
+    pending = scanner.filter_pending(all_items)
+
+    if not pending:
+        print(f"{course_tag('zhidao')} 无待处理作业")
+        return
+
+    print(f"\n{course_tag('zhidao')} 发现 {len(pending)} 个待处理作业")
+
+    llm = _init_llm(config)
+    cache = HomeworkCache()
+    worker = HomeworkWorker(session, config, cache, llm=llm)
+
+    for item in pending:
+        try:
+            logger.info(f"开始做作业: {item.exam_name} (state={item.state}, score={item.score})")
+            score_rate = worker.run_homework(item, recruit_id, "625")
+            if score_rate >= config.homework_threshold:
+                print(msg_done(f"  {item.exam_name}: {score_rate:.1f}%"))
+            else:
+                print(msg_warn(f"  {item.exam_name}: {score_rate:.1f}%"))
+        except Exception as e:
+            logger.error(f"作业 {item.exam_name} 处理失败: {e}")
+            print(f"  {item.exam_name} 处理失败: {e}")
+
+
+def _run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
+    """全刷模式：扫描所有知到课程的作业"""
+    from zhs.utils.display import course_tag
+    from zhs.zhidao.course import ZhidaoCourseManager
+
+    # CAS SSO
+    session.exam_sso_login()
+
+    mgr = ZhidaoCourseManager(session)
+    courses = mgr.get_course_list()
+    print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
+
+    for c in courses:
+        if not c.recruit_id:
+            continue
+        try:
+            recruit_id = str(c.recruit_id)
+            course_id = c.course_info.course_id if c.course_info else 0
+            if course_id == 0:
+                continue
+            _run_zhidao_homework(session, config, recruit_id, course_id)
+        except Exception as e:
+            logger.error(f"知到课程 {c.course_name} 作业处理失败: {e}")
+            print(f"  知到课程 {c.course_name} 作业处理失败: {e}")
 
 
 def _fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
