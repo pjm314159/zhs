@@ -3,8 +3,6 @@
 验证从缓存获取 AI 解析 → 传递给 LLM → 加入 prompt 的完整流程。
 """
 
-import pytest
-
 from zhs.llm.prompts import build_choice_prompt, build_fill_blank_prompt
 from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import HomeworkCacheEntry, HomeworkCacheOption
@@ -131,7 +129,10 @@ class TestAIAnalysisFlow:
         question_key = "test_eid_123"
 
         # 1. 保存 AI 解析（模拟 _save_ai_analysis_for_wrong）
-        ai_analysis = "这道题考察理想与信念的关系。正确答案是 A 和 B，因为理想是信念的根据和前提，信念是理想实现的重要保障。"
+        ai_analysis = (
+            "这道题考察理想与信念的关系。正确答案是 A 和 B，"
+            "因为理想是信念的根据和前提，信念是理想实现的重要保障。"
+        )
         cache.save_ai_analysis(course_id, exam_id, question_key, ai_analysis)
 
         # 2. 获取 AI 解析（模拟 _generate_answer_with_source）
@@ -143,7 +144,7 @@ class TestAIAnalysisFlow:
         extra = {"courseName": "马克思主义基本原理"}
         wrong_options = [3, 4]  # 模拟已知错误选项
         if wrong_options:
-            extra["排除选项"] = f"以下选项已知是错误的，请勿选择: C, D"
+            extra["排除选项"] = "以下选项已知是错误的，请勿选择: C, D"
         if retrieved_analysis:
             extra["历史AI解析"] = f"之前 AI 对此题的分析（仅供参考）:\n{retrieved_analysis}"
 
