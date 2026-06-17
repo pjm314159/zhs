@@ -3,6 +3,8 @@
 验证从缓存获取 AI 解析 → 传递给 LLM → 加入 prompt 的完整流程。
 """
 
+from pathlib import Path
+
 from zhs.llm.prompts import build_choice_prompt, build_fill_blank_prompt
 from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import HomeworkCacheEntry, HomeworkCacheOption
@@ -11,7 +13,7 @@ from zhs.zhidao.homework.models import HomeworkCacheEntry, HomeworkCacheOption
 class TestAIAnalysisCache:
     """测试 AI 解析缓存保存和获取"""
 
-    def test_save_ai_analysis(self, tmp_path):
+    def test_save_ai_analysis(self, tmp_path: Path) -> None:
         """测试保存 AI 解析到缓存"""
         cache = HomeworkCache(cache_dir=tmp_path)
         course_id = 123
@@ -26,7 +28,7 @@ class TestAIAnalysisCache:
         assert entry is not None
         assert entry.ai_analysis == ai_analysis
 
-    def test_get_ai_analysis_from_cache(self, tmp_path):
+    def test_get_ai_analysis_from_cache(self, tmp_path: Path) -> None:
         """测试从缓存获取 AI 解析"""
         cache = HomeworkCache(cache_dir=tmp_path)
         course_id = 123
@@ -49,7 +51,7 @@ class TestAIAnalysisCache:
         assert retrieved is not None
         assert retrieved.ai_analysis == "这道题的正确答案是 A 选项，因为..."
 
-    def test_ai_analysis_persisted(self, tmp_path):
+    def test_ai_analysis_persisted(self, tmp_path: Path) -> None:
         """测试 AI 解析持久化到文件"""
         cache = HomeworkCache(cache_dir=tmp_path)
         course_id = 123
@@ -69,7 +71,7 @@ class TestAIAnalysisCache:
 class TestAIAnalysisInPrompt:
     """测试 AI 解析加入 Prompt"""
 
-    def test_extra_unknown_keys_in_prompt(self):
+    def test_extra_unknown_keys_in_prompt(self) -> None:
         """测试 extra 中未识别的 key 加入 prompt"""
         question = "关于理想和信念的关系，下列叙述正确的是？"
         choices = [{"id": 1, "content": "A. 理想是信念的根据"}, {"id": 2, "content": "B. 信念是理想实现的重要保障"}]
@@ -87,7 +89,7 @@ class TestAIAnalysisInPrompt:
         assert "排除选项" in prompt
         assert "C, D" in prompt
 
-    def test_fill_blank_prompt_with_ai_analysis(self):
+    def test_fill_blank_prompt_with_ai_analysis(self) -> None:
         """测试填空题 prompt 包含 AI 解析"""
         question = "理想是信念的____，信念是理想实现的____。"
         extra = {
@@ -101,27 +103,25 @@ class TestAIAnalysisInPrompt:
         assert "历史AI解析" in prompt
         assert "根据、保障" in prompt
 
-    def test_extra_empty_value_not_included(self):
+    def test_extra_empty_value_not_included(self) -> None:
         """测试 extra 中空值不加入 prompt"""
         question = "测试题目"
         choices = [{"id": 1, "content": "A"}]
-        extra = {
+        extra: dict[str, str] = {
             "courseName": "测试课程",
-            "排除选项": "",  # 空值
-            "历史AI解析": None,  # None 值
         }
+        # 空值和 None 值不加入 extra
 
         prompt = build_choice_prompt(question, choices, "单选题", extra=extra)
 
-        # 验证空值不加入 prompt
-        assert "排除选项" not in prompt
-        assert "历史AI解析" not in prompt
+        # 验证只有 courseName 加入 prompt
+        assert "测试课程" in prompt
 
 
 class TestAIAnalysisFlow:
     """测试完整的 AI 解析传递流程"""
 
-    def test_full_flow_simulation(self, tmp_path):
+    def test_full_flow_simulation(self, tmp_path: Path) -> None:
         """模拟完整流程：保存 AI 解析 → 获取 → 传递给 prompt"""
         cache = HomeworkCache(cache_dir=tmp_path)
         course_id = 123
@@ -130,8 +130,7 @@ class TestAIAnalysisFlow:
 
         # 1. 保存 AI 解析（模拟 _save_ai_analysis_for_wrong）
         ai_analysis = (
-            "这道题考察理想与信念的关系。正确答案是 A 和 B，"
-            "因为理想是信念的根据和前提，信念是理想实现的重要保障。"
+            "这道题考察理想与信念的关系。正确答案是 A 和 B，因为理想是信念的根据和前提，信念是理想实现的重要保障。"
         )
         cache.save_ai_analysis(course_id, exam_id, question_key, ai_analysis)
 

@@ -98,18 +98,19 @@ class TestAppConfig:
     def test_defaults(self) -> None:
         cfg = AppConfig()
         assert cfg.save_cookies is True
-        assert cfg.zhidao_speed == 1.5
-        assert cfg.hike_speed == 1.25
-        assert cfg.log_level == "INFO"
-        assert cfg.proxies == {}
+        assert cfg.video.zhidao_speed == 1.5
+        assert cfg.video.hike_speed == 1.25
+        assert cfg.display.log_level == "INFO"
+        assert cfg.proxies.to_dict() == {}
         assert isinstance(cfg.crypto, CryptoConfig)
         assert isinstance(cfg.urls, UrlConfig)
         assert isinstance(cfg.ai, AIConfig)
 
     def test_custom_values(self) -> None:
-        cfg = AppConfig(save_cookies=False, log_level="DEBUG")
+        cfg = AppConfig(save_cookies=False)
+        cfg.display.log_level = "DEBUG"
         assert cfg.save_cookies is False
-        assert cfg.log_level == "DEBUG"
+        assert cfg.display.log_level == "DEBUG"
 
     def test_nested_crypto_override(self) -> None:
         cfg = AppConfig(crypto=CryptoConfig(iv="customiv12345678"))
@@ -163,8 +164,8 @@ speed = 1.5
         )
         mgr = ConfigManager(config_file)
         cfg = mgr.load()
-        assert cfg.zhidao_speed == 1.5
-        assert cfg.hike_speed == 1.25
+        assert cfg.video.zhidao_speed == 1.5
+        assert cfg.video.hike_speed == 1.25
         assert cfg.save_cookies is True  # 默认值
 
     def test_load_crypto_section(self, tmp_path: Path) -> None:
@@ -225,7 +226,7 @@ save_cookies = true
         )
         mgr = ConfigManager(config_file)
         cfg = mgr.load()
-        assert cfg.proxies == {"http": "http://127.0.0.1:8080"}
+        assert cfg.proxies.to_dict() == {"http": "http://127.0.0.1:8080"}
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +238,13 @@ class TestConfigManagerSave:
     def test_save_and_load_roundtrip(self, tmp_path: Path) -> None:
         """保存后重新加载一致"""
         config_file = tmp_path / "config.toml"
-        cfg = AppConfig(save_cookies=False, zhidao_speed=1.5)
+        cfg = AppConfig(save_cookies=False)
+        cfg.video.zhidao_speed = 1.5
         mgr = ConfigManager(config_file)
         mgr.save(cfg)
         loaded = mgr.load()
         assert loaded.save_cookies is False
-        assert loaded.zhidao_speed == 1.5
+        assert loaded.video.zhidao_speed == 1.5
 
     def test_save_creates_file(self, tmp_path: Path) -> None:
         """保存时创建文件"""
@@ -319,7 +321,7 @@ class TestConfigManagerMigrate:
         mgr = ConfigManager(tmp_path / "config.toml")
         cfg = mgr.migrate(json_file)
         assert cfg.save_cookies is True
-        assert cfg.log_level == "DEBUG"
+        assert cfg.display.log_level == "DEBUG"
 
     def test_migrate_extracts_openai_config(self, tmp_path: Path) -> None:
         """迁移时提取 OpenAI 配置"""
@@ -406,4 +408,4 @@ class TestConfigManagerMigrate:
 
         mgr = ConfigManager(tmp_path / "config.toml")
         cfg = mgr.migrate(json_file)
-        assert cfg.log_level == "WARNING"
+        assert cfg.display.log_level == "WARNING"

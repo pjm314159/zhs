@@ -113,7 +113,7 @@ class TestZhidaoVideo:
         # 仅验证播放器能初始化，不实际播放
         player = ZhidaoVideoPlayer(
             logged_in_session,
-            speed=app_config.zhidao_speed,
+            speed=app_config.video.zhidao_speed,
             end_threshold=app_config.threshold,
             time_limit=5,
             progressbar_view=False,
