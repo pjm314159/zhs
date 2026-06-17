@@ -95,8 +95,12 @@ class ZhsSession:
         """获取或创建同步 HTTP 客户端"""
         if self._client is None:
             transport = httpx.HTTPTransport(retries=self._max_retries)
+            proxy_dict = self._config.proxies.to_dict()
+            # httpx 使用 proxy 参数（单个代理字符串）或 mounts 参数
+            proxy = proxy_dict.get("http") or proxy_dict.get("https") or None
             self._client = httpx.Client(
                 transport=transport,
+                proxy=proxy,
                 cookies=self._cookies,
                 timeout=30.0,
                 headers={
@@ -120,7 +124,10 @@ class ZhsSession:
     def _get_async_client(self) -> httpx.AsyncClient:
         """获取或创建异步 HTTP 客户端"""
         if self._async_client is None:
+            proxy_dict = self._config.proxies.to_dict()
+            proxy = proxy_dict.get("http") or proxy_dict.get("https") or None
             self._async_client = httpx.AsyncClient(
+                proxy=proxy,
                 cookies=self._cookies,
                 timeout=30.0,
             )

@@ -28,6 +28,7 @@ class ZhidaoCourse(BaseModel):
     course_name: str = Field(alias="courseName")
     course_info: CourseInfo | None = Field(default=None, alias="courseInfo")
     recruit_id: int | None = Field(default=None, alias="recruitId")
+    course_id: int = Field(default=0, alias="courseId")
 
     model_config = {"populate_by_name": True}
 

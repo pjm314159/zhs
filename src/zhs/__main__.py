@@ -32,7 +32,7 @@ app = typer.Typer(name="zhs", help="智慧树自动刷课工具", no_args_is_hel
 
 def _setup_logger(config: AppConfig, debug: bool, console_log: bool) -> None:
     """配置日志"""
-    log_level = "DEBUG" if debug else config.log_level
+    log_level = "DEBUG" if debug else config.display.log_level
     logger.remove()
     from zhs.utils.path import get_data_dir
 
@@ -62,15 +62,9 @@ def _parse_proxy(config: AppConfig, proxy: str) -> None:
         return
 
     schema, _ = parts
-    if schema in ("http", "https"):
-        config.proxies["http"] = proxy
-        config.proxies["https"] = proxy
-    elif schema == "socks5":
-        config.proxies["socks5"] = proxy
-    elif schema == "all":
-        config.proxies["http"] = proxy
-        config.proxies["https"] = proxy
-        config.proxies["socks5"] = proxy
+    if schema in ("http", "https", "socks5"):
+        config.proxies.http = proxy
+        config.proxies.https = proxy
     else:
         logger.error(f"不支持的代理类型: {schema}")
 
@@ -140,7 +134,7 @@ def _do_login(login_mgr: LoginManager, config: AppConfig, show_in_terminal: bool
         if show_in_terminal:
             _show_qr_img(img_bytes)
 
-    result = login_mgr.login_with_qr(qr_callback, image_path=config.image_path)
+    result = login_mgr.login_with_qr(qr_callback, image_path=config.qr.image_path)
     if not result.success:
         logger.error("登录失败")
         raise typer.Exit(1)
@@ -209,11 +203,11 @@ def login(
     config = config_mgr.load()
 
     if image_path:
-        config.image_path = image_path
-    if not config.image_path:
+        config.qr.image_path = image_path
+    if not config.qr.image_path:
         from zhs.utils.path import get_data_dir
 
-        config.image_path = str(get_data_dir() / "qrcode.png")
+        config.qr.image_path = str(get_data_dir() / "qrcode.png")
     if proxy:
         _parse_proxy(config, proxy)
 
@@ -223,7 +217,7 @@ def login(
     login_mgr = LoginManager(session, config)
 
     print(msg_info("请使用智慧树 APP 扫描二维码登录"))
-    print(msg_warn(f"二维码已保存到: {config.image_path}"))
+    print(msg_warn(f"二维码已保存到: {config.qr.image_path}"))
     _do_login(login_mgr, config, show_in_terminal)
     print(msg_done("登录成功！Cookie 已保存，现在可以运行 zhs play 刷课了"))
 
@@ -258,14 +252,14 @@ def play(
         raise typer.Exit(1)
 
     # tree_view / progressbar_view 默认启用
-    config.tree_view = True
-    config.progressbar_view = True
+    config.display.tree_view = True
+    config.display.progressbar_view = True
 
     # CLI 参数覆盖配置
     if speed is not None:
-        config.zhidao_speed = speed
-        config.hike_speed = speed
-        config.ai_speed = speed
+        config.video.zhidao_speed = speed
+        config.video.hike_speed = speed
+        config.video.ai_speed = speed
     if limit:
         config.limit = limit
 
@@ -312,9 +306,9 @@ def homework(
     if no_ai:
         config.ai.enabled = False
     if homework_threshold is not None:
-        config.homework_threshold = homework_threshold
+        config.homework.threshold = homework_threshold
     if max_submit is not None:
-        config.max_submit = max_submit
+        config.homework.max_submit = max_submit
 
     # --url 模式：直接指定作业
     if url:
@@ -461,7 +455,7 @@ def _run_ai(session: ZhsSession, config: AppConfig, course_id: int, class_id: in
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, no_homework=False, speed=config.ai_speed)
+    mgr.run_course(course_id, class_id, config.ai, no_homework=False, speed=config.video.ai_speed)
 
 
 def _run_ai_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) -> None:
@@ -488,11 +482,11 @@ def _run_zhidao(session: ZhsSession, config: AppConfig, course_id: str) -> None:
     mgr = ZhidaoCourseManager(session)
     player = ZhidaoVideoPlayer(
         session,
-        speed=config.zhidao_speed,
+        speed=config.video.zhidao_speed,
         end_threshold=config.threshold,
         time_limit=config.limit * 60,
-        progressbar_view=config.progressbar_view,
-        tree_view=config.tree_view,
+        progressbar_view=config.display.progressbar_view,
+        tree_view=config.display.tree_view,
     )
 
     ctx = mgr.get_context(course_id)
@@ -507,11 +501,11 @@ def _run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:
     mgr = HikeCourseManager(session)
     player = HikeVideoPlayer(
         session,
-        speed=config.hike_speed,
+        speed=config.video.hike_speed,
         end_threshold=config.threshold,
         time_limit=config.limit * 60,
-        progressbar_view=config.progressbar_view,
-        tree_view=config.tree_view,
+        progressbar_view=config.display.progressbar_view,
+        tree_view=config.display.tree_view,
     )
 
     root = mgr.get_context(course_id)
@@ -533,11 +527,11 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
             zhidao_mgr = ZhidaoCourseManager(session)
             zhidao_player = ZhidaoVideoPlayer(
                 session,
-                speed=config.zhidao_speed,
+                speed=config.video.zhidao_speed,
                 end_threshold=config.threshold,
                 time_limit=config.limit * 60,
-                progressbar_view=config.progressbar_view,
-                tree_view=config.tree_view,
+                progressbar_view=config.display.progressbar_view,
+                tree_view=config.display.tree_view,
             )
             courses = zhidao_mgr.get_course_list()
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
@@ -558,11 +552,11 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
             hike_mgr = HikeCourseManager(session)
             hike_player = HikeVideoPlayer(
                 session,
-                speed=config.hike_speed,
+                speed=config.video.hike_speed,
                 end_threshold=config.threshold,
                 time_limit=config.limit * 60,
-                progressbar_view=config.progressbar_view,
-                tree_view=config.tree_view,
+                progressbar_view=config.display.progressbar_view,
+                tree_view=config.display.tree_view,
             )
             hike_courses = hike_mgr.get_course_list()
             print(f"\n{course_tag('hike')} 发现 {len(hike_courses)} 门课程")
@@ -590,7 +584,7 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
                     course_name = ac.get("courseName", "")
                     if course_id and class_id:
                         ai_mgr.run_course(
-                            int(course_id), int(class_id), config.ai, no_homework=False, speed=config.ai_speed
+                            int(course_id), int(class_id), config.ai, no_homework=False, speed=config.video.ai_speed
                         )
                     else:
                         logger.warning(f"AI 课程 {course_name} 缺少 courseId 或 classId")
@@ -608,7 +602,7 @@ def _run_ai_homework(session: ZhsSession, config: AppConfig, course_id: int, cla
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, no_homework=False, speed=config.ai_speed)
+    mgr.run_course(course_id, class_id, config.ai, no_homework=False, speed=config.video.ai_speed)
 
 
 def _run_ai_homework_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) -> None:
@@ -653,7 +647,7 @@ def _run_all_homework(session: ZhsSession, config: AppConfig, course_type: str |
                     course_name = ac.get("courseName", "")
                     if course_id and class_id:
                         ai_mgr.run_course(
-                            int(course_id), int(class_id), config.ai, no_homework=False, speed=config.ai_speed
+                            int(course_id), int(class_id), config.ai, no_homework=False, speed=config.video.ai_speed
                         )
                     else:
                         logger.warning(f"AI 课程 {course_name} 缺少 courseId 或 classId")
@@ -718,7 +712,7 @@ def _init_llm(config: AppConfig) -> LLMProvider | None:
 
 def _run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> None:
     """从 URL 运行作业"""
-    from zhs.utils.display import course_tag
+    from zhs.utils.display import course_tag, msg_done, msg_warn, tree_print
 
     params = _parse_homework_url(url)
     logger.info(
@@ -759,7 +753,7 @@ def _run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> 
             total_score="10",
         )
 
-    print(f"\n{course_tag('zhidao')} 作业: {target.exam_name}")
+    tree_print(f"{course_tag('zhidao')} 作业: {target.exam_name}", enabled=True)
     logger.info(
         f"  state={target.state}, score={target.score}, backNum={target.back_num}, isMarking={target.is_marking}"
     )
@@ -769,12 +763,10 @@ def _run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> 
     worker = HomeworkWorker(session, config, cache, llm=llm)
     score_rate = worker.run_homework(target, params["recruit_id"], params["school_id"])
 
-    from zhs.utils.display import msg_done, msg_warn
-
-    if score_rate >= config.homework_threshold:
-        print(msg_done(f"作业 {target.exam_name} 达标: {score_rate:.1f}%"))
+    if score_rate >= config.homework.threshold:
+        tree_print(msg_done(f"达标: {target.exam_name} {score_rate:.1f}%"), depth=1, enabled=True)
     else:
-        print(msg_warn(f"作业 {target.exam_name} 未达标: {score_rate:.1f}%"))
+        tree_print(msg_warn(f"未达标: {target.exam_name} {score_rate:.1f}%"), depth=1, enabled=True)
 
 
 def _run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, course_id: str) -> None:
@@ -801,22 +793,35 @@ def _run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, cours
     _run_zhidao_homework(session, config, recruit_id, int(course_id) if course_id.isdigit() else 0)
 
 
-def _run_zhidao_homework(session: ZhsSession, config: AppConfig, recruit_id: str, course_id: int) -> None:
-    """运行知到课程的所有待处理作业"""
-    from zhs.utils.display import course_tag, msg_done, msg_warn
+def _run_zhidao_homework(
+    session: ZhsSession,
+    config: AppConfig,
+    recruit_id: str,
+    course_id: int,
+    depth: int = 0,
+) -> None:
+    """运行知到课程的所有待处理作业
+
+    Args:
+        depth: 树形打印深度（0=顶层，1=在课程循环中）
+    """
+    from zhs.utils.display import course_tag, msg_done, msg_error, msg_skip, msg_warn, tree_print
     from zhs.zhidao.homework.cache import HomeworkCache
     from zhs.zhidao.homework.scanner import HomeworkScanner
     from zhs.zhidao.homework.worker import HomeworkWorker
 
     scanner = HomeworkScanner(session, config)
     all_items = scanner.scan_homework(recruit_id, course_id)
+
+    tree_print(f"{course_tag('zhidao')} 课程作业: 共 {len(all_items)} 个", depth=depth, enabled=True)
+
     pending = scanner.filter_pending(all_items)
 
     if not pending:
-        print(f"{course_tag('zhidao')} 无待处理作业")
+        tree_print(msg_skip("无待处理作业"), depth=depth + 1, enabled=True)
         return
 
-    print(f"\n{course_tag('zhidao')} 发现 {len(pending)} 个待处理作业")
+    tree_print(msg_done(f"待处理: {len(pending)} 个作业"), depth=depth + 1, enabled=True)
 
     llm = _init_llm(config)
     cache = HomeworkCache()
@@ -826,18 +831,18 @@ def _run_zhidao_homework(session: ZhsSession, config: AppConfig, recruit_id: str
         try:
             logger.info(f"开始做作业: {item.exam_name} (state={item.state}, score={item.score})")
             score_rate = worker.run_homework(item, recruit_id, "625")
-            if score_rate >= config.homework_threshold:
-                print(msg_done(f"  {item.exam_name}: {score_rate:.1f}%"))
+            if score_rate >= config.homework.threshold:
+                tree_print(msg_done(f"完成: {item.exam_name} {score_rate:.1f}%"), depth=depth + 2, enabled=True)
             else:
-                print(msg_warn(f"  {item.exam_name}: {score_rate:.1f}%"))
+                tree_print(msg_warn(f"未达标: {item.exam_name} {score_rate:.1f}%"), depth=depth + 2, enabled=True)
         except Exception as e:
             logger.error(f"作业 {item.exam_name} 处理失败: {e}")
-            print(f"  {item.exam_name} 处理失败: {e}")
+            tree_print(msg_error(f"失败: {item.exam_name} {e}"), depth=depth + 2, enabled=True)
 
 
 def _run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
     """全刷模式：扫描所有知到课程的作业"""
-    from zhs.utils.display import course_tag
+    from zhs.utils.display import course_tag, msg_error, msg_skip, tree_print
     from zhs.zhidao.course import ZhidaoCourseManager
 
     # CAS SSO
@@ -845,20 +850,22 @@ def _run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
 
     mgr = ZhidaoCourseManager(session)
     courses = mgr.get_course_list()
-    print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
-
+    tree_print(f"{course_tag('zhidao')} 发现 {len(courses)} 门课程", enabled=True)
     for c in courses:
         if not c.recruit_id:
+            tree_print(msg_skip(f"跳过(无招募ID): {c.course_name}"), depth=1, enabled=True)
             continue
         try:
             recruit_id = str(c.recruit_id)
-            course_id = c.course_info.course_id if c.course_info else 0
+            # 优先使用直接的 courseId，如果为 0 则回退到 courseInfo.courseId
+            course_id = c.course_id if c.course_id > 0 else (c.course_info.course_id if c.course_info else 0)
             if course_id == 0:
+                tree_print(msg_skip(f"跳过(无课程ID): {c.course_name}"), depth=1, enabled=True)
                 continue
-            _run_zhidao_homework(session, config, recruit_id, course_id)
+            _run_zhidao_homework(session, config, recruit_id, course_id, depth=1)
         except Exception as e:
             logger.error(f"知到课程 {c.course_name} 作业处理失败: {e}")
-            print(f"  知到课程 {c.course_name} 作业处理失败: {e}")
+            tree_print(msg_error(f"课程失败: {c.course_name} {e}"), depth=1, enabled=True)
 
 
 def _fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:

@@ -32,7 +32,7 @@ class HomeworkItem(BaseModel):
 
     id: str = Field(description="作业 ID（即 stuExamId）")
     exam_id: str = Field(alias="examId", description="考试 ID")
-    state: int = Field(description="状态：1=未提交，4=已提交")
+    state: int = Field(description="状态：1=未提交，4=已提交(需重置)，5=已重置(可做题)")
     score: str | None = Field(default=None, description="得分（未提交时为 null）")
     achieve_count: int | None = Field(default=None, alias="achieveCount", description="已答次数")
     is_marking: int = Field(default=0, alias="isMarking", description="已重做次数")

@@ -8,6 +8,7 @@ from loguru import logger
 
 from zhs.config import AppConfig
 from zhs.session import ZhsSession
+from zhs.utils.display import msg_skip
 from zhs.zhidao.homework.models import HomeworkItem
 
 
@@ -51,7 +52,7 @@ class HomeworkScanner:
         """筛选需要处理的作业
 
         筛选规则：
-        - 未提交（state=1）：必须做
+        - 未提交/已重置（state=1/5）：必须做（可直接做题）
         - 已提交但未达标（state=4, score < totalScore × homework_threshold%）：需要重做
           - 但 remaining_redo=0（无剩余重做次数）→ 跳过
           - 但 is_marking >= max_submit（已重做次数达上限）→ 跳过
@@ -64,27 +65,32 @@ class HomeworkScanner:
         pending: list[HomeworkItem] = []
 
         for item in items:
-            if item.state == 1:
-                # 未提交，检查重做次数
-                if self._config.max_submit > 0 and item.is_marking >= self._config.max_submit:
-                    logger.debug(f"跳过: {item.exam_name} (已达最大重做次数 {self._config.max_submit})")
+            if item.state in (1, 5):
+                # 未提交或已重置（state=5），可直接做题
+                if self._config.homework.max_submit > 0 and item.is_marking >= self._config.homework.max_submit:
+                    print(msg_skip(f"  跳过(已达上限): {item.exam_name}"))
+                    logger.debug(f"跳过: {item.exam_name} (已达最大重做次数 {self._config.homework.max_submit})")
                     continue
                 pending.append(item)
-                logger.debug(f"需要做: {item.exam_name} (未提交)")
+                logger.debug(f"需要做: {item.exam_name} (state={item.state})")
             elif item.state == 4:
                 # 已提交，检查是否达标
                 if self._is_achieved(item):
+                    print(msg_skip(f"  跳过(已达标): {item.exam_name}"))
                     logger.debug(f"跳过: {item.exam_name} (已达标)")
                     continue
                 if item.remaining_redo <= 0:
+                    print(msg_skip(f"  跳过(无重做次数): {item.exam_name}"))
                     logger.debug(f"跳过: {item.exam_name} (无剩余重做次数)")
                     continue
-                if self._config.max_submit > 0 and item.is_marking >= self._config.max_submit:
-                    logger.debug(f"跳过: {item.exam_name} (已达最大重做次数 {self._config.max_submit})")
+                if self._config.homework.max_submit > 0 and item.is_marking >= self._config.homework.max_submit:
+                    print(msg_skip(f"  跳过(已达上限): {item.exam_name}"))
+                    logger.debug(f"跳过: {item.exam_name} (已达最大重做次数 {self._config.homework.max_submit})")
                     continue
                 pending.append(item)
                 logger.debug(f"需要重做: {item.exam_name} (未达标, score={item.score})")
             else:
+                print(msg_skip(f"  跳过(状态{item.state}): {item.exam_name}"))
                 logger.debug(f"跳过: {item.exam_name} (未知状态 {item.state})")
 
         logger.info(f"筛选后需要处理 {len(pending)}/{len(items)} 个作业")
@@ -100,7 +106,7 @@ class HomeworkScanner:
             if total <= 0:
                 return True
             rate = (score / total) * 100
-            return rate >= self._config.homework_threshold
+            return rate >= self._config.homework.threshold
         except (ValueError, ZeroDivisionError):
             return False
 
@@ -117,7 +123,7 @@ class HomeworkScanner:
             "recruitId": recruit_id,
             "courseId": course_id,
             "flag": flag,
-            "pageSize": self._config.homework_page_size,
+            "pageSize": self._config.homework.page_size,
             "pageNum": 0,
         }
 

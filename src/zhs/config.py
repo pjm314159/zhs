@@ -1,7 +1,17 @@
 """ZHS 配置管理模块
 
-提供 pydantic 配置模型（CryptoConfig、UrlConfig、AIConfig、AppConfig）
-和 ConfigManager（TOML 加载/保存/旧版 JSON 迁移）。
+提供 pydantic 配置模型（按功能分组）和 ConfigManager（TOML 加载/保存/旧版 JSON 迁移）。
+
+配置结构：
+- AppConfig（顶层）
+  - VideoConfig（视频播放速度）
+  - HomeworkConfig（作业配置）
+  - DisplayConfig（显示设置）
+  - ProxyConfig（代理设置）
+  - QRConfig（二维码设置）
+  - AIConfig（AI 配置）
+  - CryptoConfig（加密密钥）
+  - UrlConfig（API URL）
 """
 
 import json
@@ -9,54 +19,65 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from zhs.utils.path import get_config_path
 
-_AUTH_KEYS = ("save_cookies", "proxies")
-_TOP_KEYS = (
-    "save_cookies",
-    "speed",
-    "proxies",
-    "log_level",
-    "tree_view",
-    "progressbar_view",
-    "qr_extra",
-    "image_path",
-    "limit",
-    "threshold",
-    "homework_threshold",
-    "max_submit",
-    "homework_delay_min",
-    "homework_delay_max",
-    "homework_page_size",
-)
-_DISPLAY_KEYS = (
-    "speed",
-    "log_level",
-    "tree_view",
-    "progressbar_view",
-    "qr_extra",
-    "image_path",
-    "limit",
-    "threshold",
-    "homework_threshold",
-    "max_submit",
-    "homework_delay_min",
-    "homework_delay_max",
-    "homework_page_size",
-)
-_MIGRATE_KEYS = (
-    "save_cookies",
-    "proxies",
-    "tree_view",
-    "progressbar_view",
-    "image_path",
-)
+# ============================================================
+# 配置模型（按功能分组）
+# ============================================================
+
+
+class VideoConfig(BaseModel):
+    """视频播放速度配置"""
+
+    zhidao_speed: float = Field(default=1.5, description="知到视频播放速度（默认 1.5，最高 2.0）")
+    hike_speed: float = Field(default=1.25, description="Hike 视频播放速度（默认 1.25，最高 2.0）")
+    ai_speed: float = Field(default=1.5, description="AI 课程视频播放速度（默认 1.5，最高 2.0）")
+
+
+class HomeworkConfig(BaseModel):
+    """作业配置"""
+
+    threshold: int = Field(default=100, description="作业达标阈值（0-100，默认 100）")
+    max_submit: int = Field(default=0, description="最大重做次数（0 = 无限次）")
+    delay_min: float = Field(default=1.0, alias="homework_delay_min", description="每题保存后最小休息时间（秒）")
+    delay_max: float = Field(default=2.0, alias="homework_delay_max", description="每题保存后最大休息时间（秒）")
+    page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
+
+
+class DisplayConfig(BaseModel):
+    """显示设置"""
+
+    log_level: str = Field(default="INFO", description="日志级别: DEBUG, INFO, WARNING, ERROR")
+    tree_view: bool = Field(default=True, description="是否显示课程资源树")
+    progressbar_view: bool = Field(default=True, description="是否显示进度条")
+
+
+class ProxyConfig(BaseModel):
+    """代理设置"""
+
+    http: str = Field(default="", description="HTTP 代理地址")
+    https: str = Field(default="", description="HTTPS 代理地址")
+
+    def to_dict(self) -> dict[str, str]:
+        """转换为 httpx proxies 格式（过滤空值）"""
+        result: dict[str, str] = {}
+        if self.http:
+            result["http"] = self.http
+        if self.https:
+            result["https"] = self.https
+        return result
+
+
+class QRConfig(BaseModel):
+    """二维码设置"""
+
+    image_path: str = Field(default="", description="二维码图片保存路径（留空则使用临时目录）")
 
 
 class CryptoConfig(BaseModel):
-    """加解密密钥配置（可覆盖，默认值与旧版一致）"""
+    """加解密密钥配置"""
 
     iv: str = "1g3qqdh4jvbskb9x"
     home_key: str = "7q9oko0vqb3la20r"
@@ -75,7 +96,7 @@ class CryptoConfig(BaseModel):
 
 
 class UrlConfig(BaseModel):
-    """API 基础 URL 配置（可覆盖，便于部署私有镜像或 API 变更）"""
+    """API 基础 URL 配置"""
 
     base: str = "https://onlineservice-api.zhihuishu.com"
     passport: str = "https://passport.zhihuishu.com"
@@ -92,38 +113,63 @@ class UrlConfig(BaseModel):
 class AIConfig(BaseModel):
     """AI 配置"""
 
-    enabled: bool = True
-    use_zhidao_ai: bool = True
-    api_key: str = ""
-    base_url: str = "https://api.openai.com/v1"
-    model: str = "gpt-4o-mini"
-    moonshot_api_key: str = ""
-    max_token: int = 27900
+    enabled: bool = Field(default=True, description="是否启用 AI 功能")
+    use_zhidao_ai: bool = Field(default=True, description="是否使用智慧树内置 AI")
+    api_key: str = Field(default="", description="OpenAI 兼容 API Key")
+    base_url: str = Field(default="https://api.openai.com/v1", description="API Base URL")
+    model: str = Field(default="gpt-4o-mini", description="模型名称")
+    moonshot_api_key: str = Field(default="", description="MoonShot API Key（用于 PPT 转文本）")
+    max_token: int = Field(default=27900, description="最大 Token 数")
 
 
 class AppConfig(BaseModel):
     """应用全局配置"""
 
-    save_cookies: bool = True
-    zhidao_speed: float = 1.5
-    hike_speed: float = 1.25
-    ai_speed: float = 1.5
-    proxies: dict[str, str] = {}
-    log_level: str = "INFO"
-    tree_view: bool = True
-    progressbar_view: bool = True
-    qr_extra: dict[str, Any] = {}
-    image_path: str = ""  # 默认在运行时设为 .zhs/qrcode.png
-    limit: int = 0
-    threshold: float = 0.91
-    homework_threshold: int = 100
-    max_submit: int = 3
-    homework_delay_min: float = 1.0
-    homework_delay_max: float = 2.0
-    homework_page_size: int = 100
+    # 基础设置
+    save_cookies: bool = Field(default=True, description="是否保存 Cookie")
+    limit: int = Field(default=0, description="刷课时间限制（分钟，0 = 不限制）")
+    threshold: float = Field(default=0.91, description="视频结束阈值（0.0-1.0）")
+
+    # 功能配置（嵌套模型）
+    video: VideoConfig = VideoConfig()
+    homework: HomeworkConfig = HomeworkConfig()
+    display: DisplayConfig = DisplayConfig()
+    proxies: ProxyConfig = ProxyConfig()
+    qr: QRConfig = QRConfig()
     crypto: CryptoConfig = CryptoConfig()
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()
+
+
+# ============================================================
+# 配置管理器
+# ============================================================
+
+# TOML 字段映射（用于兼容旧版扁平结构）
+_FLAT_KEYS = (
+    "save_cookies",
+    "limit",
+    "threshold",
+    "zhidao_speed",
+    "hike_speed",
+    "ai_speed",
+    "homework_threshold",
+    "max_submit",
+    "homework_delay_min",
+    "homework_delay_max",
+    "homework_page_size",
+    "log_level",
+    "tree_view",
+    "progressbar_view",
+    "image_path",
+)
+
+_MIGRATE_KEYS = (
+    "save_cookies",
+    "tree_view",
+    "progressbar_view",
+    "image_path",
+)
 
 
 class ConfigManager:
@@ -154,8 +200,9 @@ class ConfigManager:
         with open(json_path, encoding="utf-8") as f:
             legacy: dict[str, Any] = json.load(f)
 
-        # 映射旧字段到新字段
         kwargs: dict[str, Any] = {}
+
+        # 基础字段迁移
         for key in _MIGRATE_KEYS:
             if key in legacy:
                 kwargs[key] = legacy[key]
@@ -164,9 +211,15 @@ class ConfigManager:
         if "logLevel" in legacy:
             kwargs["log_level"] = legacy["logLevel"]
 
-        # qr_extra
-        if "qr_extra" in legacy:
-            kwargs["qr_extra"] = legacy["qr_extra"]
+        # 代理迁移
+        if "proxies" in legacy:
+            proxies_legacy = legacy["proxies"]
+            proxy_kwargs: dict[str, Any] = {}
+            if "http" in proxies_legacy:
+                proxy_kwargs["http"] = proxies_legacy["http"]
+            if "https" in proxies_legacy:
+                proxy_kwargs["https"] = proxies_legacy["https"]
+            kwargs["proxies"] = ProxyConfig(**proxy_kwargs)
 
         # AI 配置迁移
         if "ai" in legacy:
@@ -196,17 +249,57 @@ class ConfigManager:
     def _flatten_toml(data: dict[str, Any]) -> dict[str, Any]:
         """将 TOML 嵌套结构展平为 AppConfig 构造参数"""
         result: dict[str, Any] = {}
-        # 顶层字段直接映射
-        for key in _TOP_KEYS:
+
+        # 顶层字段直接映射（兼容旧版扁平结构）
+        for key in _FLAT_KEYS:
             if key in data:
                 result[key] = data[key]
 
-        # [auth] section
-        if "auth" in data:
-            auth = data["auth"]
-            for key in _AUTH_KEYS:
-                if key in auth:
-                    result[key] = auth[key]
+        # [video] section
+        if "video" in data:
+            result["video"] = VideoConfig(**data["video"])
+
+        # [homework] section
+        if "homework" in data:
+            hw = data["homework"]
+            # 兼容旧版扁平字段名
+            hw_kwargs: dict[str, Any] = {}
+            if "threshold" in hw:
+                hw_kwargs["threshold"] = hw["threshold"]
+            if "max_submit" in hw:
+                hw_kwargs["max_submit"] = hw["max_submit"]
+            if "delay_min" in hw:
+                hw_kwargs["delay_min"] = hw["delay_min"]
+            if "delay_max" in hw:
+                hw_kwargs["delay_max"] = hw["delay_max"]
+            if "page_size" in hw:
+                hw_kwargs["page_size"] = hw["page_size"]
+            # 兼容旧版字段名（homework_delay_min 等）
+            if "homework_delay_min" in hw:
+                hw_kwargs["delay_min"] = hw["homework_delay_min"]
+            if "homework_delay_max" in hw:
+                hw_kwargs["delay_max"] = hw["homework_delay_max"]
+            if "homework_page_size" in hw:
+                hw_kwargs["page_size"] = hw["homework_page_size"]
+            if "homework_threshold" in hw:
+                hw_kwargs["threshold"] = hw["homework_threshold"]
+            result["homework"] = HomeworkConfig(**hw_kwargs)
+
+        # [display] section
+        if "display" in data:
+            result["display"] = DisplayConfig(**data["display"])
+
+        # [proxies] section
+        if "proxies" in data:
+            result["proxies"] = ProxyConfig(**data["proxies"])
+
+        # [qr] section（兼容 qr_extra）
+        if "qr" in data:
+            result["qr"] = QRConfig(**data["qr"])
+        elif "qr_extra" in data:
+            qr_extra = data["qr_extra"]
+            if "image_path" in qr_extra:
+                result["qr"] = QRConfig(image_path=qr_extra["image_path"])
 
         # [crypto] section
         if "crypto" in data:
@@ -236,23 +329,18 @@ class ConfigManager:
         """将 AppConfig.model_dump() 的扁平结构转为 TOML 嵌套结构"""
         data = dict(data)  # 浅拷贝，避免修改原 dict
         result: dict[str, Any] = {}
-        auth: dict[str, Any] = {}
-        for key in _AUTH_KEYS:
-            if key in data:
-                auth[key] = data.pop(key)
-        if auth:
-            result["auth"] = auth
 
-        for key in _DISPLAY_KEYS:
-            if key in data:
-                val = data.pop(key)
-                result[key] = ConfigManager._strip_none(val)
+        # 基础设置
+        if "save_cookies" in data:
+            result["save_cookies"] = data.pop("save_cookies")
+        if "limit" in data:
+            result["limit"] = data.pop("limit")
+        if "threshold" in data:
+            result["threshold"] = data.pop("threshold")
 
-        if "crypto" in data:
-            result["crypto"] = data.pop("crypto")
-        if "urls" in data:
-            result["urls"] = data.pop("urls")
-        if "ai" in data:
-            result["ai"] = data.pop("ai")
+        # 嵌套配置
+        for section in ("video", "homework", "display", "proxies", "qr", "crypto", "urls", "ai"):
+            if section in data:
+                result[section] = ConfigManager._strip_none(data.pop(section))
 
         return result

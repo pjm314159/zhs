@@ -171,14 +171,14 @@ class HomeworkAnalyzer:
         Returns:
             是否需要重做
         """
-        if score_rate >= self._config.homework_threshold:
+        if score_rate >= self._config.homework.threshold:
             return False
 
         if item.remaining_redo <= 0:
             logger.debug(f"作业 {item.exam_name}: 无剩余重做次数")
             return False
 
-        if self._config.max_submit > 0 and item.is_marking >= self._config.max_submit:
+        if self._config.homework.max_submit > 0 and item.is_marking >= self._config.homework.max_submit:
             logger.debug(f"作业 {item.exam_name}: 已达最大重做次数")
             return False
 

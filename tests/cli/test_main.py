@@ -13,19 +13,36 @@ def _make_mock_config() -> MagicMock:
     """创建标准 mock 配置对象"""
     mock_config = MagicMock()
     mock_config.save_cookies = True
-    mock_config.zhidao_speed = 1.5
-    mock_config.hike_speed = 1.25
-    mock_config.ai_speed = 1.5
     mock_config.threshold = 0.91
     mock_config.limit = 0
-    mock_config.log_level = "INFO"
-    mock_config.tree_view = True
-    mock_config.progressbar_view = True
-    mock_config.qr_extra = {}
-    mock_config.image_path = ""
-    mock_config.proxies = {}
-    mock_config.homework_threshold = 100
-    mock_config.max_submit = 3
+
+    # 嵌套配置
+    mock_config.video = MagicMock()
+    mock_config.video.zhidao_speed = 1.5
+    mock_config.video.hike_speed = 1.25
+    mock_config.video.ai_speed = 1.5
+
+    mock_config.homework = MagicMock()
+    mock_config.homework.threshold = 100
+    mock_config.homework.max_submit = 3
+
+    mock_config.display = MagicMock()
+    mock_config.display.log_level = "INFO"
+    mock_config.display.tree_view = True
+    mock_config.display.progressbar_view = True
+
+    mock_config.proxies = MagicMock()
+    mock_config.proxies.to_dict = MagicMock(return_value={})
+
+    mock_config.qr = MagicMock()
+    mock_config.qr.image_path = ""
+
+    mock_config.ai = MagicMock()
+    mock_config.ai.enabled = True
+    mock_config.ai.use_zhidao_ai = True
+
+    mock_config.urls = MagicMock()
+    mock_config.crypto = MagicMock()
     return mock_config
 
 
@@ -216,8 +233,8 @@ class TestPlayCommand:
 
         with patch("zhs.__main__._run_all"):
             runner.invoke(app, ["play"])
-        assert mock_config.tree_view is True
-        assert mock_config.progressbar_view is True
+        assert mock_config.display.tree_view is True
+        assert mock_config.display.progressbar_view is True
 
 
 class TestPlayOverridesConfig:
@@ -237,9 +254,9 @@ class TestPlayOverridesConfig:
 
         runner.invoke(app, ["play", "--speed", "2.0"])
         # --speed 同时覆盖 zhidao_speed、hike_speed、ai_speed
-        assert mock_config.zhidao_speed == 2.0
-        assert mock_config.hike_speed == 2.0
-        assert mock_config.ai_speed == 2.0
+        assert mock_config.video.zhidao_speed == 2.0
+        assert mock_config.video.hike_speed == 2.0
+        assert mock_config.video.ai_speed == 2.0
 
 
 class TestHomeworkCommand:

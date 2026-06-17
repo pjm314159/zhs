@@ -78,6 +78,7 @@ class HomeworkWorker:
         print(f"  重做: 已重做{item.is_marking}次, 总次数{item.back_num}, 剩余{item.remaining_redo}次")
 
         # 已提交的作业（state=4）需要先重置状态才能答题
+        # state=5 是已重置状态，可直接做题
         if item.state == 4:
             print()
             print(msg_info("重置作业状态..."))
@@ -112,12 +113,12 @@ class HomeworkWorker:
 
         print()
         print(styled("=" * 60, _C.DIM))
-        if score_rate >= self._config.homework_threshold:
+        if score_rate >= self._config.homework.threshold:
             print(msg_done(f"作业完成: {item.exam_name}"))
             print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.GREEN)} (达标)")
         else:
             print(msg_warn(f"作业完成: {item.exam_name}"))
-            threshold_str = f"(未达标，阈值 {self._config.homework_threshold}%)"
+            threshold_str = f"(未达标，阈值 {self._config.homework.threshold}%)"
             print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.YELLOW)} {threshold_str}")
         print(styled("=" * 60, _C.DIM))
 
@@ -198,7 +199,7 @@ class HomeworkWorker:
                 logger.error(f"第 {i} 题保存答案失败: {e}")
 
             # 随机休息（使用配置的延迟范围）
-            delay = random.uniform(self._config.homework_delay_min, self._config.homework_delay_max)
+            delay = random.uniform(self._config.homework.delay_min, self._config.homework.delay_max)
             time.sleep(delay)
 
         # 3. 提交
@@ -211,7 +212,7 @@ class HomeworkWorker:
         print()
         print(msg_info(f"提交作业 ({answer_count}/{len(questions)} 题)..."))
         score_rate = self._submit(item, recruit_id, answer_count)
-        score_color = _C.GREEN if score_rate >= self._config.homework_threshold else _C.YELLOW
+        score_color = _C.GREEN if score_rate >= self._config.homework.threshold else _C.YELLOW
         print(f"  得分率: {styled(f'{score_rate:.1f}%', score_color)}")
         logger.info(f"作业 {item.exam_name}: 提交成功，得分率 {score_rate:.1f}%")
         return score_rate

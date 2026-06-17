@@ -84,7 +84,7 @@ def setup_logging(config: AppConfig, log_dir: Path | None = None) -> None:
     logger.remove()
 
     # 注册 stderr sink（带敏感信息过滤）
-    log_level = config.log_level.upper()
+    log_level = config.display.log_level.upper()
     logger.add(
         sys.stderr,
         level=log_level,
