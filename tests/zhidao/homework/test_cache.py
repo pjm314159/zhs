@@ -12,7 +12,7 @@ from zhs.zhidao.homework.models import HomeworkCacheEntry, HomeworkCacheOption
 @pytest.fixture
 def cache_dir(tmp_path: Path) -> Path:
     """临时缓存目录"""
-    return tmp_path / "homework_cache"
+    return tmp_path / "zhidao_homework_cache"
 
 
 @pytest.fixture

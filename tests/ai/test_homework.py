@@ -1,6 +1,6 @@
-"""Task 6.3 — ai/homework.py TDD"""
+"""ai/homework.py 同步测试（原异步测试已转为同步）"""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -51,9 +51,13 @@ class TestHomeworkCtxInit:
         assert homework_ctx._exam_test_id == 300
         assert homework_ctx._exam_paper_id == 400
 
-    def test_semaphore_value(self, homework_ctx: HomeworkCtx) -> None:
-        """Semaphore(3) 限制并发"""
-        assert homework_ctx._semaphore._value == 3
+    def test_no_semaphore(self, homework_ctx: HomeworkCtx) -> None:
+        """同步版本不再有 semaphore（顺序处理）"""
+        assert not hasattr(homework_ctx, "_semaphore")
+
+    def test_heartbeat_thread_attribute(self, homework_ctx: HomeworkCtx) -> None:
+        """心跳线程属性初始化为 None"""
+        assert homework_ctx._heartbeat_thread is None
 
     def test_cache_initialized(self, homework_ctx: HomeworkCtx) -> None:
         """缓存初始化为空"""
@@ -82,31 +86,38 @@ class TestGetAnswer:
 
     def test_cache_hit(self, homework_ctx: HomeworkCtx) -> None:
         """缓存命中返回答案"""
-        homework_ctx._all_answer_cache = {"123": {"answer": "456#@#789", "version": 1}}
-        result = homework_ctx._get_cached_answer(123, 1)
+        homework_ctx._all_answer_cache = {"123": {"answer": "456#@#789"}}
+        result = homework_ctx._get_cached_answer(123)
         assert result is not None
         assert result == ["456", "789"]
 
     def test_cache_miss(self, homework_ctx: HomeworkCtx) -> None:
         """缓存未命中返回 None"""
-        result = homework_ctx._get_cached_answer(999, 1)
+        result = homework_ctx._get_cached_answer(999)
         assert result is None
 
     def test_two_level_cache(self, homework_ctx: HomeworkCtx) -> None:
         """两级缓存：先查 all_answer_cache 再查 answer_cache"""
         # answer_cache 有但 all_answer_cache 没有
-        homework_ctx._answer_cache = {"456": {"answer": "1#@#2", "version": 1}}
+        homework_ctx._answer_cache = {"456": {"answer": "1#@#2"}}
         homework_ctx._all_answer_cache = {}
-        result = homework_ctx._get_cached_answer(456, 1)
+        result = homework_ctx._get_cached_answer(456)
         assert result is not None
         assert result == ["1", "2"]
 
-    def test_cache_key_with_version(self, homework_ctx: HomeworkCtx) -> None:
-        """缓存键包含版本号"""
-        homework_ctx._all_answer_cache = {"789_2": {"answer": "3", "version": 2}}
-        result = homework_ctx._get_cached_answer(789, 2)
+    def test_old_version_key_compat(self, homework_ctx: HomeworkCtx) -> None:
+        """兼容旧缓存 key（带 _version 后缀）"""
+        homework_ctx._all_answer_cache = {"789_2": {"answer": "3"}}
+        result = homework_ctx._get_cached_answer(789)
         assert result is not None
         assert result == ["3"]
+
+    def test_slash_separator_compat(self, homework_ctx: HomeworkCtx) -> None:
+        """填空题 answer 含 / 不拆分，返回单元素列表"""
+        homework_ctx._all_answer_cache = {"123": {"answer": "身体健康/心理健康"}}
+        result = homework_ctx._get_cached_answer(123)
+        assert result is not None
+        assert result == ["身体健康/心理健康"]
 
 
 class TestGetAnswerStrategy:
@@ -139,31 +150,29 @@ class TestGetAnswerStrategy:
 
 
 class TestSubmitHomework:
-    """提交作业"""
+    """提交作业（同步）"""
 
-    @pytest.mark.asyncio
-    async def test_submit_homework_contains_course_type(self, homework_ctx: HomeworkCtx) -> None:
-        """_submit_homework 含 courseType=8"""
-        with patch.object(homework_ctx, "_api_query", new_callable=AsyncMock) as mock_api:
+    def test_submit_homework_contains_course_type(self, homework_ctx: HomeworkCtx) -> None:
+        """_submit_homework 含 courseType=8（同步调用）"""
+        with patch.object(homework_ctx, "_api_query") as mock_api:
             mock_api.return_value = {"code": 0}
-            await homework_ctx._submit_homework()
+            homework_ctx._submit_homework()
             call_data = mock_api.call_args
             # 检查调用参数包含 courseType=8
             assert call_data is not None
 
 
 class TestProcessQuestion:
-    """题目处理"""
+    """题目处理（同步）"""
 
-    @pytest.mark.asyncio
-    async def test_process_question_sleeps(self, homework_ctx: HomeworkCtx) -> None:
-        """_process_question 每题 sleep 0.3-0.8s"""
+    def test_process_question_sleeps(self, homework_ctx: HomeworkCtx) -> None:
+        """_process_question 每题 sleep 3-5s（同步 time.sleep）"""
         sheet = QuestionSheet(question_id=1, version=1)
         with (
-            patch.object(homework_ctx, "_get_question_content", new_callable=AsyncMock) as mock_get_qc,
-            patch.object(homework_ctx, "_save_answer", new_callable=AsyncMock) as mock_save,
-            patch("zhs.ai.homework.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
-            patch("zhs.ai.homework.random.uniform", return_value=0.5),
+            patch.object(homework_ctx, "_get_question_content") as mock_get_qc,
+            patch.object(homework_ctx, "_save_answer") as mock_save,
+            patch("zhs.ai.homework.time.sleep") as mock_sleep,
+            patch("zhs.ai.homework.random.uniform", return_value=4.0),
         ):
             mock_get_qc.return_value = QuestionContent(
                 id=1,
@@ -172,22 +181,21 @@ class TestProcessQuestion:
                 option_vos=[OptionVo(id=1, content="A"), OptionVo(id=2, content="B")],
             )
             mock_save.return_value = True
-            await homework_ctx._process_question(sheet)
+            homework_ctx._process_question(sheet)
             mock_sleep.assert_called()
 
 
 class TestHomeworkRetry:
-    """API 重试"""
+    """API 重试（同步）"""
 
-    @pytest.mark.asyncio
-    async def test_api_retry_on_failure(self, homework_ctx: HomeworkCtx) -> None:
-        """API 失败 3 次重试"""
-        with patch.object(homework_ctx, "_api_query", new_callable=AsyncMock) as mock_api:
+    def test_api_retry_on_failure(self, homework_ctx: HomeworkCtx) -> None:
+        """API 失败 3 次重试（同步调用）"""
+        with patch.object(homework_ctx, "_api_query") as mock_api:
             mock_api.side_effect = Exception("Network error")
             from zhs.exceptions import ZhsError
 
             with pytest.raises(ZhsError, match="openExam"):
-                await homework_ctx._open_homework()
+                homework_ctx._open_homework()
             # 应该重试 3 次
             assert mock_api.call_count == 3
 
@@ -195,12 +203,45 @@ class TestHomeworkRetry:
 class TestCacheKeyFormat:
     """缓存键格式"""
 
-    def test_cache_key_version_1(self, homework_ctx: HomeworkCtx) -> None:
-        """version=1 时键为 questionId"""
-        key = homework_ctx._cache_key(123, 1)
+    def test_cache_key_is_question_id(self, homework_ctx: HomeworkCtx) -> None:
+        """缓存键为纯 question_id"""
+        key = homework_ctx._cache_key(123)
         assert key == "123"
 
-    def test_cache_key_version_gt_1(self, homework_ctx: HomeworkCtx) -> None:
-        """version>1 时键为 questionId_version"""
-        key = homework_ctx._cache_key(123, 2)
-        assert key == "123_2"
+    def test_cache_key_no_version_suffix(self, homework_ctx: HomeworkCtx) -> None:
+        """缓存键不含 version 后缀"""
+        key = homework_ctx._cache_key(789)
+        assert "_" not in key
+        assert key == "789"
+
+
+class TestHeartbeatThread:
+    """心跳线程（同步版本）"""
+
+    def test_heartbeat_uses_thread(self, homework_ctx: HomeworkCtx) -> None:
+        """心跳使用 threading.Thread（daemon=True）"""
+        with (
+            patch.object(homework_ctx, "_api_query") as mock_api,
+            patch("zhs.ai.homework.time.sleep") as mock_sleep,
+        ):
+            mock_api.return_value = {"code": 0}
+
+            # 让心跳循环只执行一次后退出
+            def side_effect(_interval: int = 10) -> bool:
+                homework_ctx._stopped = True
+                return True
+
+            mock_sleep.side_effect = side_effect
+            homework_ctx._stopped = False
+            homework_ctx._heartbeat(interval=1)
+            # 验证 _api_query 被调用（心跳发送了请求）
+            assert mock_api.called
+
+    def test_heartbeat_thread_daemon(self, homework_ctx: HomeworkCtx) -> None:
+        """心跳线程属性为 daemon"""
+        # 验证 HomeworkCtx 使用 threading.Thread 而非 asyncio.Task
+        import inspect
+
+        source = inspect.getsource(HomeworkCtx)
+        assert "threading.Thread" in source
+        assert "daemon=True" in source

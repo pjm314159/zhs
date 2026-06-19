@@ -13,28 +13,20 @@ pytestmark = pytest.mark.integration
 class TestZhidaoAI:
     """智慧树内置 AI"""
 
-    def test_zhidao_ai_non_stream(self, logged_in_session: ZhsSession) -> None:
-        """LM-01: 智慧树 AI 非流式响应"""
+    def test_zhidao_ai_stream(self, logged_in_session: ZhsSession) -> None:
+        """LM-01: 智慧树 AI 流式响应"""
         from zhs.llm.zhidao import ZhidaoAIProvider
 
-        provider = ZhidaoAIProvider(logged_in_session, stream=False)
+        provider = ZhidaoAIProvider(logged_in_session, course_id="123456", course_name="测试课程")
         result = provider.completion("1+1等于多少？请回答数字")
         # AI 可能返回空（频率限制等），仅验证不抛异常
         assert isinstance(result, str)
 
-    def test_zhidao_ai_stream(self, logged_in_session: ZhsSession) -> None:
-        """LM-02: 智慧树 AI 流式响应"""
-        from zhs.llm.zhidao import ZhidaoAIProvider
-
-        provider = ZhidaoAIProvider(logged_in_session, stream=True)
-        result = provider.completion("1+1等于多少？请回答数字")
-        assert isinstance(result, str)
-
     def test_zhidao_ai_sign_correct(self, logged_in_session: ZhsSession) -> None:
-        """LM-03: 签名正确，请求成功（通过成功调用间接验证）"""
+        """LM-02: 签名正确，请求成功（通过成功调用间接验证）"""
         from zhs.llm.zhidao import ZhidaoAIProvider
 
-        provider = ZhidaoAIProvider(logged_in_session, stream=False)
+        provider = ZhidaoAIProvider(logged_in_session, course_id="123456", course_name="测试课程")
         # 如果签名错误，会抛异常
         result = provider.completion("你好")
         assert isinstance(result, str)
@@ -44,29 +36,15 @@ class TestOpenAI:
     """OpenAI 兼容接口"""
 
     @pytest.mark.openai
-    def test_openai_non_stream(self) -> None:
-        """LM-05: OpenAI 非流式"""
-        api_key = os.environ.get("ZHS_TEST_OPENAI_API_KEY")
-        if not api_key:
-            pytest.skip("未设置 ZHS_TEST_OPENAI_API_KEY")
-
-        from zhs.llm.openai import OpenAIProvider
-
-        provider = OpenAIProvider(api_key=api_key, stream=False)
-        result = provider.completion("1+1等于多少？")
-        assert isinstance(result, str)
-        assert len(result) > 0
-
-    @pytest.mark.openai
     def test_openai_stream(self) -> None:
-        """LM-06: OpenAI 流式"""
+        """LM-03: OpenAI 流式"""
         api_key = os.environ.get("ZHS_TEST_OPENAI_API_KEY")
         if not api_key:
             pytest.skip("未设置 ZHS_TEST_OPENAI_API_KEY")
 
         from zhs.llm.openai import OpenAIProvider
 
-        provider = OpenAIProvider(api_key=api_key, stream=True)
+        provider = OpenAIProvider(api_key=api_key)
         result = provider.completion("1+1等于多少？")
         assert isinstance(result, str)
         assert len(result) > 0

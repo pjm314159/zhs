@@ -169,6 +169,7 @@ def parse_fill_blank_answer(completion: str) -> list[str]:
     """从 LLM 输出提取填空答案
 
     解析 ```answer\\n答案1\\n答案2\\n``` 格式的输出，按行提取。
+    多个空的答案用 / 合并为一个字符串，返回单元素列表 ["答案1/答案2"]。
     """
     match = re.search(r"```answer\s*\n(.*?)\n\s*```", completion, re.DOTALL)
     if not match:
@@ -178,4 +179,8 @@ def parse_fill_blank_answer(completion: str) -> list[str]:
     if not content:
         return []
 
-    return [line.strip() for line in content.split("\n") if line.strip()]
+    answers = [line.strip() for line in content.split("\n") if line.strip()]
+    if not answers:
+        return []
+    # 多个空用 / 合并为一个字符串，保持与缓存/提交格式一致
+    return ["/".join(answers)]

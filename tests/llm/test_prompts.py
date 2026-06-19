@@ -122,10 +122,10 @@ class TestParseFillBlankAnswer:
     """parse_fill_blank_answer 从 LLM 输出提取填空答案"""
 
     def test_multiple_lines(self) -> None:
-        """按行提取"""
+        """多行答案用 / 合并为单元素列表"""
         completion = "```answer\n答案1\n答案2\n```"
         result = parse_fill_blank_answer(completion)
-        assert result == ["答案1", "答案2"]
+        assert result == ["答案1/答案2"]
 
     def test_empty_output(self) -> None:
         """空输出"""

@@ -177,39 +177,36 @@ class TestHikeQuery:
 
 
 class TestAiExamQuery:
-    @pytest.mark.asyncio
-    async def test_async_query_works(self, config: AppConfig, mock_http: Any) -> None:
-        """ai_exam_query 异步版本正常工作"""
+    def test_sync_query_works(self, config: AppConfig, mock_http: Any) -> None:
+        """ai_exam_query 同步版本正常工作"""
         session = ZhsSession(config)
         respx.post("https://ai.example.com/api").mock(return_value=httpx.Response(200, json={"code": 0, "data": {}}))
-        result = await session.ai_exam_query("https://ai.example.com/api", data={"q": "test"})
+        result = session.ai_exam_query("https://ai.example.com/api", data={"q": "test"})
         assert result["code"] == 0
-        await session.aclose()
+        session.close()
 
-    @pytest.mark.asyncio
-    async def test_uses_exam_key(self, config: AppConfig, mock_http: Any) -> None:
+    def test_uses_exam_key(self, config: AppConfig, mock_http: Any) -> None:
         """密钥从 config.crypto.exam_key 获取"""
         session = ZhsSession(config)
         route = respx.post("https://ai.example.com/api").mock(
             return_value=httpx.Response(200, json={"code": 0, "data": {}})
         )
-        await session.ai_exam_query("https://ai.example.com/api", data={"q": "test"})
+        session.ai_exam_query("https://ai.example.com/api", data={"q": "test"})
         assert route.called
         request = route.calls[0].request
         body = request.content.decode()
         assert "secretStr" in body
-        await session.aclose()
+        session.close()
 
-    @pytest.mark.asyncio
-    async def test_non_zero_code_raises_api_error(self, config: AppConfig, mock_http: Any) -> None:
+    def test_non_zero_code_raises_api_error(self, config: AppConfig, mock_http: Any) -> None:
         """非零返回码抛 ApiError"""
         session = ZhsSession(config)
         respx.post("https://ai.example.com/api").mock(
             return_value=httpx.Response(200, json={"code": 1, "message": "error"})
         )
         with pytest.raises(ApiError):
-            await session.ai_exam_query("https://ai.example.com/api", data={})
-        await session.aclose()
+            session.ai_exam_query("https://ai.example.com/api", data={})
+        session.close()
 
 
 # ---------------------------------------------------------------------------

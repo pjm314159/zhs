@@ -116,7 +116,5 @@ class TestZhidaoVideo:
             speed=app_config.video.zhidao_speed,
             end_threshold=app_config.threshold,
             time_limit=5,
-            progressbar_view=False,
-            tree_view=False,
         )
         assert player is not None

@@ -251,10 +251,6 @@ def play(
         # 无效的 --type，不继续运行
         raise typer.Exit(1)
 
-    # tree_view / progressbar_view 默认启用
-    config.display.tree_view = True
-    config.display.progressbar_view = True
-
     # CLI 参数覆盖配置
     if speed is not None:
         config.video.zhidao_speed = speed
@@ -455,7 +451,7 @@ def _run_ai(session: ZhsSession, config: AppConfig, course_id: int, class_id: in
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, no_homework=False, speed=config.video.ai_speed)
+    mgr.run_course(course_id, class_id, config.ai, config.homework, no_homework=False, speed=config.video.ai_speed)
 
 
 def _run_ai_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) -> None:
@@ -485,8 +481,6 @@ def _run_zhidao(session: ZhsSession, config: AppConfig, course_id: str) -> None:
         speed=config.video.zhidao_speed,
         end_threshold=config.threshold,
         time_limit=config.limit * 60,
-        progressbar_view=config.display.progressbar_view,
-        tree_view=config.display.tree_view,
     )
 
     ctx = mgr.get_context(course_id)
@@ -504,8 +498,6 @@ def _run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:
         speed=config.video.hike_speed,
         end_threshold=config.threshold,
         time_limit=config.limit * 60,
-        progressbar_view=config.display.progressbar_view,
-        tree_view=config.display.tree_view,
     )
 
     root = mgr.get_context(course_id)
@@ -530,8 +522,6 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
                 speed=config.video.zhidao_speed,
                 end_threshold=config.threshold,
                 time_limit=config.limit * 60,
-                progressbar_view=config.display.progressbar_view,
-                tree_view=config.display.tree_view,
             )
             courses = zhidao_mgr.get_course_list()
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
@@ -555,8 +545,6 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
                 speed=config.video.hike_speed,
                 end_threshold=config.threshold,
                 time_limit=config.limit * 60,
-                progressbar_view=config.display.progressbar_view,
-                tree_view=config.display.tree_view,
             )
             hike_courses = hike_mgr.get_course_list()
             print(f"\n{course_tag('hike')} 发现 {len(hike_courses)} 门课程")
@@ -584,7 +572,12 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
                     course_name = ac.get("courseName", "")
                     if course_id and class_id:
                         ai_mgr.run_course(
-                            int(course_id), int(class_id), config.ai, no_homework=False, speed=config.video.ai_speed
+                            int(course_id),
+                            int(class_id),
+                            config.ai,
+                            config.homework,
+                            no_homework=False,
+                            speed=config.video.ai_speed,
                         )
                     else:
                         logger.warning(f"AI 课程 {course_name} 缺少 courseId 或 classId")
@@ -602,7 +595,7 @@ def _run_ai_homework(session: ZhsSession, config: AppConfig, course_id: int, cla
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, no_homework=False, speed=config.video.ai_speed)
+    mgr.run_course(course_id, class_id, config.ai, config.homework, no_homework=False, speed=config.video.ai_speed)
 
 
 def _run_ai_homework_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) -> None:
@@ -647,7 +640,12 @@ def _run_all_homework(session: ZhsSession, config: AppConfig, course_type: str |
                     course_name = ac.get("courseName", "")
                     if course_id and class_id:
                         ai_mgr.run_course(
-                            int(course_id), int(class_id), config.ai, no_homework=False, speed=config.video.ai_speed
+                            int(course_id),
+                            int(class_id),
+                            config.ai,
+                            config.homework,
+                            no_homework=False,
+                            speed=config.video.ai_speed,
                         )
                     else:
                         logger.warning(f"AI 课程 {course_name} 缺少 courseId 或 classId")

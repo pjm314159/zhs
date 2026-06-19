@@ -1,6 +1,5 @@
 """AI 课程管理"""
 
-import asyncio
 import time
 from random import randint
 from typing import Any
@@ -9,9 +8,18 @@ from loguru import logger
 
 from zhs.ai.models import AiCourseInfo, ExamInfo, Resource
 from zhs.ai.video import AiVideoPlayer
-from zhs.config import AIConfig
+from zhs.config import AIConfig, HomeworkConfig
 from zhs.session import ZhsSession
-from zhs.utils.display import course_tag, msg_done, msg_skip, tree_print
+from zhs.utils.display import (
+    _C,
+    course_tag,
+    msg_done,
+    msg_error,
+    msg_info,
+    msg_skip,
+    styled,
+    tree_print,
+)
 
 
 class AiCourseManager:
@@ -104,6 +112,7 @@ class AiCourseManager:
             # 已完成的 PPT 仍收集 URL
             if r_type == 1 and r_dist == 4 and detail.resources_url:
                 ppts.append({"name": detail.resources_name, "url": detail.resources_url})
+                logger.debug(f"append ppt {detail.resources_name}")
             return
 
         # 随机延迟（模拟人类行为）
@@ -112,27 +121,34 @@ class AiCourseManager:
         # 未完成的资源
         if r_type == 2 and r_dist == 1:
             # 文本
+            tree_print(f"完成文本: {detail.resources_name}", depth=3, enabled=True)
             self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
         elif r_type == 1 and r_dist == 4:
             # PPT
+            tree_print(f"完成PPT: {detail.resources_name}", depth=3, enabled=True)
             self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
             if detail.resources_url:
                 ppts.append({"name": detail.resources_name, "url": detail.resources_url})
         elif r_type == 1 and r_dist == 3:
             # 视频
+            tree_print(f"播放视频: {detail.resources_name}", depth=3, enabled=True)
             video_player.play_video(course_id, class_id, detail.resources_file_id, knowledge_id)
         elif r_type == 2 and r_dist == 2:
             # 课程视频
+            tree_print(f"播放课程视频: {detail.resources_name}", depth=3, enabled=True)
             video_player.play_video(course_id, class_id, detail.resources_file_id, knowledge_id)
         else:
             # 其他类型
+            tree_print(f"完成资源: {detail.resources_name}", depth=3, enabled=True)
             self.complete_resource(course_id, class_id, knowledge_id, detail.resources_uid)
 
-    def _should_do_homework(self, exam: ExamInfo, tried: int, no_homework: bool) -> bool:
+    def _should_do_homework(
+        self, exam: ExamInfo, tried: int, no_homework: bool, homework_config: HomeworkConfig
+    ) -> bool:
         """判断是否应做作业"""
         if no_homework:
             return False
-        if exam.mastery_score > 90:
+        if exam.mastery_score > homework_config.ai_homework_threshold:
             return False
         return not (exam.mastery_score < 30 and tried > 4)
 
@@ -141,6 +157,7 @@ class AiCourseManager:
         course_id: int,
         class_id: int,
         ai_config: AIConfig,
+        homework_config: HomeworkConfig,
         no_homework: bool = False,
         speed: float = 1.5,
     ) -> None:
@@ -151,44 +168,46 @@ class AiCourseManager:
         # 获取知识点
         course_info = self.get_knowledge_points(course_id, class_id)
         logger.info(f"开始学习 AI 课程: {course_info.course_name}")
-        tree_print(f"{course_tag('ai')} 课程: {course_info.course_name}", enabled=True)
+        print()
+        print(styled("=" * 60, _C.DIM))
+        print(f"{course_tag('ai')} 课程: {styled(course_info.course_name, _C.BOLD, _C.BRIGHT_MAGENTA)}")
+        print(styled("=" * 60, _C.DIM))
 
         # 创建视频播放器
         video_player = AiVideoPlayer(self._session, speed=speed)
 
         ppt_conf = getattr(ai_config, "ppt_processing", {})
-        moonshot_key = getattr(ai_config, "moonshot_api_key", "")
 
         for theme in course_info.cake_theme_list:
             logger.info(f"主题: {theme.theme_name}")
-            tree_print(f"主题: {theme.theme_name}", depth=1, enabled=True)
+            print()
+            tree_print(f"主题: {styled(theme.theme_name, _C.CYAN)}", depth=1, enabled=True)
 
             for knowledge in theme.knowledge_list:
                 ppts: list[dict[str, str]] = []
 
-                if knowledge.study_progress < 100:
-                    tree_print(f"知识点: {knowledge.knowledge_name}", depth=2, enabled=True)
-                    # 未完成的知识点
-                    try:
-                        resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
-                    except Exception as e:
-                        logger.error(f"获取资源列表失败: {e}")
-                        continue
+                # 查询作业信息（先查，用于判断是否跳过）
+                exam = self.query_homework(course_id, class_id, knowledge.knowledge_id)
 
-                    for resource in resources:
-                        try:
-                            self._process_resource(
-                                course_id, class_id, knowledge.knowledge_id, resource, video_player, ppts
-                            )
-                        except Exception as e:
-                            logger.error(f"处理资源失败: {e}")
+                # 判断知识点是否完成 + 作业是否达标
+                knowledge_done = knowledge.study_progress >= 100
+                homework_done = (
+                    exam is None or not exam.paper_id or exam.mastery_score >= homework_config.ai_homework_threshold
+                )
 
-                    logger.info(f"知识点完成: {knowledge.knowledge_name}")
-                    tree_print(msg_done(f"完成: {knowledge.knowledge_name}"), depth=3, enabled=True)
-                else:
+                if knowledge_done and homework_done:
+                    # 知识点已完成且作业达标 → 跳过
+                    tree_print(
+                        msg_skip(
+                            f"跳过(已完成): {knowledge.knowledge_name} "
+                            f"(进度={knowledge.study_progress}%, "
+                            f"作业={exam.mastery_score if exam else '无'}分)"
+                        ),
+                        depth=2,
+                        enabled=True,
+                    )
                     # 已完成的知识点，仍收集 PPT
-                    tree_print(msg_skip(f"跳过(已完成): {knowledge.knowledge_name}"), depth=2, enabled=True)
-                    if ppt_conf and moonshot_key:
+                    if ppt_conf:
                         try:
                             resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
                             for resource in resources:
@@ -207,26 +226,65 @@ class AiCourseManager:
                         except Exception as e:
                             logger.error(f"获取已完成知识点资源失败: {e}")
                     logger.info(f"知识点已完成: {knowledge.knowledge_name}")
+                    continue
+
+                # 未完成的知识点
+                tree_print(f"知识点: {styled(knowledge.knowledge_name, _C.WHITE)}", depth=2, enabled=True)
+                if not knowledge_done:
+                    tree_print(f"进度: {styled(f'{knowledge.study_progress}%', _C.YELLOW)}", depth=3, enabled=True)
+                    try:
+                        resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
+                        print(f"    {msg_info(f'共 {len(resources)} 个资源')}")
+                    except Exception as e:
+                        logger.error(f"获取资源列表失败: {e}")
+                        continue
+
+                    for resource in resources:
+                        try:
+                            self._process_resource(
+                                course_id, class_id, knowledge.knowledge_id, resource, video_player, ppts
+                            )
+                        except Exception as e:
+                            logger.error(f"处理资源失败: {e}")
+
+                    logger.info(f"知识点完成: {knowledge.knowledge_name}")
+                    tree_print(msg_done(f"知识点完成: {knowledge.knowledge_name}"), depth=3, enabled=True)
 
                 # 作业循环
                 tried = 0
                 while True:
-                    exam = self.query_homework(course_id, class_id, knowledge.knowledge_id)
+                    # 重新查询作业信息（知识点完成后可能有新作业）
+                    if tried > 0:
+                        exam = self.query_homework(course_id, class_id, knowledge.knowledge_id)
+
                     if exam is None or not exam.paper_id:
+                        tree_print(msg_skip("无作业"), depth=3, enabled=True)
                         break
 
-                    if not self._should_do_homework(exam, tried, no_homework):
+                    if not self._should_do_homework(exam, tried, no_homework, homework_config):
+                        tree_print(
+                            msg_done(
+                                f"作业已达标: {exam.mastery_score}分 (阈值={homework_config.ai_homework_threshold})"
+                            ),
+                            depth=3,
+                            enabled=True,
+                        )
                         break
 
                     tried += 1
+                    print()
+                    print(styled("-" * 40, _C.DIM))
+                    tree_print(
+                        f"作业: {styled(f'第{tried}次尝试', _C.BRIGHT_MAGENTA)}, 当前={exam.mastery_score}分",
+                        depth=3,
+                        enabled=True,
+                    )
 
                     # PPT 转文本
                     reference_materials: list[dict[str, str]] = []
                     if ppts:
-                        converter = PptConverter(
-                            api_key=moonshot_key,
-                            base_url=getattr(ai_config, "base_url", "https://api.moonshot.cn/v1"),
-                        )
+                        tree_print(msg_info(f"转换 {len(ppts)} 个PPT为参考资料..."), depth=4, enabled=True)
+                        converter = PptConverter()
                         for ppt in ppts:
                             try:
                                 content = converter.convert(ppt["url"])
@@ -258,14 +316,25 @@ class AiCourseManager:
                     )
 
                     try:
-                        is_success, correct, total = asyncio.run(
-                            homework_ctx.start(reference_materials=reference_materials)
+                        is_success, correct, total = homework_ctx.start(reference_materials=reference_materials)
+                        score_pct = (correct / total * 100) if total > 0 else 0
+                        score_color = _C.GREEN if is_success else _C.YELLOW
+                        tree_print(
+                            f"作业结果: {styled(f'{correct}/{total}', score_color)} "
+                            f"({styled(f'{score_pct:.0f}%', score_color)})",
+                            depth=4,
+                            enabled=True,
                         )
-                        logger.info(f"作业结果: {correct}/{total}")
+                        logger.info(f"作业结果: {correct}/{total} ({score_pct:.0f}%)")
                     except Exception as e:
+                        tree_print(msg_error(f"作业失败: {e}"), depth=4, enabled=True)
                         logger.error(f"作业失败: {e}")
 
                     time.sleep(2)
 
             # 主题间随机延迟
             time.sleep(randint(1, 2))
+
+        print()
+        print(msg_done(f"课程完成: {course_info.course_name}"))
+        print(styled("=" * 60, _C.DIM))

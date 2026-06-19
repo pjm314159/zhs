@@ -2,7 +2,7 @@
 
 提供 HomeworkCache 类，管理作业答案的本地 JSON 缓存。
 缓存 key 格式: courseId:examId:questionKey（questionKey 为 eid 或数字型 id）
-缓存文件路径: .zhs/homework_cache/{courseId}/{examId}.json
+缓存文件路径: .zhs/cache/zhidao_homework_cache/{courseId}/{examId}.json
 """
 
 import json
@@ -19,7 +19,7 @@ class HomeworkCache:
     """作业答案本地缓存"""
 
     def __init__(self, cache_dir: Path | None = None) -> None:
-        self._cache_dir = cache_dir or get_data_dir() / "homework_cache"
+        self._cache_dir = cache_dir or get_data_dir() / "cache" / "zhidao_homework_cache"
         self._loaded: dict[str, dict[str, HomeworkCacheEntry]] = {}
 
     def get(self, course_id: int, exam_id: str, question_key: str) -> HomeworkCacheEntry | None:
@@ -164,7 +164,7 @@ class HomeworkCache:
         return None
 
     def _cache_path(self, course_id: int, exam_id: str) -> Path:
-        """缓存文件路径: .zhs/homework_cache/{courseId}/{examId}.json"""
+        """缓存文件路径: .zhs/cache/zhidao_homework_cache/{courseId}/{examId}.json"""
         return self._cache_dir / str(course_id) / f"{exam_id}.json"
 
     def _load_exam(self, course_id: int, exam_id: str) -> dict[str, HomeworkCacheEntry]:

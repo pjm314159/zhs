@@ -257,6 +257,73 @@ class TestQuestionContent:
         assert len(qc.option_vos) == 2
         assert qc.version == 3
 
+    def test_from_api_json_with_null_fields(self) -> None:
+        """API 返回的 null 字段应被正确处理（非 Optional 字段为 None 时使用默认值）"""
+        data = {
+            "analysisVo": None,
+            "childQuestionVos": None,
+            "codeQuestionDetailDto": None,
+            "content": "关于大学体育课程的综合价值，下列哪项描述最为全面？",
+            "dataFileVos": None,
+            "examDesc": None,
+            "examTitle": None,
+            "id": 1013705024,
+            "optionVos": [
+                {"content": "仅有助于提高学生的身体素质", "id": 739512774, "isCorrect": None, "sort": 1},
+                {"content": "主要培养学生的专业技能", "id": 739512775, "isCorrect": None, "sort": 2},
+                {
+                    "content": "有助于促进学生身心健康、思想道德建设和社会适应能力的提升",
+                    "id": 739512776,
+                    "isCorrect": None,
+                    "sort": 3,
+                },
+                {"content": "只关注体育竞技成绩", "id": 739512777, "isCorrect": None, "sort": 4},
+            ],
+            "questionType": 1,
+            "questionTypeName": "单选题",
+            "readOverFileVos": None,
+            "result": None,
+            "studentRemarkList": None,
+            "teacherRemarkList": None,
+            "userAnswerVo": None,
+        }
+        qc = QuestionContent.model_validate(data)
+        assert qc.id == 1013705024
+        assert qc.question_type == 1
+        assert len(qc.option_vos) == 4
+        # isCorrect 为 None 时应回退为 0
+        assert qc.option_vos[0].is_correct == 0
+        # userAnswerVo 为 None 时应回退为空列表
+        assert qc.user_answer_vos == []
+
+    def test_fill_blank_question_with_null_option_content(self) -> None:
+        """填空题 optionVos 的 content 为 None 时应回退为空字符串"""
+        data = {
+            "id": 1013704827,
+            "content": "大学体育课程不仅提升学生体质健康，还能培养团队协作、____等社会能力。",
+            "questionType": 3,
+            "questionTypeName": "填空客观题（自动批阅）",
+            "result": None,
+            "childQuestionVos": None,
+            "userAnswerVo": None,
+            "analysisVo": None,
+            "optionVos": [{"id": 739512113, "content": None, "isCorrect": None, "sort": 1}],
+            "dataFileVos": None,
+            "codeQuestionDetailDto": None,
+            "examTitle": None,
+            "examDesc": None,
+            "readOverFileVos": None,
+            "studentRemarkList": None,
+            "teacherRemarkList": None,
+        }
+        qc = QuestionContent.model_validate(data)
+        assert qc.question_type == 3
+        assert len(qc.option_vos) == 1
+        # content 为 None 时应回退为空字符串
+        assert qc.option_vos[0].content == ""
+        # isCorrect 为 None 时应回退为 0
+        assert qc.option_vos[0].is_correct == 0
+
 
 class TestAnswerCache:
     """答案缓存模型"""

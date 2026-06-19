@@ -1,6 +1,6 @@
 """ZHS HTTP 会话管理模块
 
-封装 httpx 同步/异步客户端，提供知到/Hike/AI 考试 API 查询方法。
+封装 httpx 同步客户端，提供知到/Hike/AI 考试 API 查询方法。
 所有密钥和 URL 从 AppConfig 获取，不硬编码。
 """
 
@@ -23,7 +23,6 @@ class ZhsSession:
         self._config = config
         self._max_retries = max_retries
         self._client: httpx.Client | None = None
-        self._async_client: httpx.AsyncClient | None = None
         self._uuid: str | None = None
 
         # Cookie jar
@@ -121,18 +120,6 @@ class ZhsSession:
             )
         return self._client
 
-    def _get_async_client(self) -> httpx.AsyncClient:
-        """获取或创建异步 HTTP 客户端"""
-        if self._async_client is None:
-            proxy_dict = self._config.proxies.to_dict()
-            proxy = proxy_dict.get("http") or proxy_dict.get("https") or None
-            self._async_client = httpx.AsyncClient(
-                proxy=proxy,
-                cookies=self._cookies,
-                timeout=30.0,
-            )
-        return self._async_client
-
     def api_query(
         self,
         url: str,
@@ -156,34 +143,6 @@ class ZhsSession:
                 resp = client.post(url, data=data, headers=headers)
         else:
             resp = client.get(url, params=data, headers=headers)
-
-        resp.raise_for_status()
-        result: dict[str, Any] = resp.json()
-        return result
-
-    async def async_api_query(
-        self,
-        url: str,
-        data: dict[str, Any] | None = None,
-        method: str = "POST",
-        content_type: str = "form",
-    ) -> dict[str, Any]:
-        """异步通用 API 查询"""
-        client = self._get_async_client()
-        headers: dict[str, str] = dict(client.headers)
-
-        if method.upper() == "POST":
-            if content_type == "json":
-                headers["Content-Type"] = "application/json;charset=UTF-8"
-            elif content_type == "form":
-                headers["Content-Type"] = "application/x-www-form-urlencoded"
-
-            if content_type == "json" and isinstance(data, dict):
-                resp = await client.post(url, content=json.dumps(data), headers=headers)
-            else:
-                resp = await client.post(url, data=data, headers=headers)
-        else:
-            resp = await client.get(url, params=data, headers=headers)
 
         resp.raise_for_status()
         result: dict[str, Any] = resp.json()
@@ -262,7 +221,7 @@ class ZhsSession:
 
         return result
 
-    async def ai_exam_query(
+    def ai_exam_query(
         self,
         url: str,
         data: dict[str, Any],
@@ -270,7 +229,13 @@ class ZhsSession:
         ok_code: int = 0,
         method: str = "POST",
     ) -> dict[str, Any]:
-        """AI 考试 API 异步查询，密钥从 config.crypto 获取"""
+        """AI 考试 API 同步查询，密钥从 config.crypto 获取
+
+        使用 exam_key 加密，发送 dateFormate 字段，检查 code 字段。
+        与 homework_query 的区别：
+        - 发送 dateFormate 字段
+        - 检查 code 字段（0）而非 status 字段（"200"）
+        """
         if key is None:
             key = self.crypto.key_bytes("exam_key")
         iv = self.crypto.key_bytes("iv")
@@ -283,7 +248,7 @@ class ZhsSession:
             "dateFormate": str(int(time.time()) * 1000),
         }
 
-        result = await self.async_api_query(url, data=form_data, method=method)
+        result = self.api_query(url, data=form_data, method=method)
 
         code = result.get("code", 0)
         if code != ok_code:
@@ -583,9 +548,3 @@ class ZhsSession:
         if self._client:
             self._client.close()
             self._client = None
-
-    async def aclose(self) -> None:
-        """异步关闭客户端"""
-        if self._async_client:
-            await self._async_client.aclose()
-            self._async_client = None

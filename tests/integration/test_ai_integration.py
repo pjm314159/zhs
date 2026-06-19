@@ -133,7 +133,7 @@ class TestAiCourseFlow:
 
         # no_homework=True，避免影响真实成绩
         try:
-            mgr.run_course(course_id, class_id, app_config.ai, no_homework=True)
+            mgr.run_course(course_id, class_id, app_config.ai, app_config.homework, no_homework=True)
         except Exception as e:
             # 部分资源可能已完成，导致异常
             if "已完成" not in str(e):

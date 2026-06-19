@@ -44,14 +44,13 @@ class HomeworkConfig(BaseModel):
     delay_min: float = Field(default=1.0, alias="homework_delay_min", description="每题保存后最小休息时间（秒）")
     delay_max: float = Field(default=2.0, alias="homework_delay_max", description="每题保存后最大休息时间（秒）")
     page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
+    ai_homework_threshold: int = Field(default=90, description="AI 课程作业跳过阈值（masteryScore > 此值则跳过）")
 
 
 class DisplayConfig(BaseModel):
     """显示设置"""
 
     log_level: str = Field(default="INFO", description="日志级别: DEBUG, INFO, WARNING, ERROR")
-    tree_view: bool = Field(default=True, description="是否显示课程资源树")
-    progressbar_view: bool = Field(default=True, description="是否显示进度条")
 
 
 class ProxyConfig(BaseModel):
@@ -118,7 +117,6 @@ class AIConfig(BaseModel):
     api_key: str = Field(default="", description="OpenAI 兼容 API Key")
     base_url: str = Field(default="https://api.openai.com/v1", description="API Base URL")
     model: str = Field(default="gpt-4o-mini", description="模型名称")
-    moonshot_api_key: str = Field(default="", description="MoonShot API Key（用于 PPT 转文本）")
     max_token: int = Field(default=27900, description="最大 Token 数")
 
 
@@ -159,15 +157,11 @@ _FLAT_KEYS = (
     "homework_delay_max",
     "homework_page_size",
     "log_level",
-    "tree_view",
-    "progressbar_view",
     "image_path",
 )
 
 _MIGRATE_KEYS = (
     "save_cookies",
-    "tree_view",
-    "progressbar_view",
     "image_path",
 )
 
@@ -207,9 +201,9 @@ class ConfigManager:
             if key in legacy:
                 kwargs[key] = legacy[key]
 
-        # logLevel → log_level
+        # logLevel → display.log_level
         if "logLevel" in legacy:
-            kwargs["log_level"] = legacy["logLevel"]
+            kwargs["display"] = DisplayConfig(log_level=legacy["logLevel"])
 
         # 代理迁移
         if "proxies" in legacy:
@@ -233,12 +227,6 @@ class ConfigManager:
                     ai_kwargs["base_url"] = openai_legacy["api_base"]
                 if "model_name" in openai_legacy:
                     ai_kwargs["model"] = openai_legacy["model_name"]
-            if "ppt_processing" in ai_legacy:
-                ppt = ai_legacy["ppt_processing"]
-                if "moonShot" in ppt:
-                    moonshot = ppt["moonShot"]
-                    if "api_key" in moonshot:
-                        ai_kwargs["moonshot_api_key"] = moonshot["api_key"]
             kwargs["ai"] = AIConfig(**ai_kwargs)
 
         config = AppConfig(**kwargs)
@@ -274,6 +262,8 @@ class ConfigManager:
                 hw_kwargs["delay_max"] = hw["delay_max"]
             if "page_size" in hw:
                 hw_kwargs["page_size"] = hw["page_size"]
+            if "ai_homework_threshold" in hw:
+                hw_kwargs["ai_homework_threshold"] = hw["ai_homework_threshold"]
             # 兼容旧版字段名（homework_delay_min 等）
             if "homework_delay_min" in hw:
                 hw_kwargs["delay_min"] = hw["homework_delay_min"]

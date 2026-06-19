@@ -11,20 +11,6 @@ class TestOpenAICompletion:
     """OpenAI 兼容接口 completion"""
 
     @patch("zhs.llm.openai.OpenAI")
-    def test_non_stream_completion(self, mock_openai_cls: MagicMock) -> None:
-        """非流式调用"""
-        mock_client = MagicMock()
-        mock_openai_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '```answer\n[{"id": 1, "content": "A"}]\n```'
-        mock_client.chat.completions.create.return_value = mock_response
-
-        provider = OpenAIProvider(api_key="test-key", model_name="gpt-4")
-        result = provider.completion("test prompt")
-        assert "```answer" in result
-
-    @patch("zhs.llm.openai.OpenAI")
     def test_stream_completion(self, mock_openai_cls: MagicMock) -> None:
         """流式响应解析"""
         mock_client = MagicMock()
@@ -39,7 +25,7 @@ class TestOpenAICompletion:
         ]
         mock_client.chat.completions.create.return_value = iter(chunks)
 
-        provider = OpenAIProvider(api_key="test-key", model_name="gpt-4", stream=True)
+        provider = OpenAIProvider(api_key="test-key", model_name="gpt-4")
         result = provider.completion("test prompt")
         assert "```answer" in result
 
@@ -59,10 +45,9 @@ class TestOpenAICompletion:
         """自定义 base_url"""
         mock_client = MagicMock()
         mock_openai_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "```answer\nok\n```"
-        mock_client.chat.completions.create.return_value = mock_response
+
+        chunks = [MagicMock(choices=[MagicMock(delta=MagicMock(content="```answer\nok\n```"))])]
+        mock_client.chat.completions.create.return_value = iter(chunks)
 
         provider = OpenAIProvider(
             api_key="test-key",
@@ -80,10 +65,9 @@ class TestOpenAICompletion:
         """model_name 传递给 API"""
         mock_client = MagicMock()
         mock_openai_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "```answer\nok\n```"
-        mock_client.chat.completions.create.return_value = mock_response
+
+        chunks = [MagicMock(choices=[MagicMock(delta=MagicMock(content="```answer\nok\n```"))])]
+        mock_client.chat.completions.create.return_value = iter(chunks)
 
         provider = OpenAIProvider(api_key="test-key", model_name="gpt-3.5-turbo")
         provider.completion("test")

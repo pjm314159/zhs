@@ -11,7 +11,7 @@ from zhs.ai.models import (
     Resource,
     ResourceDetail,
 )
-from zhs.config import AIConfig
+from zhs.config import AIConfig, HomeworkConfig
 
 
 @pytest.fixture
@@ -197,24 +197,28 @@ class TestHomeworkLoop:
 
     def test_mastery_score_above_90_exits(self, manager: AiCourseManager) -> None:
         """mastery_score > 90 → 退出"""
+        homework_config = HomeworkConfig(ai_homework_threshold=90)
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=95)
-        result = manager._should_do_homework(exam, tried=0, no_homework=False)
+        result = manager._should_do_homework(exam, tried=0, no_homework=False, homework_config=homework_config)
         assert result is False
 
     def test_mastery_score_below_30_tried_over_4_gives_up(self, manager: AiCourseManager) -> None:
         """mastery_score < 30 且 tried > 4 → 放弃"""
+        homework_config = HomeworkConfig(ai_homework_threshold=90)
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=20)
-        result = manager._should_do_homework(exam, tried=5, no_homework=False)
+        result = manager._should_do_homework(exam, tried=5, no_homework=False, homework_config=homework_config)
         assert result is False
 
     def test_no_homework_flag_skips(self, manager: AiCourseManager) -> None:
         """no_homework=True 跳过作业"""
+        homework_config = HomeworkConfig(ai_homework_threshold=90)
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=50)
-        result = manager._should_do_homework(exam, tried=0, no_homework=True)
+        result = manager._should_do_homework(exam, tried=0, no_homework=True, homework_config=homework_config)
         assert result is False
 
     def test_should_do_homework(self, manager: AiCourseManager) -> None:
         """mastery_score 30-90 且 tried <= 4 → 应做作业"""
+        homework_config = HomeworkConfig(ai_homework_threshold=90)
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=50)
-        result = manager._should_do_homework(exam, tried=0, no_homework=False)
+        result = manager._should_do_homework(exam, tried=0, no_homework=False, homework_config=homework_config)
         assert result is True

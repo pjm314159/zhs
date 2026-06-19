@@ -80,7 +80,6 @@ class TestAIConfig:
         assert ai.api_key == ""
         assert ai.base_url == "https://api.openai.com/v1"
         assert ai.model == "gpt-4o-mini"
-        assert ai.moonshot_api_key == ""
         assert ai.max_token == 27900
 
     def test_custom_values(self) -> None:
@@ -138,7 +137,6 @@ class TestConfigManagerLoad:
         config_file = tmp_path / "config.toml"
         config_file.write_text(
             """
-[auth]
 save_cookies = false
 """
         )
@@ -219,9 +217,8 @@ max_token = 16000
         config_file = tmp_path / "config.toml"
         config_file.write_text(
             """
-[auth]
-proxies = {http = "http://127.0.0.1:8080"}
-save_cookies = true
+[proxies]
+http = "http://127.0.0.1:8080"
 """
         )
         mgr = ConfigManager(config_file)
@@ -293,8 +290,6 @@ class TestConfigManagerMigrate:
             "save_cookies": True,
             "proxies": {},
             "logLevel": "DEBUG",
-            "tree_view": True,
-            "progressbar_view": True,
             "qr_extra": {"show_in_terminal": None, "ensure_unicode": False},
             "image_path": "",
             "ai": {
@@ -304,14 +299,6 @@ class TestConfigManagerMigrate:
                     "api_base": "https://api.deepseek.com",
                     "api_key": "sk-test",
                     "model_name": "deepseek-v4-pro",
-                },
-                "ppt_processing": {
-                    "provide_to_ai": False,
-                    "moonShot": {
-                        "base_url": "https://api.moonshot.cn/v1",
-                        "api_key": "sk-",
-                        "delete_after_convert": True,
-                    },
                 },
                 "use_stream": True,
             },
@@ -335,14 +322,6 @@ class TestConfigManagerMigrate:
                     "api_key": "sk-abc123",
                     "model_name": "deepseek-v4-pro",
                 },
-                "ppt_processing": {
-                    "provide_to_ai": False,
-                    "moonShot": {
-                        "base_url": "https://api.moonshot.cn/v1",
-                        "api_key": "sk-moon",
-                        "delete_after_convert": True,
-                    },
-                },
                 "use_stream": True,
             },
         }
@@ -353,31 +332,6 @@ class TestConfigManagerMigrate:
         assert cfg.ai.api_key == "sk-abc123"
         assert cfg.ai.base_url == "https://api.deepseek.com"
         assert cfg.ai.model == "deepseek-v4-pro"
-
-    def test_migrate_extracts_moonshot_key(self, tmp_path: Path) -> None:
-        """迁移时提取 MoonShot API key"""
-        json_file = tmp_path / "config.json"
-        legacy = {
-            "ai": {
-                "enabled": True,
-                "use_zhidao_ai": True,
-                "openai": {"api_base": "", "api_key": "", "model_name": ""},
-                "ppt_processing": {
-                    "provide_to_ai": True,
-                    "moonShot": {
-                        "base_url": "https://api.moonshot.cn/v1",
-                        "api_key": "sk-moonshot-key",
-                        "delete_after_convert": True,
-                    },
-                },
-                "use_stream": True,
-            },
-        }
-        json_file.write_text(json.dumps(legacy), encoding="utf-8")
-
-        mgr = ConfigManager(tmp_path / "config.toml")
-        cfg = mgr.migrate(json_file)
-        assert cfg.ai.moonshot_api_key == "sk-moonshot-key"
 
     def test_migrate_minimal_json(self, tmp_path: Path) -> None:
         """迁移最小 JSON 配置"""

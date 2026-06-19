@@ -445,3 +445,59 @@
 | 6 | `detect_course_type` 辅助函数 | ✅ Green | 单元测试 |
 
 **设计变更**：CLI 使用 typer 框架替代旧版 argparse。课程类型检测逻辑：`--type` 显式指定优先，含字母→知到，纯数字→Hike。B008 规则使用 `# noqa: B008` 抑制。
+
+---
+
+## 重构: AI Homework 异步转同步
+
+### 背景
+
+知到作业 API 有时间速率限制，异步并发会触发限流。将 `ai/homework.py` 从 asyncio 改为同步实现，使用 threading + time.sleep 替代。
+
+### 变更清单
+
+| 文件 | 变更 |
+|------|------|
+| `src/zhs/ai/homework.py` | 删除 asyncio，改用 threading + time.sleep；并发改顺序 |
+| `src/zhs/session.py` | 删除 `_async_client`/`_get_async_client`/`async_api_query`/`aclose`；`ai_exam_query` 改同步 |
+| `src/zhs/ai/course.py` | 移除 `asyncio.run` 调用 |
+| `tests/ai/test_homework.py` | 异步测试转同步，删除 AsyncMock/pytest.mark.asyncio |
+| `tests/test_session.py` | TestAiExamQuery 转同步 |
+| `tests/integration/test_ai_integration.py` | 转同步 |
+| `pyproject.toml` | 移除 `pytest-asyncio` 依赖与 `asyncio_mode` 配置 |
+
+### TDD 循环记录
+
+| # | 阶段 | 测试用例 | 红/绿 | 备注 |
+|---|------|----------|-------|------|
+| 1 | RED | `test_no_semaphore` 验证无 asyncio.Semaphore | ✅ Red | 删除旧并发测试 |
+| 2 | RED | `test_heartbeat_thread_attribute` 验证 threading.Thread 属性 | ✅ Red | |
+| 3 | RED | `test_heartbeat_uses_thread` 验证使用 threading.Thread | ✅ Red | |
+| 4 | RED | `test_heartbeat_thread_daemon` 验证 daemon=True | ✅ Red | |
+| 5 | RED | `TestAiExamQuery::test_sync_query_works` 同步调用 | ✅ Red | |
+| 6 | GREEN | `ai/homework.py` 重写为同步 | ✅ Green | threading.Thread 心跳，for 循环顺序处理 |
+| 7 | GREEN | `session.py` 删除异步接口，`ai_exam_query` 改同步 | ✅ Green | 使用 `self.api_query()` |
+| 8 | GREEN | `ai/course.py` 移除 `asyncio.run` | ✅ Green | 直接调用 `homework_ctx.start()` |
+| 9 | GREEN | `pyproject.toml` 移除 pytest-asyncio | ✅ Green | |
+| 10 | REFACTOR | `ruff check src/ tests/` | ✅ Pass | All checks passed |
+| 11 | REFACTOR | `ruff format src/ tests/` | ✅ Pass | 3 files reformatted |
+| 12 | REFACTOR | `mypy src/ tests/` | ✅ Pass | Success: no issues found in 89 source files |
+| 13 | REFACTOR | 相关测试 63 个全绿 | ✅ Pass | tests/ai + tests/test_session + integration |
+
+**设计变更**：
+- `HomeworkCtx._semaphore` (asyncio.Semaphore) 删除，改为顺序处理（for 循环）
+- `HomeworkCtx._heartbeat_task` (asyncio.Task) → `_heartbeat_thread` (threading.Thread, daemon=True)
+- `HomeworkCtx.start()` 从 `async def` 改为 `def`
+- `await asyncio.gather(*tasks)` → `for sheet in sheets: self._process_question(sheet)`
+- `await asyncio.sleep()` → `time.sleep()`
+- `ZhsSession` 删除 `_async_client`/`_get_async_client`/`async_api_query`/`aclose`
+- `ZhsSession.ai_exam_query` 从 `async def` 改为 `def`，使用 `self.api_query()` 替代 `await self.async_api_query()`
+- `ai/course.py` 中 `asyncio.run(homework_ctx.start(...))` → `homework_ctx.start(...)`
+- 移除 `pytest-asyncio` 依赖与 `asyncio_mode = "auto"` 配置
+
+**验证结果**：
+- `ruff check src/ tests/` → All checks passed
+- `ruff format --check src/ tests/` → 89 files already formatted
+- `mypy src/ tests/` → Success: no issues found in 89 source files
+- 相关测试 63 个全部通过（tests/ai/test_homework.py + tests/test_session.py + tests/ai/test_course.py + tests/integration/test_ai_integration.py）
+- grep 验证：src/zhs/ 无 asyncio/async def/await/AsyncClient 残留

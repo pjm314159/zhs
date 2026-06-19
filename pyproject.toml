@@ -17,7 +17,7 @@ dependencies = [
     "typer>=0.15",           # CLI 框架，类型注解自动生成参数
     "loguru>=0.7",           # 日志库
     "pycryptodome>=3.21",    # AES-128-CBC 加密，与智慧树 API 通信
-    "openai>=2.41.1",        # LLM API 调用（OpenAI 兼容接口 + MoonShot）
+    "openai>=2.41.1",        # LLM API 调用（OpenAI 兼容接口）
     "tiktoken>=0.9",         # Token 计数，Prompt 长度截断
     "Pillow>=11.0",          # 二维码图片渲染与显示
     "qrcode>=8.2",
@@ -37,7 +37,6 @@ packages = ["src/zhs"]
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",           # 测试框架，TDD 开发
-    "pytest-asyncio>=0.25",  # 异步测试支持（AI 考试模块）
     "pytest-cov>=6.0",       # 覆盖率报告
     "respx>=0.22",           # httpx Mock 库，集成/端到端测试
     "freezegun>=1.5",        # 时间 Mock，测试 dateFormate 时间戳
@@ -74,7 +73,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # ============================================================================
 [tool.pytest.ini_options]
 testpaths = ["tests"]       # 测试目录
-asyncio_mode = "auto"       # 自动识别 async 测试函数，无需 @pytest.mark.asyncio
 markers = [
     "unit: 单元测试（无外部依赖）",
     "integration: 集成测试（Mock HTTP）",

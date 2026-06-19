@@ -22,15 +22,11 @@ class HikeVideoPlayer:
         speed: float | None = None,
         end_threshold: float = 0.91,
         time_limit: int = 0,
-        progressbar_view: bool = True,
-        tree_view: bool = True,
     ) -> None:
         self._session = session
         self._speed = speed
         self._end_threshold = end_threshold
         self._time_limit = time_limit
-        self._progressbar_view = progressbar_view
-        self._tree_view = tree_view
         self._fucked_time = 0
 
     @property
@@ -40,19 +36,19 @@ class HikeVideoPlayer:
     def play_course(self, course_id: str, root: list[ResourceNode]) -> None:
         """播放整个 Hike 课程"""
         begin_time = time.time()
-        tree_print(f"{course_tag('hike')} 课程: {course_id} ({len(root)} 个根章节)", enabled=self._tree_view)
+        tree_print(f"{course_tag('hike')} 课程: {course_id} ({len(root)} 个根章节)", enabled=True)
         try:
             for chapter in root:
                 self._traverse(course_id, chapter)
         except KeyboardInterrupt:
-            tree_print(msg_warn("!! 用户中断"), enabled=self._tree_view)
+            tree_print(msg_warn("!! 用户中断"), enabled=True)
         cost = time.time() - begin_time
-        tree_print(msg_done(f"完成课程: {course_id} ({cost:.1f}s)"), depth=1, enabled=self._tree_view)
+        tree_print(msg_done(f"完成课程: {course_id} ({cost:.1f}s)"), depth=1, enabled=True)
 
     def _traverse(self, course_id: str, node: ResourceNode, depth: int = 0) -> None:
         """递归遍历资源树"""
         depth += 1
-        tv = self._tree_view
+        tv = True
 
         if node.child_list is not None:
             # 章节节点：递归遍历子节点
@@ -133,12 +129,10 @@ class HikeVideoPlayer:
                 played_time = float(ret_time)
 
             # 显示进度条
-            if self._progressbar_view:
-                bar_str = progress_bar(int(played_time), int(end_time))
-                print(f"\rplaying {file_id} {bar_str}", end="", flush=True)
+            bar_str = progress_bar(int(played_time), int(end_time))
+            print(f"\rplaying {file_id} {bar_str}", end="", flush=True)
 
-        if self._progressbar_view:
-            wipe_line()
+        wipe_line()
 
         # 人类延迟
         time.sleep(random() + 1)

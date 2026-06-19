@@ -28,8 +28,6 @@ def _make_mock_config() -> MagicMock:
 
     mock_config.display = MagicMock()
     mock_config.display.log_level = "INFO"
-    mock_config.display.tree_view = True
-    mock_config.display.progressbar_view = True
 
     mock_config.proxies = MagicMock()
     mock_config.proxies.to_dict = MagicMock(return_value={})
@@ -221,21 +219,6 @@ class TestPlayCommand:
         assert call_args[2] == 100
         assert call_args[3] == 200
 
-    @patch("zhs.__main__._load_config_and_session")
-    def test_tree_view_and_progressbar_always_enabled(
-        self,
-        mock_load: MagicMock,
-    ) -> None:
-        """tree_view / progressbar_view 默认启用"""
-        mock_config = _make_mock_config()
-        mock_session = MagicMock()
-        mock_load.return_value = (mock_config, mock_session)
-
-        with patch("zhs.__main__._run_all"):
-            runner.invoke(app, ["play"])
-        assert mock_config.display.tree_view is True
-        assert mock_config.display.progressbar_view is True
-
 
 class TestPlayOverridesConfig:
     """play 命令 CLI 参数覆盖配置值"""
@@ -319,7 +302,7 @@ class TestHomeworkCommand:
         mock_load.return_value = (mock_config, mock_session)
 
         runner.invoke(app, ["homework", "--homework-threshold", "80"])
-        assert mock_config.homework_threshold == 80
+        assert mock_config.homework.threshold == 80
 
     @patch("zhs.__main__._load_config_and_session")
     def test_max_submit_override(
@@ -332,7 +315,7 @@ class TestHomeworkCommand:
         mock_load.return_value = (mock_config, mock_session)
 
         runner.invoke(app, ["homework", "--max-submit", "5"])
-        assert mock_config.max_submit == 5
+        assert mock_config.homework.max_submit == 5
 
 
 class TestInitCommand:

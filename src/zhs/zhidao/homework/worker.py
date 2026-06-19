@@ -372,7 +372,7 @@ class HomeworkWorker:
                         return self._random_answer(question, wrong_options)
 
                     # 检查是否包含错误选项
-                    if wrong_options and ids and ids==wrong_options:
+                    if wrong_options and ids and ids == wrong_options:
                         wrong_chosen = [id_ for id_ in ids if id_ in wrong_options]
                         wrong_labels = self._get_option_labels(all_options, wrong_chosen)
                         logger.warning(

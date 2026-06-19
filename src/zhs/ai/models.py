@@ -1,6 +1,6 @@
 """AI 课程数据模型"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class KnowledgePoint(BaseModel):
@@ -81,6 +81,18 @@ class OptionVo(BaseModel):
     content: str = ""
     is_correct: int = Field(default=0, alias="isCorrect")
 
+    @field_validator("content", mode="before")
+    @classmethod
+    def _none_content_to_empty(cls, v: object) -> object:
+        """API 返回 content 为 null 时回退为空字符串（填空题选项无 content）"""
+        return "" if v is None else v
+
+    @field_validator("is_correct", mode="before")
+    @classmethod
+    def _none_is_correct_to_zero(cls, v: object) -> object:
+        """API 返回 isCorrect 为 null 时回退为 0"""
+        return 0 if v is None else v
+
 
 class UserAnswerVo(BaseModel):
     """用户答案"""
@@ -102,6 +114,12 @@ class QuestionContent(BaseModel):
     option_vos: list[OptionVo] = Field(default=[], alias="optionVos")
     user_answer_vos: list[UserAnswerVo] = Field(default=[], alias="userAnswerVo")
     version: int = Field(default=1, alias="version")
+
+    @field_validator("user_answer_vos", mode="before")
+    @classmethod
+    def _none_user_answer_to_empty(cls, v: object) -> object:
+        """API 返回 userAnswerVo 为 null 时回退为空列表"""
+        return [] if v is None else v
 
 
 class AnswerCache(BaseModel):

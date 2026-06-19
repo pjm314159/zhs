@@ -15,6 +15,7 @@ class OpenAIProvider(LLMProvider):
     """OpenAI 兼容接口
 
     支持任何 OpenAI 兼容的 API（包括 MoonShot、DeepSeek 等）。
+    默认启用流式响应，检测到答案标记后提前终止。
     """
 
     def __init__(
@@ -22,7 +23,6 @@ class OpenAIProvider(LLMProvider):
         api_key: str,
         base_url: str = "https://api.openai.com",
         model_name: str = "gpt-4",
-        stream: bool = False,
         extra: dict[str, Any] | None = None,
         max_retries: int = 3,
         retry_delay: float = 1.0,
@@ -30,7 +30,6 @@ class OpenAIProvider(LLMProvider):
     ) -> None:
         self._client = OpenAI(api_key=api_key, base_url=base_url)
         self._model_name = model_name
-        self._stream = stream
         self._extra = extra or {}
         self._max_retries = max_retries
         self._retry_delay = retry_delay
@@ -48,23 +47,9 @@ class OpenAIProvider(LLMProvider):
 
         for attempt in range(self._max_retries):
             try:
-                if self._stream:
-                    return self._stream_completion(prompt, aim_start, aim_end)
-
-                response = self._client.chat.completions.create(
-                    model=self._model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=False,
-                    **self._extra,
-                )
-                content = response.choices[0].message.content
-                if content is None:
-                    raise ZhsError("OpenAI API returned empty content")
-                return str(content)
-            except ZhsError:
-                raise
+                return self._stream_completion(prompt, aim_start, aim_end)
             except Exception as e:
-                logger.error(f"OpenAI attempt {attempt + 1} failed: {e}")
+                logger.error(f"OpenAI attempt {attempt + 1}/{self._max_retries} failed: {e}")
                 if attempt < self._max_retries - 1:
                     time.sleep(self._retry_delay)
                 else:
@@ -89,8 +74,16 @@ class OpenAIProvider(LLMProvider):
                 # 检测到答案标记后提前终止
                 match = re.search(f"{re.escape(aim_start)}(.*?){re.escape(aim_end)}", cache, re.DOTALL)
                 if match:
+                    logger.info("检测到答案标记，提前终止 OpenAI 流")
                     return cache
-        return "".join(collected)
+
+        # 流结束但未找到答案标记
+        result = "".join(collected)
+        if not result:
+            logger.error("OpenAI 流响应为空，未找到答案标记")
+            raise ZhsError("OpenAI 流响应为空，未找到答案标记")
+        logger.error(f"OpenAI 流结束但未找到答案标记, 响应长度={len(result)}, 内容前200字: {result[:200]}")
+        raise ZhsError(f"OpenAI 未返回有效答案（响应长度={len(result)}）")
 
     def _truncate_prompt(self, prompt: str) -> str:
         """截断过长的 prompt（简单字符估算，约 4 字符/token）"""

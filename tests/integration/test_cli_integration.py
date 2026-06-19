@@ -17,8 +17,8 @@ class TestCLIFetch:
     """课程列表获取"""
 
     def test_fetch_course_list(self) -> None:
-        """C-02: zhs -f 获取课程列表"""
-        result = runner.invoke(app, ["-f"])
+        """C-02: zhs fetch 获取课程列表"""
+        result = runner.invoke(app, ["fetch"])
         # 可能输出包含课程信息或错误（未登录）
         assert result.exit_code == 0 or "登录" in result.output or "Cookie" in result.output
 
@@ -69,26 +69,28 @@ class TestCLICourseType:
     """课程类型检测"""
 
     def test_type_flag_in_help(self) -> None:
-        """C-13/C-14: --type 参数在帮助中"""
-        result = runner.invoke(app, ["--help"])
+        """C-13/C-14: --type 参数在 play 帮助中"""
+        result = runner.invoke(app, ["play", "--help"])
         assert result.exit_code == 0
         assert "--type" in result.output
 
     def test_ai_course_and_class_flags(self) -> None:
-        """C-12: --ai-course 和 --ai-class 参数存在"""
-        result = runner.invoke(app, ["--help"])
+        """C-12: --ai-course 和 --ai-class 参数在 play 帮助中"""
+        result = runner.invoke(app, ["play", "--help"])
         assert "--ai-course" in result.output
         assert "--ai-class" in result.output
 
     def test_noexam_flag(self) -> None:
-        """C-09: --noexam 参数存在"""
-        result = runner.invoke(app, ["--help"])
-        assert "--noexam" in result.output
+        """C-09: --noexam 参数在 homework 帮助中"""
+        result = runner.invoke(app, ["homework", "--help"])
+        # --noexam 已被移除，homework 命令默认写作业
+        assert result.exit_code == 0
 
     def test_no_ai_exam_flag(self) -> None:
-        """C-10: --no-ai-exam 参数存在"""
-        result = runner.invoke(app, ["--help"])
-        assert "--no-ai-exam" in result.output
+        """C-10: --no-ai-exam 参数在 homework 帮助中"""
+        result = runner.invoke(app, ["homework", "--help"])
+        # --no-ai-exam 已被移除，使用 --no-ai 替代
+        assert "--no-ai" in result.output
 
 
 class TestCLIPptLocal:
