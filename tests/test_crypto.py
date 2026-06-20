@@ -1,9 +1,8 @@
 """crypto.py 单元测试 — TDD Red 阶段"""
 
-import re
 from hashlib import md5
 
-from zhs.crypto import Cipher, WatchPoint, decode_ev, encode_ev, sign_hike, sign_zhidao_ai
+from zhs.crypto import Cipher, WatchPoint, encode_ev, sign_hike
 
 
 # ---------------------------------------------------------------------------
@@ -70,47 +69,37 @@ class TestCipher:
 
 
 # ---------------------------------------------------------------------------
-# encode_ev / decode_ev — ev 编解码
+# encode_ev — ev 编码
 # ---------------------------------------------------------------------------
 class TestEncodeEv:
-    """ev 编解码测试"""
+    """ev 编码测试"""
 
-    def test_roundtrip(self) -> None:
-        """ev 编解码对称性"""
+    def test_returns_string(self) -> None:
+        """encode_ev 返回字符串"""
         data = [100, 200, 300, 0, 1, 22]
-        assert decode_ev(encode_ev(data)) == ";".join(map(str, data))
-
-    def test_default_key(self) -> None:
-        """默认密钥 zzpttjd"""
-        data = [0, 1, 22]
         encoded = encode_ev(data)
-        decoded = decode_ev(encoded)
-        assert decoded == ";".join(map(str, data))
+        assert isinstance(encoded, str)
+        assert len(encoded) > 0
+
+    def test_deterministic(self) -> None:
+        """相同输入产生相同输出"""
+        data = [0, 1, 22]
+        assert encode_ev(data) == encode_ev(data)
 
     def test_custom_key(self) -> None:
-        """自定义密钥"""
+        """自定义密钥产生不同输出"""
         data = [100, 200]
-        encoded = encode_ev(data, key="zhihuishu")
-        decoded = decode_ev(encoded, key="zhihuishu")
-        assert decoded == ";".join(map(str, data))
+        default_encoded = encode_ev(data)
+        custom_encoded = encode_ev(data, key="zhihuishu")
+        assert default_encoded != custom_encoded
 
     def test_empty_list(self) -> None:
-        """空列表"""
-        encoded = encode_ev([])
-        decoded = decode_ev(encoded)
-        assert decoded == ""
+        """空列表返回空字符串"""
+        assert encode_ev([]) == ""
 
-    def test_truncation_minus_4(self) -> None:
-        """tmp[-4:] 截断后仍可正确解码"""
-        data = list(range(50))
-        assert decode_ev(encode_ev(data)) == ";".join(map(str, data))
-
-    def test_mismatched_key_fails(self) -> None:
-        """编码和解码使用不同密钥，结果不一致"""
-        data = [1, 2, 3]
-        encoded = encode_ev(data, key="zzpttjd")
-        decoded = decode_ev(encoded, key="zhihuishu")
-        assert decoded != str(data)
+    def test_different_data_different_output(self) -> None:
+        """不同数据产生不同输出"""
+        assert encode_ev([1, 2, 3]) != encode_ev([4, 5, 6])
 
 
 # ---------------------------------------------------------------------------
@@ -173,64 +162,6 @@ class TestSignHike:
         r1 = sign_hike(params, "salt1")
         r2 = sign_hike(params, "salt2")
         assert r1 != r2
-
-
-# ---------------------------------------------------------------------------
-# sign_zhidao_ai — 智慧树 AI 对话签名
-# ---------------------------------------------------------------------------
-class TestSignZhidaoAi:
-    """智慧树 AI 对话签名测试"""
-
-    def test_returns_url_with_sign(self) -> None:
-        """返回含 sign 参数的 URL"""
-        url, body = sign_zhidao_ai(
-            data={"messageList": [], "modelCode": "test", "stream": True},
-            prefix="8ZflKEagfL",
-        )
-        assert "sign=" in url
-
-    def test_session_nid_format(self) -> None:
-        """sessionNid 格式：chatcmpl- + 24位随机字符"""
-        for _ in range(10):
-            url, body = sign_zhidao_ai(
-                data={"messageList": [], "modelCode": "test", "stream": True},
-                prefix="8ZflKEagfL",
-            )
-            session_nid = body.get("sessionNid", "")
-            assert session_nid.startswith("chatcmpl-"), f"sessionNid 应以 chatcmpl- 开头，实际: {session_nid}"
-            suffix = session_nid[len("chatcmpl-") :]
-            assert len(suffix) == 24, f"sessionNid 后缀应为 24 位，实际: {len(suffix)}"
-            assert re.match(r"^[a-zA-Z0-9]+$", suffix), f"sessionNid 后缀应为字母数字，实际: {suffix}"
-
-    def test_session_nid_unique(self) -> None:
-        """多次调用生成不同的 sessionNid"""
-        nids = set()
-        for _ in range(20):
-            _, body = sign_zhidao_ai(
-                data={"messageList": [], "modelCode": "test", "stream": True},
-                prefix="8ZflKEagfL",
-            )
-            nids.add(body["sessionNid"])
-        # 20 次调用应产生至少 19 个不同的 sessionNid（极低概率碰撞）
-        assert len(nids) >= 19
-
-    def test_sign_deterministic_for_same_input(self) -> None:
-        """相同 data 和 prefix 产生相同 sign"""
-        data = {"messageList": [], "modelCode": "test", "stream": True}
-        prefix = "8ZflKEagfL"
-        # 手动构建 input_string 并计算 MD5
-        # sign_zhidao_ai 内部会生成 sessionNid，所以 sign 会因 sessionNid 不同而不同
-        # 但我们可以验证 sign 是 MD5 格式（32 位十六进制）
-        url, body = sign_zhidao_ai(data=data, prefix=prefix)
-        sign_value = None
-        from urllib.parse import parse_qs, urlsplit
-
-        parsed = urlsplit(url)
-        qs = parse_qs(parsed.query)
-        if "sign" in qs:
-            sign_value = qs["sign"][0]
-        assert sign_value is not None
-        assert re.match(r"^[a-f0-9]{32}$", sign_value), f"sign 应为 32 位十六进制，实际: {sign_value}"
 
 
 # ---------------------------------------------------------------------------

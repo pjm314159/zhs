@@ -16,7 +16,6 @@ class CourseInfo(BaseModel):
 
     course_id: int = Field(alias="courseId")
     name: str
-    en_name: str | None = Field(default=None, alias="enName")
 
     model_config = {"populate_by_name": True}
 

@@ -103,7 +103,6 @@ class UrlConfig(BaseModel):
     hike: str = "https://hike.zhihuishu.com"
     ai: str = "https://kg-ai-run.zhihuishu.com"
     ai_task: str = "https://kg-run-student.zhihuishu.com"
-    ai_chat: str = "https://ai-knowledge-map-platform.zhihuishu.com/knowledgemap/gateway/t/qa/platform/stream"
     exam: str = "https://studentexamtest.zhihuishu.com"
     homework: str = "https://studentexam-api.zhihuishu.com"
     ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"

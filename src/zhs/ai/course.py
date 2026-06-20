@@ -199,8 +199,6 @@ class AiCourseManager:
         # 创建视频播放器
         video_player = AiVideoPlayer(self._session, speed=speed)
 
-        ppt_conf = getattr(ai_config, "ppt_processing", {})
-
         for theme in course_info.cake_theme_list:
             logger.info(f"主题: {theme.theme_name}")
             print()
@@ -229,25 +227,6 @@ class AiCourseManager:
                         depth=2,
                         enabled=True,
                     )
-                    # 已完成的知识点，仍收集 PPT
-                    if ppt_conf:
-                        try:
-                            resources = self.list_knowledge_resources(course_id, class_id, knowledge.knowledge_id)
-                            for resource in resources:
-                                detail = resource.resources_detail
-                                if (
-                                    detail.resources_type == 1
-                                    and detail.resources_distribute_type == 4
-                                    and detail.resources_url
-                                ):
-                                    ppts.append(
-                                        {
-                                            "name": detail.resources_name,
-                                            "url": detail.resources_url,
-                                        }
-                                    )
-                        except Exception as e:
-                            logger.error(f"获取已完成知识点资源失败: {e}")
                     logger.info(f"知识点已完成: {knowledge.knowledge_name}")
                     continue
 

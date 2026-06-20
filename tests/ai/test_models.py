@@ -1,10 +1,7 @@
 """Task 6.1 — ai/models.py TDD"""
 
-from pydantic import BaseModel
-
 from zhs.ai.models import (
     AiCourseInfo,
-    AnswerCache,
     ExamInfo,
     KnowledgePoint,
     OptionVo,
@@ -323,33 +320,3 @@ class TestQuestionContent:
         assert qc.option_vos[0].content == ""
         # isCorrect 为 None 时应回退为 0
         assert qc.option_vos[0].is_correct == 0
-
-
-class TestAnswerCache:
-    """答案缓存模型"""
-
-    def test_basic_construction(self) -> None:
-        """基本构造"""
-        ac = AnswerCache()
-        assert ac.version == 1
-        assert ac.question == ""
-        assert ac.answer == ""
-        assert ac.answer_content == ""
-        assert ac.question_dict == {}
-
-    def test_with_data(self) -> None:
-        """带数据构造"""
-        ac = AnswerCache(
-            version=2,
-            question="1+1=?",
-            answer="1#@#2",
-            answer_content="选项A\n选项B",
-            question_dict={"key": "value"},
-        )
-        assert ac.version == 2
-        assert ac.answer == "1#@#2"
-        assert ac.answer_content == "选项A\n选项B"
-
-    def test_is_pydantic_model(self) -> None:
-        """是 pydantic 模型"""
-        assert issubclass(AnswerCache, BaseModel)

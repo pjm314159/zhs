@@ -120,13 +120,3 @@ class QuestionContent(BaseModel):
     def _none_user_answer_to_empty(cls, v: object) -> object:
         """API 返回 userAnswerVo 为 null 时回退为空列表"""
         return [] if v is None else v
-
-
-class AnswerCache(BaseModel):
-    """答案缓存"""
-
-    version: int = 1
-    question: str = ""
-    answer: str = ""
-    answer_content: str = ""
-    question_dict: dict[str, object] = {}

@@ -8,7 +8,6 @@ TDD 步骤:
 """
 
 from zhs.zhidao.models import (
-    CourseInfo,
     PopupQuestion,
     QuestionOption,
     QuestionPoint,
@@ -60,12 +59,6 @@ class TestZhidaoCourse:
         assert course.course_info is not None
         assert course.course_info.course_id == 456
         assert course.course_info.name == "测试课程"
-        assert course.course_info.en_name == "Test Course"
-
-    def test_course_info_default_en_name(self) -> None:
-        """CourseInfo en_name 默认 None"""
-        info = CourseInfo(course_id=1, name="测试")
-        assert info.en_name is None
 
 
 class TestVideoSmallLesson:

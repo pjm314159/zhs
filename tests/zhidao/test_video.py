@@ -334,3 +334,128 @@ class TestPlayCourse:
         with patch.object(player, "play_video") as mock_play:
             player.play_course("ABC123", ctx)
             mock_play.assert_called_once_with("ABC123", 100, ctx)
+
+
+class TestReportProgressV2Return:
+    """_report_progress_v2 返回 (server_played, success) 元组"""
+
+    def test_success_returns_true(self, mock_session: ZhsSession) -> None:
+        """上报成功时返回 (played_time, True)"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        with patch.object(player._session, "zhidao_query"):
+            result, success = player._report_progress_v2(
+                "ABC123",
+                100,
+                ctx,
+                played_time=100.0,
+                last_submit=70.0,
+                watch_point="0,1",
+                token_id="dG9rZW4=",
+                initial=False,
+            )
+        assert success is True
+        assert result == 100.0
+
+    def test_failure_returns_false(self, mock_session: ZhsSession) -> None:
+        """上报失败时返回 (played_time, False)"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        with patch.object(player._session, "zhidao_query", side_effect=Exception("code: -1 msg: error")):
+            result, success = player._report_progress_v2(
+                "ABC123",
+                100,
+                ctx,
+                played_time=100.0,
+                last_submit=70.0,
+                watch_point="0,1",
+                token_id="dG9rZW4=",
+                initial=False,
+            )
+        assert success is False
+        assert result == 100.0
+
+    def test_minus_8_sync_success(self, mock_session: ZhsSession) -> None:
+        """-8 错误同步成功时返回 (server_time, True)"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        call_count = 0
+
+        def _query_side_effect(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("code: -8 msg: study time decreased")
+            return {}  # 第二次调用成功
+
+        with (
+            patch.object(player._session, "zhidao_query", side_effect=_query_side_effect),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 120)),
+        ):
+            result, success = player._report_progress_v2(
+                "ABC123",
+                100,
+                ctx,
+                played_time=100.0,
+                last_submit=70.0,
+                watch_point="0,1",
+                token_id="dG9rZW4=",
+                initial=False,
+            )
+        assert success is True
+        assert result == 120.0
+
+    def test_minus_10_retry_success(self, mock_session: ZhsSession) -> None:
+        """-10 错误重试成功时返回 (played_time, True)"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        call_count = 0
+
+        def _query_side_effect(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("code: -10 msg: multi-window")
+            return {}  # 第二次调用成功
+
+        with (
+            patch.object(player._session, "zhidao_query", side_effect=_query_side_effect),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch("zhs.zhidao.video.time.sleep"),
+        ):
+            result, success = player._report_progress_v2(
+                "ABC123",
+                100,
+                ctx,
+                played_time=100.0,
+                last_submit=70.0,
+                watch_point="0,1",
+                token_id="dG9rZW4=",
+                initial=False,
+            )
+        assert success is True
+        assert result == 100.0
+
+
+class TestReportFailureNoLastSubmitUpdate:
+    """上报失败时 last_submit 不更新，确保下次增量正确"""
+
+    def test_failure_keeps_last_submit(self, mock_session: ZhsSession) -> None:
+        """上报失败时 last_submit 保持不变，下次上报增量正确"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        # 模拟 _report_progress_v2 返回失败
+        with (
+            patch.object(player, "_report_progress_v2", return_value=(100.0, False)),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.wipe_line"),
+            patch("zhs.zhidao.video.print"),
+        ):
+            # played_time 从 70 开始，end_time=91%*1800=1638
+            # 但我们设置 end_threshold=1.0 让循环快速结束
+            player.end_threshold = 0.05  # end_time=90
+            player.play_video("ABC123", 100, ctx)

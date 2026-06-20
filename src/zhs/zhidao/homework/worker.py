@@ -249,51 +249,6 @@ class HomeworkWorker:
             questions.extend(part.question_dtos)
         return questions
 
-    def _generate_answer(self, question: HomeworkQuestion, item: HomeworkItem) -> int | str | None:
-        """为单题生成答案
-
-        优先级:
-        1. 本地缓存有正确选项 → 直接使用
-        2. 本地缓存有错误选项 → 排除后随机选择
-        3. LLM 生成答案
-        """
-        question_key = question.eid or (str(question.id) if question.id is not None else "")
-        if not question_key:
-            logger.warning("题目无 eid 也无 id，无法生成答案")
-            return None
-
-        course_id = item.course_id
-        exam_id = item.exam_id
-
-        # 1. 检查缓存中的正确选项
-        correct = self._cache.get_correct_options(course_id, exam_id, question_key)
-        if correct:
-            qt = question.question_type
-            if qt == HomeworkQuestionType.MULTI:
-                return ",".join(str(o) for o in correct)
-            return correct[0]
-
-        # 2. 排除错误选项后随机选择
-        wrong = self._cache.get_wrong_options(course_id, exam_id, question_key)
-        available = [opt.id for opt in question.question_options if opt.id not in wrong]
-
-        if wrong and available:
-            qt = question.question_type
-            if qt == HomeworkQuestionType.MULTI:
-                # 多选题：从可用选项中随机选多个
-                if len(available) >= 2:
-                    count = random.randint(2, min(len(available), len(available)))
-                    chosen = random.sample(available, count)
-                    return ",".join(str(o) for o in sorted(chosen))
-                # 可用选项不足 2 个，回退到 LLM
-            elif qt in (HomeworkQuestionType.SINGLE, HomeworkQuestionType.JUDGE):
-                return random.choice(available)
-            elif qt == HomeworkQuestionType.FILL:
-                pass  # 填空题无法随机选择
-
-        # 3. LLM 生成答案
-        return self._generate_answer_with_llm(question, item)
-
     def _generate_answer_with_llm(
         self,
         question: HomeworkQuestion,

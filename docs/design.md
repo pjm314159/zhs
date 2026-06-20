@@ -1,6 +1,7 @@
 # ZHS 详细设计文档
 
 > 本文档基于 [spec.md](./spec.md) 的功能规格和技术栈决策，给出模块级详细设计。
+> 所有代码均为**同步实现**，禁止使用 `asyncio`。
 
 ---
 
@@ -8,23 +9,32 @@
 
 ```
 e:\project\python\ZHS\
-├── pyproject.toml              # 项目配置
+├── pyproject.toml              # 项目配置（依赖、ruff、mypy、pytest）
+├── config.toml.example         # 配置文件示例
 ├── README.md
 ├── src/
 │   └── zhs/
 │       ├── __init__.py         # 版本号导出
-│       ├── __main__.py         # CLI 入口（typer app）
-│       ├── config.py           # 配置管理（TOML）
+│       ├── __main__.py         # CLI 入口（typer app，命令式接口）
+│       ├── config.py           # 配置管理（TOML，pydantic 模型）
 │       ├── crypto.py           # 加解密（AES / ev / 签名）
-│       ├── session.py          # HTTP 会话管理（httpx）
+│       ├── session.py          # HTTP 会话管理（httpx 同步）
 │       ├── login.py            # 登录（扫码）
 │       ├── exceptions.py       # 全局异常定义
+│       ├── logger.py           # 日志配置（loguru）
 │       ├── zhidao/             # 知到共享课程
 │       │   ├── __init__.py
 │       │   ├── models.py       # 数据模型
 │       │   ├── course.py       # 课程列表与上下文
 │       │   ├── video.py        # 视频刷课
-│       │   └── quiz.py         # 弹窗答题
+│       │   ├── quiz.py         # 弹窗答题
+│       │   └── homework/       # 知到作业子包
+│       │       ├── __init__.py
+│       │       ├── models.py   # 作业数据模型
+│       │       ├── scanner.py  # 作业扫描器
+│       │       ├── worker.py   # 作业做题器
+│       │       ├── analyzer.py # 错题分析器
+│       │       └── cache.py    # 作业缓存
 │       ├── hike/               # 职教云课程
 │       │   ├── __init__.py
 │       │   ├── models.py       # 数据模型
@@ -33,8 +43,10 @@ e:\project\python\ZHS\
 │       ├── ai/                 # AI 课程
 │       │   ├── __init__.py
 │       │   ├── models.py       # 数据模型
-│       │   ├── course.py       # AI 课程学习
-│       │   ├── exam.py         # AI 考试（异步）
+│       │   ├── course.py       # AI 课程学习编排
+│       │   ├── video.py        # AI 视频播放器（AiVideoPlayer）
+│       │   ├── homework.py     # AI 作业（HomeworkCtx，同步）
+│       │   ├── exam.py         # AI 考试（ExamCtx，同步）
 │       │   └── ppt.py          # PPT 转文本
 │       ├── llm/                # LLM 答题
 │       │   ├── __init__.py
@@ -53,27 +65,62 @@ e:\project\python\ZHS\
 │   ├── test_config.py
 │   ├── test_session.py
 │   ├── test_login.py
+│   ├── test_exceptions.py
+│   ├── test_logger.py
 │   ├── zhidao/
+│   │   ├── conftest.py
 │   │   ├── test_course.py
 │   │   ├── test_video.py
-│   │   └── test_quiz.py
+│   │   ├── test_quiz.py
+│   │   ├── test_models.py
+│   │   └── homework/           # 作业测试
+│   │       ├── test_models.py
+│   │       ├── test_scanner.py
+│   │       ├── test_worker.py
+│   │       ├── test_analyzer.py
+│   │       ├── test_cache.py
+│   │       └── test_ai_analysis_integration.py
 │   ├── hike/
 │   │   ├── test_course.py
-│   │   └── test_video.py
+│   │   ├── test_video.py
+│   │   └── test_models.py
 │   ├── ai/
+│   │   ├── conftest.py
 │   │   ├── test_course.py
+│   │   ├── test_video.py
+│   │   ├── test_homework.py
 │   │   ├── test_exam.py
-│   │   └── test_ppt.py
-│   └── llm/
-│       ├── test_openai.py
-│       ├── test_zhidao.py
-│       └── test_prompts.py
+│   │   ├── test_ppt.py
+│   │   └── test_models.py
+│   ├── llm/
+│   │   ├── test_openai.py
+│   │   ├── test_zhidao.py
+│   │   ├── test_prompts.py
+│   │   └── test_base.py
+│   ├── integration/            # 集成测试
+│   │   ├── test_ai_integration.py
+│   │   ├── test_cli_integration.py
+│   │   ├── test_llm_integration.py
+│   │   ├── test_login_integration.py
+│   │   ├── test_session_integration.py
+│   │   └── test_zhidao_integration.py
+│   ├── utils/
+│   │   ├── test_cookie.py
+│   │   ├── test_display.py
+│   │   └── test_path.py
+│   └── cli/
+│       └── test_main.py
 └── docs/
-    ├── spec.md
-    └── design.md              # 本文档
+    ├── spec.md                 # 功能规格
+    ├── design.md               # 本文档
+    ├── test.md                 # 测试计划
+    ├── task.md                 # 开发任务清单
+    ├── linter.md               # 代码规范
+    ├── tutorial.md             # 使用教程
+    └── log.md                  # 开发日志
 ```
 
-使用 `src` layout，通过 `pip install -e .` 安装后 `zhs` 命令可用。
+使用 `src` layout，通过 `uv sync --dev` 安装后 `zhs` 命令可用。
 
 ---
 
@@ -85,37 +132,44 @@ e:\project\python\ZHS\
 class ZhsError(Exception):
     """ZHS 基础异常"""
 
-class TimeLimitExceeded(ZhsError):
-    """刷课时间超过限制"""
+class ApiError(ZhsError):
+    """API 返回错误"""
+    def __init__(self, code: int, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(f"API error {code}: {message}")
 
 class CaptchaRequired(ZhsError):
     """服务端要求验证码（API 返回 code -12）"""
 
+class SliderVerificationRequired(ZhsError):
+    """作业答题需要滑块验证"""
+
 class LoginFailed(ZhsError):
     """登录失败"""
 
-class InvalidCookies(ZhsError):
-    """Cookies 无效或过期"""
-
-class ApiError(ZhsError):
-    """API 返回错误"""
-    def __init__(self, code: int, message: str):
-        self.code = code
-        self.message = message
-        super().__init__(f"API error {code}: {message}")
+class TimeLimitExceeded(ZhsError):
+    """刷课时间超过限制"""
 ```
+
+**设计要点**：
+- 所有自定义异常继承 `ZhsError`，便于上层统一捕获
+- `ApiError` 携带 `code` 和 `message`，用于 API 错误码透传
+- `CaptchaRequired` 对应知到视频 API 的 `code=-12`
+- `SliderVerificationRequired` 对应作业 API 的滑块验证响应
+- **已删除** `InvalidCookies`（不再使用，Cookie 失效由 `_try_restore_cookies` 返回 False 处理）
 
 ### 2.2 crypto.py — 加解密模块
 
 ```python
+from collections.abc import Iterator, Sequence
 from Crypto.Cipher import AES
-from base64 import b64encode, b64decode
 from hashlib import md5
-from zhs.config import CryptoConfig
 
 class Cipher:
-    """AES-128-CBC 加解密器"""
-    def __init__(self, key: bytes, iv: bytes) -> None: ...
+    """AES-128-CBC 加解密器（PKCS7 填充）"""
+    def __init__(self, key: bytes, iv: bytes) -> None:
+        """密钥和 IV 必须为 16 字节，否则抛 ZhsError"""
     def encrypt(self, plaintext: str) -> str: ...
     def decrypt(self, ciphertext: str) -> str: ...
 
@@ -125,36 +179,64 @@ class WatchPoint:
     def add(self, end: int, start: int | None = None) -> None: ...
     def get(self) -> str: ...
     def reset(self, init: int = 0) -> None: ...
+    @staticmethod
+    def gen(time: int) -> int: ...
 
-def encode_ev(data: list, key: str = "zzpttjd") -> str:
-    """ev 编码（XOR）"""
+def encode_ev(data: Sequence[int | str], key: str = "zzpttjd") -> str:
+    """ev 编码（XOR），将数据列表用分号连接后逐字符与密钥循环 XOR"""
 
-def decode_ev(ev: str, key: str = "zzpttjd") -> str:
-    """ev 解码"""
-
-def sign_hike(params: dict, salt: str) -> str:
+def sign_hike(params: dict[str, Any], salt: str) -> str:
     """Hike API 签名（MD5），salt 从 CryptoConfig 获取"""
 
-def sign_zhidao_ai(data: dict, prefix: str) -> tuple[str, dict]:
-    """智慧树 AI 对话签名，prefix 从 CryptoConfig 获取，返回 (signed_url, body)"""
+def _key_generator(key: str) -> Iterator[int]:
+    """生成密钥字符的循环迭代器（内部使用）"""
 ```
 
 **设计要点**：
-- **密钥不再硬编码**，所有密钥从 `CryptoConfig` 读取，`Cipher` 构造时必须显式传入 `key` 和 `iv`
+- **密钥不硬编码**：所有密钥从 `CryptoConfig` 读取，`Cipher` 构造时必须显式传入 `key` 和 `iv`
+- `Cipher` 强制校验密钥长度为 16 字节（AES-128）
 - `WatchPoint` 维护轨迹点列表，`gen(time) = time // 5 + 2`，初始值为 `[0, 1]`
-- `encode_ev` / `decode_ev` 对称实现 XOR 编码，注意 `tmp[-4:]` 截断（与原始代码一致）
+- `encode_ev` 参数类型为 `Sequence[int | str]` 以支持协变，注意 `tmp[-4:]` 截断（与原始代码一致）
 - `sign_hike` 按固定字段顺序拼接后 MD5：`SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatchTime + startWatchTime + uuid`
-- `sign_zhidao_ai` 生成 `sessionNid`（格式 `chatcmpl-` + 24位随机字符）、构建签名、返回带 `sign` 参数的 URL
-- 调用方通过 `config.crypto.iv`、`config.crypto.video_key` 等获取密钥，传入 `Cipher`、`sign_hike` 等函数
+- **已删除** `decode_ev`（无对称解码需求）和 `sign_zhidao_ai`（智慧树 AI 改用 `ZhidaoAIProvider` 内部实现签名）
 
 ### 2.3 config.py — 配置管理
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pathlib import Path
 
+class VideoConfig(BaseModel):
+    """视频播放速度配置"""
+    zhidao_speed: float = 1.5    # 知到视频速度
+    hike_speed: float = 1.25     # Hike 视频速度
+    ai_speed: float = 1.5        # AI 课程视频速度
+
+class HomeworkConfig(BaseModel):
+    """作业配置"""
+    threshold: int = 100                       # 作业达标阈值（0-100）
+    max_submit: int = 0                        # 最大重做次数（0=无限）
+    delay_min: float = Field(1.0, alias="homework_delay_min")
+    delay_max: float = Field(2.0, alias="homework_delay_max")
+    page_size: int = Field(100, alias="homework_page_size")
+    ai_homework_threshold: int = 90            # AI 作业跳过阈值
+
+class DisplayConfig(BaseModel):
+    """显示设置"""
+    log_level: str = "INFO"
+
+class ProxyConfig(BaseModel):
+    """代理设置"""
+    http: str = ""
+    https: str = ""
+    def to_dict(self) -> dict[str, str]: ...
+
+class QRConfig(BaseModel):
+    """二维码设置"""
+    image_path: str = ""
+
 class CryptoConfig(BaseModel):
-    """加解密密钥配置（可覆盖，默认值与旧版一致）"""
+    """加解密密钥配置"""
     iv: str = "1g3qqdh4jvbskb9x"
     home_key: str = "7q9oko0vqb3la20r"
     video_key: str = "azp53h0kft7qi78q"
@@ -162,94 +244,110 @@ class CryptoConfig(BaseModel):
     ai_key: str = "hw2fdlwcj4cs1mx7"
     exam_key: str = "onbfhdyvz8x7otrp"
     hike_salt: str = "o6xpt3b#Qy$Z"
-    zhidao_ai_sign_prefix: str = "8ZflKEagfL"
     ev_key: str = "zzpttjd"
-
-    def key_bytes(self, name: str) -> bytes:
-        """将密钥名转为 bytes，如 key_bytes('video_key') → b'azp53h0kft7qi78q'"""
+    ai_sign_prefix: str = "8ZflKEagfL"
+    def key_bytes(self, name: str) -> bytes: ...
 
 class UrlConfig(BaseModel):
-    """API 基础 URL 配置（可覆盖，便于部署私有镜像或 API 变更）"""
-    base: str = "https://onlineservice.zhihuishu.com"
+    """API 基础 URL 配置"""
+    base: str = "https://onlineservice-api.zhihuishu.com"
     passport: str = "https://passport.zhihuishu.com"
+    study: str = "https://studyservice-api.zhihuishu.com"
     hike: str = "https://hike.zhihuishu.com"
-    ai_exam: str = "https://aiexam.zhihuishu.com"
-    ai_chat: str = "https://chat.zhihuishu.com"
-
-class OpenAIConfig(BaseModel):
-    api_base: str = "https://api.openai.com"
-    api_key: str = ""
-    model_name: str = ""
-
-class MoonShotConfig(BaseModel):
-    base_url: str = "https://api.moonshot.cn/v1"
-    api_key: str = ""
-    delete_after_convert: bool = True
-
-class PptProcessingConfig(BaseModel):
-    provide_to_ai: bool = False
-    moonshot: MoonShotConfig = MoonShotConfig()
+    ai: str = "https://kg-ai-run.zhihuishu.com"
+    ai_task: str = "https://kg-run-student.zhihuishu.com"
+    exam: str = "https://studentexamtest.zhihuishu.com"
+    homework: str = "https://studentexam-api.zhihuishu.com"
+    ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"
+    newbase: str = "https://newbase.zhihuishu.com"
 
 class AIConfig(BaseModel):
+    """AI 配置"""
     enabled: bool = True
     use_zhidao_ai: bool = True
-    openai: OpenAIConfig = OpenAIConfig()
-    ppt_processing: PptProcessingConfig = PptProcessingConfig()
-    use_stream: bool = True
+    api_key: str = ""
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "gpt-4o-mini"
+    max_token: int = 27900
 
-class QrExtraConfig(BaseModel):
-    show_in_terminal: bool | None = None
-    ensure_unicode: bool = False
+class ExamConfig(BaseModel):
+    """AI 考试配置"""
+    save_nums: int = 5            # 每批保存答案的题目数量
+    delay_min: float = 3.0        # 每批保存后最小休息时间（秒）
+    delay_max: float = 5.0        # 每批保存后最大休息时间（秒）
 
 class AppConfig(BaseModel):
+    """应用全局配置"""
     save_cookies: bool = True
-    proxies: dict[str, str] = {}
-    log_level: str = "INFO"
-    tree_view: bool = True
-    progressbar_view: bool = True
-    qr_extra: QrExtraConfig = QrExtraConfig()
-    image_path: str = ""
+    limit: int = 0                # 刷课时间限制（分钟，0=不限制）
+    threshold: float = 0.91       # 视频结束阈值（0.0-1.0）
+    video: VideoConfig = VideoConfig()
+    homework: HomeworkConfig = HomeworkConfig()
+    display: DisplayConfig = DisplayConfig()
+    proxies: ProxyConfig = ProxyConfig()
+    qr: QRConfig = QRConfig()
     crypto: CryptoConfig = CryptoConfig()
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()
+    exam: ExamConfig = ExamConfig()
 
 class ConfigManager:
     """配置管理器：加载/保存/迁移 TOML 配置"""
     def __init__(self, config_path: Path | None = None) -> None: ...
     def load(self) -> AppConfig: ...
     def save(self, config: AppConfig) -> None: ...
-    def migrate(self, old: dict) -> AppConfig: ...
+    def migrate(self, json_path: Path) -> AppConfig: ...
+    @staticmethod
+    def _flatten_toml(data: dict) -> dict: ...
+    @staticmethod
+    def _unflatten_config(data: dict) -> dict: ...
+    @staticmethod
+    def _strip_none(data: object) -> object: ...
 ```
 
 **设计要点**：
-- 配置格式从 JSON 迁移到 TOML，支持注释
-- 所有配置项用 pydantic BaseModel 定义，带默认值
-- `ConfigManager` 负责加载、保存、旧版迁移
-- CLI 参数通过 `AppConfig` 的可选字段覆盖
+- 配置格式为 TOML，支持注释
+- 所有配置项用 pydantic BaseModel 定义，按功能分组嵌套
+- `ConfigManager` 负责加载、保存、旧版 JSON 迁移
+- `_flatten_toml` 将 TOML 嵌套结构展平为 `AppConfig` 构造参数（兼容旧版扁平字段名）
+- `_unflatten_config` 将 `AppConfig.model_dump()` 转为 TOML 嵌套结构
+- `_strip_none` 递归移除 None 值（TOML 不支持 None）
+- `HomeworkConfig` 字段使用 `alias` 兼容旧版扁平字段名（如 `homework_delay_min`）
+- **已删除** 旧版的 `OpenAIConfig`、`MoonShotConfig`、`PptProcessingConfig`、`QrExtraConfig`，统一为 `AIConfig`
 
 **TOML 配置文件示例** (`config.toml`):
 
 ```toml
 # ZHS 配置文件
 
-[auth]
-save_cookies = true      # 保存 cookies 以便下次免登录
+save_cookies = true
+limit = 0
+threshold = 0.91
 
-[network]
-proxies = {}             # 例: {http = "http://127.0.0.1:8080"}
+[video]
+zhidao_speed = 1.5
+hike_speed = 1.25
+ai_speed = 1.5
+
+[homework]
+threshold = 100
+max_submit = 0
+delay_min = 1.0
+delay_max = 2.0
+page_size = 100
+ai_homework_threshold = 90
 
 [display]
-log_level = "INFO"       # DEBUG / INFO / WARNING / ERROR
-tree_view = true
-progressbar_view = true
+log_level = "INFO"
+
+[proxies]
+http = ""
+https = ""
 
 [qr]
-show_in_terminal = null  # null = Windows 默认终端显示
-ensure_unicode = false
-image_path = ""          # 二维码保存路径，空则不保存
+image_path = ""
 
 [crypto]
-# 所有密钥均可覆盖，默认值与旧版一致；一般无需修改
 iv = "1g3qqdh4jvbskb9x"
 home_key = "7q9oko0vqb3la20r"
 video_key = "azp53h0kft7qi78q"
@@ -257,133 +355,152 @@ qa_key = "kcGOlISPkYKRksSK"
 ai_key = "hw2fdlwcj4cs1mx7"
 exam_key = "onbfhdyvz8x7otrp"
 hike_salt = "o6xpt3b#Qy$Z"
-zhidao_ai_sign_prefix = "8ZflKEagfL"
 ev_key = "zzpttjd"
+ai_sign_prefix = "8ZflKEagfL"
 
 [urls]
-# API 基础 URL，可覆盖以适配私有部署或 API 变更
-base = "https://onlineservice.zhihuishu.com"
+base = "https://onlineservice-api.zhihuishu.com"
 passport = "https://passport.zhihuishu.com"
+study = "https://studyservice-api.zhihuishu.com"
 hike = "https://hike.zhihuishu.com"
-ai_exam = "https://aiexam.zhihuishu.com"
-ai_chat = "https://chat.zhihuishu.com"
+ai = "https://kg-ai-run.zhihuishu.com"
+ai_task = "https://kg-run-student.zhihuishu.com"
+exam = "https://studentexamtest.zhihuishu.com"
+homework = "https://studentexam-api.zhihuishu.com"
+ai_analysis = "https://ai-course-assistant-api.zhihuishu.com"
+newbase = "https://newbase.zhihuishu.com"
 
 [ai]
 enabled = true
-use_zhidao_ai = true     # true = 用智慧树内置 AI，false = 用 OpenAI 兼容接口
-use_stream = true
-
-[ai.openai]
-api_base = "https://api.openai.com"
+use_zhidao_ai = true
 api_key = ""
-model_name = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+max_token = 27900
 
-[ai.ppt_processing]
-provide_to_ai = false    # 是否将 PPT 内容提供给 AI
-
-[ai.ppt_processing.moonshot]
-base_url = "https://api.moonshot.cn/v1"
-api_key = ""
-delete_after_convert = true
+[exam]
+save_nums = 5
+delay_min = 3.0
+delay_max = 5.0
 ```
 
 ### 2.4 session.py — HTTP 会话管理
 
 ```python
 import httpx
-from zhs.config import AppConfig, UrlConfig, CryptoConfig
+from zhs.config import AppConfig, CryptoConfig, UrlConfig
 
 class ZhsSession:
-    """智慧树 HTTP 会话封装"""
+    """智慧树 HTTP 会话封装（同步）"""
 
-    def __init__(
-        self,
-        config: AppConfig,
-        max_retries: int = 5,
-    ) -> None:
-        """从 AppConfig 初始化（proxies, urls, crypto 均从 config 读取）"""
+    def __init__(self, config: AppConfig, max_retries: int = 5) -> None: ...
 
     @property
-    def urls(self) -> UrlConfig:
-        """获取 URL 配置，用于构建 API 地址"""
-
+    def urls(self) -> UrlConfig: ...
     @property
-    def crypto(self) -> CryptoConfig:
-        """获取密钥配置，用于加解密"""
-
+    def crypto(self) -> CryptoConfig: ...
     @property
     def cookies(self) -> httpx.Cookies: ...
     @cookies.setter
-    def cookies(self, value: dict | list | httpx.Cookies) -> void: ...
-
+    def cookies(self, value: httpx.Cookies | list[dict] | dict[str, str]) -> None: ...
     @property
-    def uuid(self) -> str | None:
-        """从 CASLOGC cookie 中解析 uuid"""
+    def uuid(self) -> str | None: ...
 
-    def sync_client(self) -> httpx.Client:
-        """获取同步 HTTP 客户端"""
+    def _get_client(self) -> httpx.Client: ...
+    def _parse_uuid(self) -> None: ...
 
-    def async_client(self) -> httpx.AsyncClient:
-        """获取异步 HTTP 客户端"""
-
+    # --- 通用 API ---
     def api_query(
-        self,
-        url: str,
-        data: dict | None = None,
-        method: str = "POST",
-        content_type: str = "form",
+        self, url: str, data: dict | None = None,
+        method: str = "POST", content_type: str = "form",
     ) -> dict: ...
 
-    async def async_api_query(
-        self,
-        url: str,
-        data: dict | None = None,
-        method: str = "POST",
-        content_type: str = "form",
-    ) -> dict: ...
-
+    # --- 知到视频 API（video_key 加密，含 dateFormate） ---
     def zhidao_query(
-        self,
-        url: str,
-        data: dict,
-        key: bytes | None = None,     # None 时使用 config.crypto.video_key
-        ok_code: int = 0,
-        method: str = "POST",
-        content_type: str = "form",
-    ) -> dict:
-        """知到 API 查询（自动加密 + 时间戳），密钥从 config.crypto 获取"""
+        self, url: str, data: dict, key: bytes | None = None,
+        ok_code: int = 0, method: str = "POST",
+        content_type: str = "form", set_timestamp: bool = True,
+    ) -> dict: ...
 
+    # --- Hike API（时间戳 + 可选签名） ---
     def hike_query(
-        self,
-        url: str,
-        data: dict,
-        sig: bool = False,
-        ok_code: int = 200,
-        method: str = "GET",
-    ) -> dict:
-        """Hike API 查询（自动时间戳 + 可选签名）"""
+        self, url: str, data: dict, sig: bool = False,
+        ok_code: int = 200, method: str = "GET",
+    ) -> dict: ...
 
-    async def ai_exam_query(
-        self,
-        url: str,
-        data: dict,
-        key: bytes | None = None,     # None 时使用 config.crypto.exam_key
-        ok_code: int = 0,
-        method: str = "POST",
-    ) -> dict:
-        """AI 考试 API 异步查询，密钥从 config.crypto 获取"""
+    # --- AI 考试 API（exam_key 加密，含 dateFormate，检查 code） ---
+    def ai_exam_query(
+        self, url: str, data: dict, key: bytes | None = None,
+        ok_code: int = 0, method: str = "POST",
+    ) -> dict: ...
+
+    def ai_exam_submit(self, url: str, data: dict) -> bool:
+        """AI 考试提交（无返回体，HTTP 200=成功）"""
+
+    # --- AI 任务列表 API（ai_key 加密，含 dateFormate，检查 code=200） ---
+    def ai_task_query(
+        self, url: str, data: dict, key: bytes | None = None,
+        ok_code: int = 200, method: str = "POST",
+    ) -> dict: ...
+
+    # --- 知到作业 API（exam_key 加密，无 dateFormate，检查 status="200"） ---
+    def homework_query(
+        self, url: str, data: dict, key: bytes | None = None,
+        ok_status: str = "200", method: str = "POST",
+        content_type: str = "form",
+    ) -> dict: ...
+
+    # --- 知到作业业务方法 ---
+    def homework_redo(self, recruit_id: str, exam_id: str, course_id: int) -> dict: ...
+    def homework_do(self, recruit_id: str, exam_id: str, student_exam_id: str,
+                    school_id: str, course_id: str) -> dict: ...
+    def homework_save_answer(self, answer_item: dict, recruit_id: str) -> dict: ...
+    def homework_submit(self, recruit_id: str, exam_id: str, stu_exam_id: str,
+                        achieve_count: int) -> dict: ...
+    def homework_look(self, recruit_id: str, student_exam_id: str, exam_id: str,
+                      school_id: str, course_id: str) -> dict: ...
+    def homework_get_answer(self, recruit_id: str, stu_exam_id: str, exam_id: str,
+                            school_id: str, course_id: str,
+                            question_ids: list[int]) -> dict: ...
+
+    # --- AI 解析 API（SSE 流式，明文 JSON） ---
+    def ai_analysis_run(
+        self, course_id: int, recruit_id: str, question_id: int,
+        thread_id: str = "", run_id: str | None = None,
+        regenerate: bool = False, timeout: float = 60.0,
+    ) -> str: ...
+
+    # --- CAS SSO 认证 ---
+    def exam_sso_login(self) -> None: ...
+
+    def close(self) -> None: ...
 ```
 
 **设计要点**：
-- 构造函数接收 `AppConfig`，从中读取 `proxies`、`urls`、`crypto`，不再硬编码任何 URL 或密钥
-- API 地址通过 `self.urls.base` / `self.urls.passport` 等拼接，便于部署私有镜像或 API 变更
-- 内部持有 `httpx.Client`（同步）和 `httpx.AsyncClient`（异步）
+- 构造函数接收 `AppConfig`，从中读取 `proxies`、`urls`、`crypto`，不硬编码任何 URL 或密钥
+- **仅同步**：内部持有 `httpx.Client`，无 `AsyncClient`，无 `async def`/`await`
 - Cookie 设置时自动解析 `uuid`（从 `CASLOGC` cookie 的 JSON 中提取），并设置 `exitRecod_{uuid}=2`
-- `zhidao_query` 自动：加密 data 为 `secretStr`（密钥从 `self.crypto` 获取）→ 添加 `dateFormate` 时间戳（毫秒级，`int(time())*1000`）→ 发送 → 检查返回码（`-12` 抛 `CaptchaRequired`）
-- `hike_query` 自动：添加 `_` 时间戳（毫秒级）→ 可选签名（salt 从 `self.crypto.hike_salt` 获取）→ 发送 → 检查 status
-- Hike 课程列表 API 返回 `startInngcourseList`（原始拼写错误，需兼容）
-- `ai_exam_query` 异步版本，用于考试模块
-- 重试通过 `httpx.Transport` 配置（5 次重试，backoff_factor=0.1，状态码 500/502/503/504）
+- API 地址通过 `self.urls.base` / `self.urls.passport` 等拼接
+
+**加密查询方法对比**：
+
+| 方法 | 加密密钥 | dateFormate | 检查字段 | 用途 |
+|------|----------|-------------|----------|------|
+| `zhidao_query` | `video_key` | 是（加入 data 加密 + 独立字段） | `code` (0) | 知到视频 API |
+| `hike_query` | 无加密（可选 `signature`） | `_` 时间戳 | `status` (200) | Hike API |
+| `ai_exam_query` | `exam_key` | 是（独立字段） | `code` (0) | AI 考试 API |
+| `ai_exam_submit` | `exam_key` | 是（独立字段） | HTTP status (200) | AI 考试提交 |
+| `ai_task_query` | `ai_key` | 是（独立字段） | `code` (200) | AI 任务列表 |
+| `homework_query` | `exam_key` | **否** | `status` ("200") | 知到作业 API |
+
+**关键细节**：
+- `zhidao_query`：`dateFormate` 需加入加密数据后再加密（同时作为独立表单字段）
+- `homework_query`：**不发送 `dateFormate`** 字段，与知到视频 API 不同
+- `ai_exam_query`：发送 `dateFormate`，检查 `code` 字段（与知到作业 API 不同）
+- `ai_task_query`：使用 `ai_key` 加密（其余考试 API 用 `exam_key`），`content_type="json"`
+- `ai_analysis_run`：SSE 流式响应，明文 JSON POST，不加密
+- `exam_sso_login`：通过 CAS SSO 认证 `studentexam-api` 域名（该域名无 `/login/gologin`）
+- 重试通过 `httpx.HTTPTransport(retries=5)` 配置
 
 ### 2.5 login.py — 登录模块
 
@@ -398,7 +515,7 @@ class LoginResult:
     cookies: httpx.Cookies | None
 
 class LoginManager:
-    """登录管理器"""
+    """登录管理器（仅扫码登录）"""
 
     def __init__(self, session: ZhsSession, config: AppConfig) -> None: ...
 
@@ -406,13 +523,11 @@ class LoginManager:
         self,
         qr_callback: Callable[[bytes], None],
         image_path: str = "",
+        _max_retries: int = 5,
     ) -> LoginResult: ...
 
-    def try_restore_cookies(self, cookies_path: Path) -> bool:
-        """尝试从文件恢复 cookies 并验证有效性"""
-
-    def save_cookies(self, cookies_path: Path) -> None:
-        """保存 cookies 到文件"""
+    def try_restore_cookies(self, cookies_path: Path) -> bool: ...
+    def save_cookies(self, cookies_path: Path) -> None: ...
 ```
 
 **登录流程（扫码）**：
@@ -433,28 +548,31 @@ stateDiagram-v2
 
     Confirmed --> LoginDone: 获取 oncePassword → 完成登录
     Polling --> Expired: status=2 二维码过期
-    Expired --> GetQR: 重新获取二维码
+    Expired --> GetQR: 重新获取二维码（_max_retries 限制）
     Polling --> Cancelled: status=3 用户取消
     Cancelled --> [*]: 抛出异常
     LoginDone --> [*]
 ```
+
+**设计要点**：
+- **仅扫码登录**：已删除账号密码登录
+- `login_with_qr` 增加 `_max_retries` 参数防止二维码过期时无限递归
+- `gologin` 返回 HTML 不解析 JSON
+- Cookie 恢复由 CLI 的 `_try_restore_cookies` 处理，通过调用 `ZhidaoCourseManager.get_course_list()` 验证有效性
 
 ### 2.6 zhidao/ — 知到共享课程
 
 #### 2.6.1 models.py
 
 ```python
-from pydantic import BaseModel
-
 class CourseInfo(BaseModel):
     """课程基本信息"""
     course_id: int
     name: str
-    en_name: str = ""
 
 class ZhidaoCourse(BaseModel):
     """知到课程"""
-    secret: str               # recruitAndCourseId
+    secret: str               # recruitAndCourseId（alias）
     course_name: str
     course_info: CourseInfo | None = None
     recruit_id: int | None = None
@@ -508,9 +626,13 @@ class ZhidaoContext(BaseModel):
     course: ZhidaoCourse
     chapters: VideoChapterList
     videos: dict[int, VideoSmallLesson]
-    fucked_time: int = 0      # 已刷秒数（用于时间限制检查）
-    # cookies 和 headers 不放入模型，由 session 管理
+    fucked_time: int = 0
 ```
+
+**设计要点**：
+- pydantic 模型构造时需使用 alias 名称（如 `recruitAndCourseId` 而非 `secret`）以通过 mypy 检查
+- mypy 启用 pydantic 插件
+- **已删除** `CourseInfo.en_name`（未使用字段）
 
 #### 2.6.2 course.py
 
@@ -542,27 +664,16 @@ class ZhidaoVideoPlayer:
         progressbar_view: bool = True,
     ) -> None: ...
 
-    def play_course(self, rac_id: str) -> None: ...
+    def play_course(self, rac_id: str, ctx: ZhidaoContext) -> None: ...
     def play_video(self, rac_id: str, video_id: int) -> None: ...
 
     # 内部方法
-    def _main_loop(self, ctx: ZhidaoContext, video: VideoSmallLesson, ...) -> None:
-        """视频播放主循环"""
-    def _watch_video(self, video_id: int) -> None:
-        """在新线程中请求视频流（反检测）
-
-        ⚠️ 线程安全设计：
-        - 使用独立的 httpx.Client 实例（非共享 session），避免 Cookie 容器并发修改
-        - 仅复制必要的 headers（User-Agent, Referer），不共享动态参数
-        - 线程内捕获所有异常并记录日志，不向上传播
-        - 使用 daemon=True + 超时控制，防止线程泄漏
-        - 主线程不依赖子线程返回值，仅 fire-and-forget
-        """
-    def _report_progress_v2(self, ...) -> None:
-        """上报进度 V2"""
+    def _main_loop(self, ctx: ZhidaoContext, video: VideoSmallLesson, ...) -> None: ...
+    def _watch_video(self, video_id: int) -> None: ...
+    def _report_progress_v2(self, ...) -> None: ...
 ```
 
-**线程安全分析**：
+**线程安全设计**（`_watch_video`）：
 
 | 风险 | 解决方案 |
 |------|----------|
@@ -616,11 +727,172 @@ class ZhidaoQuizzer:
     """知到弹窗答题器"""
 
     def __init__(self, session: ZhsSession) -> None: ...
-    def answer_question(self, question: PopupQuestion) -> str:
-        """自动选择正确答案（result == '1' 的选项 ID，逗号分隔）"""
+    def answer_question(self, question: PopupQuestion) -> str: ...
     def load_video_pointer_info(self, rac_id: str, video_id: int) -> list[QuestionPoint]: ...
     def get_popup_exam(self, rac_id: str, video_id: int, question_ids: list[int]) -> PopupQuestion: ...
     def save_answer(self, rac_id: str, video_id: int, question_id: int, answer: str) -> None: ...
+```
+
+#### 2.6.5 zhidao/homework/ — 知到作业子包
+
+##### models.py
+
+```python
+class HomeworkQuestionType(IntEnum):
+    """作业题目类型"""
+    SINGLE = 1     # 单选
+    MULTI = 2      # 多选
+    FILL = 3       # 填空
+    JUDGE = 14     # 判断
+
+class HomeworkQuestionOption(BaseModel):
+    """作业题目选项"""
+    id: str
+    content: str = ""
+
+class HomeworkQuestion(BaseModel):
+    """作业题目"""
+    id: int                       # 数字型 ID
+    eid: str                      # 字符串型 ID
+    content: str
+    question_type: HomeworkQuestionType
+    options: list[HomeworkQuestionOption] = []
+
+class HomeworkItem(BaseModel):
+    """作业项（扫描结果）"""
+    id: str                       # stuExamId
+    exam_id: str
+    state: int                    # 1=未做, 4=已提交
+    course_id: int
+    course_name: str
+    exam_name: str
+    total_score: str
+    score: str = "0"
+    back_num: int = 0             # 总重做次数
+    is_marking: int = 0           # 已重做次数
+
+    @property
+    def remaining_redo(self) -> int:
+        """剩余重做次数"""
+
+class HomeworkDetail(BaseModel):
+    """作业详情（doHomework/lookHomework 返回）"""
+    ...
+
+class HomeworkAnswerInfo(BaseModel):
+    """答案信息（getStuAnswerInfo 返回）"""
+    ...
+
+class HomeworkCacheEntry(BaseModel):
+    """缓存条目"""
+    ...
+
+class HomeworkExamBase(BaseModel):
+    """作业考试基础信息"""
+    ...
+
+class HomeworkExamPart(BaseModel):
+    """作业考试部分"""
+    ...
+```
+
+##### scanner.py
+
+```python
+class HomeworkScanner:
+    """知到作业扫描器"""
+
+    def __init__(self, session: ZhsSession, config: AppConfig) -> None: ...
+    def scan_homework(self, recruit_id: str, course_id: int) -> list[HomeworkItem]: ...
+    def filter_pending(self, items: list[HomeworkItem]) -> list[HomeworkItem]: ...
+```
+
+**扫描逻辑**：
+- 调用 `getStudentHomework` 获取作业列表
+- 分页扫描（`page_size` 从 `HomeworkConfig` 获取）
+- `filter_pending` 过滤待处理作业（state != 4 或得分率 < threshold）
+
+##### worker.py
+
+```python
+class HomeworkWorker:
+    """知到作业做题器"""
+
+    def __init__(
+        self,
+        session: ZhsSession,
+        config: AppConfig,
+        cache: HomeworkCache,
+        llm: LLMProvider | None = None,
+    ) -> None: ...
+
+    def run_homework(self, item: HomeworkItem, recruit_id: str, school_id: str) -> float:
+        """运行完整作业流程，返回最终得分率（0-100）"""
+```
+
+**作业做题流程**：
+
+```mermaid
+flowchart TD
+    Start([run_homework]) --> CheckState{state == 4?}
+    CheckState -->|是| Redo[homework_redo 重置状态]
+    CheckState -->|否| DoHomework
+    Redo --> DoHomework[homework_do 获取题目]
+    DoHomework --> GenAnswers[生成答案: 缓存/LLM/随机]
+    GenAnswers --> SaveAnswers[homework_save_answer 逐题保存]
+    SaveAnswers --> Submit[homework_submit 提交]
+    Submit --> CheckScore{得分率 >= threshold?}
+    CheckScore -->|是| Done([完成])
+    CheckScore -->|否| Look[homework_look 查看已提交]
+    Look --> GetAnswer[homework_get_answer 获取对错]
+    GetAnswer --> SaveCache[保存对错到缓存]
+    SaveCache --> CheckRedo{remaining_redo > 0?}
+    CheckRedo -->|是| Redo
+    CheckRedo -->|否| Done
+```
+
+**设计要点**：
+- 顺序处理题目（不并发），每题 sleep `delay_min`-`delay_max` 秒，避免 API 限流
+- 已提交作业（state=4）需先调用 `homework_redo` 重置状态
+- 答案来源优先级：缓存 → LLM → 随机兜底
+- 提交后通过 `homework_look` + `homework_get_answer` 获取对错，保存到缓存供下次使用
+- 失败时抛出 `ZhsError` 而非原始异常
+- 滑块验证触发 `SliderVerificationRequired` 异常
+
+##### analyzer.py
+
+```python
+class HomeworkAnalyzer:
+    """知到作业错题分析器"""
+
+    def __init__(
+        self,
+        session: ZhsSession,
+        config: AppConfig,
+        cache: HomeworkCache,
+    ) -> None: ...
+
+    def analyze(self, item: HomeworkItem, recruit_id: str, school_id: str) -> None:
+        """分析错题并保存到缓存"""
+```
+
+**分析逻辑**：
+- 调用 `homework_look` 获取已提交作业详情
+- 调用 `homework_get_answer` 获取每题对错信息
+- 调用 `ai_analysis_run`（SSE 流式）获取 AI 解析
+- 将正确答案保存到 `HomeworkCache` 供下次做题使用
+
+##### cache.py
+
+```python
+class HomeworkCache:
+    """知到作业缓存（JSON 文件持久化）"""
+
+    def __init__(self) -> None: ...
+    def get(self, question_id: int) -> dict | None: ...
+    def set(self, question_id: int, data: dict) -> None: ...
+    def save(self) -> None: ...
+    def load(self) -> None: ...
 ```
 
 ### 2.7 hike/ — 职教云课程
@@ -661,12 +933,17 @@ class HikeCourseManager:
 
 ```python
 class HikeVideoPlayer:
-    def __init__(self, session: ZhsSession, speed: float | None = None, ...) -> None: ...
-    def play_course(self, course_id: str) -> None: ...
+    def __init__(
+        self,
+        session: ZhsSession,
+        speed: float | None = None,
+        end_threshold: float = 0.91,
+        time_limit: int = 0,
+    ) -> None: ...
+    def play_course(self, course_id: str, root: ResourceNode) -> None: ...
     def play_video(self, course_id: str, file_id: str, prev_time: int = 0) -> None: ...
     def play_file(self, course_id: str, file_id: str) -> None: ...
-    def _traverse(self, course_id: str, node: ResourceNode, depth: int = 0) -> None:
-        """递归遍历资源树"""
+    def _traverse(self, course_id: str, node: ResourceNode, depth: int = 0) -> None: ...
 ```
 
 **Hike 资源树遍历逻辑**：
@@ -684,14 +961,14 @@ flowchart TD
     TypeNone -->|无 file_id| SkipNone[跳过: 空节点/测验/讨论] --> End
     TypeCheck -->|其他| SafeCheck{有 file_id 且 file_name 非空?}
     SafeCheck -->|是| PlayFile2[play_file] --> End
-    SafeCheck -->|否| SkipUnknown[跳过: 非标准节点: 讨论/微课/直播/外链等] --> End
+    SafeCheck -->|否| SkipUnknown[跳过: 非标准节点] --> End
 ```
 
-**Hike 资源树遍历关键细节**：
+**关键细节**：
 - `data_type=3`（视频）→ `play_video`
-- `data_type=None` 且有 `file_id` → `play_file`（可能是普通文件）
+- `data_type=None` 且有 `file_id` → `play_file`
 - `data_type=None` 且无 `file_id` → 跳过（测验、讨论帖等空节点）
-- 其他 `data_type`（1/2/4 等）→ 检查 `file_id` 和 `file_name` 是否存在，存在则 `play_file`，否则跳过
+- 其他 `data_type` → 检查 `file_id` 和 `file_name`，存在则 `play_file`，否则跳过
 - 非标准节点（讨论帖子、微课链接、直播回放、外部跳转链接等）无 `file_id`，自动跳过并记录日志
 - `play_file` 内部对 API 返回做 try/except 防护，避免非标准文件导致 KeyError 崩溃
 
@@ -728,7 +1005,7 @@ class Resource(BaseModel):
 class ExamInfo(BaseModel):
     exam_test_id: int
     paper_id: int
-    mastery_score: int = 0
+    mastery_score: int = 0        # alias="masteryScore"
 
 class QuestionSheet(BaseModel):
     question_id: int
@@ -745,28 +1022,33 @@ class OptionVo(BaseModel):
     id: int
     content: str = ""
     is_correct: int = 0          # 1=正确答案（提交后返回）
-
-class AnswerCache(BaseModel):
-    version: int = 1
-    question: str = ""
-    answer: str = ""             # 选项 ID 用 #@# 分隔
-    answer_content: str = ""     # 选项文本用换行分隔
-    question_dict: dict = {}
 ```
 
-#### 2.8.2 course.py
+**设计要点**：
+- `ExamInfo.mastery_score` 使用 `alias="masteryScore"`（曾误改为 `highMasteryScore`，已回归修复）
+- **已删除** `AnswerCache`（未使用模型）
+
+#### 2.8.2 course.py — AI 课程编排
 
 ```python
 class AiCourseManager:
     def __init__(self, session: ZhsSession) -> None: ...
-    def get_course_list(self) -> list: ...
+    def _ai_query(self, url: str, data: dict, content_type: str = "json") -> dict: ...
+    def get_ai_course_list(self) -> list[dict]: ...
+    def get_exam_tasks(self, course_id: str) -> list[dict]: ...
     def get_knowledge_points(self, course_id: int, class_id: int) -> AiCourseInfo: ...
     def list_knowledge_resources(self, course_id: int, class_id: int, knowledge_id: int) -> list[Resource]: ...
     def complete_resource(self, course_id: int, class_id: int, knowledge_id: int, resources_uid: int) -> None: ...
-    def play_video(self, course_id: int, class_id: int, file_id: int, knowledge_id: int) -> None: ...
-    def report_video_progress(self, course_id: int, class_id: int, file_id: int, ...) -> bool: ...
-    def run_course(self, course_id: int, class_id: int, ai_config: AIConfig, no_exam: bool = False) -> None:
-        """执行完整 AI 课程学习流程"""
+    def query_homework(self, course_id: int, class_id: int, knowledge_id: int) -> ExamInfo | None: ...
+    def run_course(
+        self,
+        course_id: int,
+        class_id: int,
+        ai_config: AIConfig,
+        homework_config: HomeworkConfig,
+        no_homework: bool = False,
+        speed: float = 1.5,
+    ) -> None: ...
 ```
 
 **AI 课程学习流程**：
@@ -780,48 +1062,78 @@ flowchart TD
     KPLoop --> ProgressCheck{study_progress < 100?}
 
     ProgressCheck -->|是| GetRes[list_knowledge_resources]
-    ProgressCheck -->|否| PPTCheck{ppt_config.provide_to_ai?}
+    ProgressCheck -->|否| HomeworkCheck
 
     GetRes --> ResLoop{遍历 resource}
     ResLoop --> MatchType{type, distribute_type?}
     MatchType -->|"2,1 文本"| Complete1[complete_resource]
-    MatchType -->|"1,4 PPT"| CompletePPT[complete_resource + 收集 PPT URL]
-    MatchType -->|"1,3 视频"| PlayVid[play_video]
-    MatchType -->|"2,2 课程视频"| PlayVid2[play_video]
+    MatchType -->|"1,4 PPT"| CompletePPT[complete_resource]
+    MatchType -->|"1,3 视频"| PlayVid[AiVideoPlayer.play_video]
+    MatchType -->|"2,2 课程视频"| PlayVid2[AiVideoPlayer.play_video]
     MatchType -->|其他| CompleteOther[complete_resource]
     Complete1 --> ResLoop
     CompletePPT --> ResLoop
     PlayVid --> ResLoop
     PlayVid2 --> ResLoop
     CompleteOther --> ResLoop
-    ResLoop -->|遍历完| ExamLoop
+    ResLoop -->|遍历完| HomeworkCheck
 
-    PPTCheck -->|是| CollectPPT[收集 PPT URLs] --> ExamLoop
-    PPTCheck -->|否| ExamLoop
+    HomeworkCheck{no_homework?}
+    HomeworkCheck -->|是| KPLoop
+    HomeworkCheck -->|否| QueryHW[query_homework]
+    QueryHW --> ScoreCheck{mastery_score > ai_homework_threshold?}
+    ScoreCheck -->|是| KPLoop
+    ScoreCheck -->|否| RunHW[HomeworkCtx.start]
+    RunHW --> KPLoop
 
-    subgraph ExamLoop[考试循环]
-        ExamStart[query_ai_exam] --> ExamCheck{有考试 且 no_exam=false?}
-        ExamCheck -->|否| ExamBreak[退出循环]
-        ExamCheck -->|是| ScoreCheck{mastery_score?}
-        ScoreCheck -->|> 90| ExamBreak
-        ScoreCheck -->|< 30 且 tried > 4| GiveUp[放弃] --> ExamBreak
-        ScoreCheck -->|其他| PPTConvert{ppt_config.provide_to_ai?}
-        PPTConvert -->|是| MoonShot[MoonShot 转换 PPT 为文本]
-        PPTConvert -->|否| RunExam[ExamCtx.start]
-        MoonShot --> RunExam
-        RunExam --> TriedIncr[tried += 1] --> ExamStart
-    end
-
-    ExamLoop --> KPLoop
     KPLoop -->|遍历完| ThemeLoop
     ThemeLoop -->|遍历完| Done([完成])
 ```
 
-#### 2.8.3 exam.py — AI 考试（异步）
+**设计要点**：
+- `get_ai_course_list` 使用 `home_key` 加密
+- `get_exam_tasks` 使用 `ai_task_query`（`ai_key` 加密）
+- `get_knowledge_points` / `list_knowledge_resources` / `complete_resource` 使用 `ai_key` 加密
+- 视频播放委托给 `AiVideoPlayer`（从 `AiCourseManager` 中提取）
+- 作业委托给 `HomeworkCtx`
+- **已删除** 旧的 `ppt_processing` 死分支（PPT 转文本功能不再集成到课程流程）
+
+#### 2.8.3 video.py — AI 视频播放器
 
 ```python
-class ExamCtx:
-    """AI 考试上下文（异步执行）"""
+class AiVideoPlayer:
+    """AI 视频播放器"""
+
+    def __init__(self, session: ZhsSession, speed: float = 1.5) -> None: ...
+
+    def _ai_query(self, url: str, data: dict, content_type: str = "json") -> dict: ...
+    def play_video(
+        self,
+        course_id: int,
+        class_id: int,
+        file_id: int,
+        knowledge_id: int,
+        start_at: int = 0,
+        speed: float | None = None,
+    ) -> None: ...
+    def _watch_video(self, file_id: int) -> None: ...
+    def _report_video_progress(self, ...) -> None: ...
+```
+
+**设计要点**：
+- `_ai_query` 使用 `zhidao_query` + `ai_key` 加密
+- `play_video` 使用 `speed*2` 步进，2 秒间隔上报进度
+- `_watch_video` 使用独立 `httpx.Client` + daemon 线程请求视频流（反检测）
+- 从 `AiCourseManager` 中提取，降低 `course.py` 复杂度
+
+#### 2.8.4 homework.py — AI 作业（同步）
+
+```python
+class HomeworkCtx:
+    """AI 作业上下文（同步执行）
+
+    AI 课程的"考试"实际上是作业，统一命名为 homework。
+    """
 
     def __init__(
         self,
@@ -831,86 +1143,142 @@ class ExamCtx:
         exam_test_id: int,
         exam_paper_id: int,
         ai_config: AIConfig,
-        op_extra: dict = {},
+        op_extra: dict[str, Any] | None = None,
         progress_view: bool = True,
     ) -> None: ...
 
-    async def start(self, reference_materials: list[dict] | None = None) -> tuple[bool, int, int]:
-        """执行完整考试流程，返回 (是否全对, 正确数, 总题数)"""
+    def start(self, reference_materials: list[dict[str, str]] | None = None) -> tuple[bool, int, int]: ...
 
-    # --- 考试 API（均含 3 次重试） ---
-    async def _open_exam(self) -> None: ...
-    async def _get_sheet_content(self) -> list[QuestionSheet]: ...
-    async def _get_question_content(self, question_id: int, version: int) -> QuestionContent | None: ...
-    async def _save_answer(self, question_id: int, answers: list[str]) -> bool: ...
-    async def _submit_exam(self) -> None: ...
+    # --- 作业 API（exam_key 加密） ---
+    def _open_homework(self) -> None: ...
+    def _get_sheet_content(self) -> list[QuestionSheet]: ...
+    def _get_question_content(self, question_id: int, version: int) -> QuestionContent | None: ...
+    def _save_answer(self, question_id: int, answers: list[str]) -> bool: ...
+    def _submit_homework(self) -> None: ...
 
-    # --- 心跳 ---
-    async def _heartbeat(self, interval: int = 10) -> None:
-        """异步心跳，定期更新考试用时（updateUserUsedTime）"""
+    # --- 心跳（daemon 线程） ---
+    def _heartbeat(self) -> None: ...
 
     # --- 答题 ---
-    def _get_answer(self, question: QuestionContent) -> tuple[list[str], str]:
-        """获取答案，返回 (答案列表, 来源标记)"""
-        # 1. 查缓存 → (answer, "cached")
-        # 2. AI 生成 → (answer, "AI generated")
-        # 3. 兜底随机 → (answer, "random")
-
-    # --- 并发控制 ---
-    _semaphore: asyncio.Semaphore = asyncio.Semaphore(3)
-    """限制同时进行的 API 请求数为 3，防止缓存命中时请求风暴"""
-
-    async def _process_question(self, sheet: QuestionSheet) -> None:
-        """处理单道题目（含并发控制和延迟）
-        - async with self._semaphore: 限制并发
-        - await asyncio.sleep(random.uniform(0.3, 0.8)): 每题间随机延迟
-        """
+    def _get_answer(self, question: QuestionContent) -> tuple[list[str], str]: ...
+    def _process_question(self, sheet: QuestionSheet) -> None: ...
 
     # --- 缓存 ---
     def _load_cache(self) -> None: ...
     def _save_cache(self) -> None: ...
-    def _get_cached_answer(self, question_id: int, version: int) -> list[str] | None: ...
-    def _set_cached_answer(self, question_id: int, version: int, data: dict) -> None: ...
 ```
 
-**异步考试流程**：
+**同步实现说明**：
+- **顺序处理题目**（不再并发），避免作业 API 限流
+- 心跳使用 `threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
+- 延迟使用 `time.sleep()`
+- LLM 提供者初始化：`use_zhidao_ai=True` → `ZhidaoAIProvider`，否则 → `OpenAIProvider`
+
+**作业流程**：
 
 ```mermaid
 sequenceDiagram
-    participant E as ExamCtx
+    participant H as HomeworkCtx
     participant Cache as 本地缓存
     participant API as studentexamtest
     participant LLM as LLMProvider
 
-    E->>Cache: 1. _load_cache()
-    E->>API: 2. await _open_exam()
-    Note over E: 3. 启动 _heartbeat() 异步任务 (每10s)
-    E->>API: 4. await _get_sheet_content()
-    API-->>E: question list
+    H->>Cache: 1. _load_cache()
+    H->>API: 2. _open_homework()
+    Note over H: 3. 启动 _heartbeat() daemon 线程
+    H->>API: 4. _get_sheet_content()
+    API-->>H: question list
 
-    loop 每道题目（asyncio.Semaphore 限制并发，每题间 sleep 0.3-0.8s）
-        E->>API: await _get_question_content()
-        API-->>E: QuestionContent
-        E->>Cache: 查缓存
+    loop 每道题目（顺序处理，每题 sleep 3-5s）
+        H->>API: _get_question_content()
+        API-->>H: QuestionContent
+        H->>Cache: 查缓存
         alt 缓存命中
-            Cache-->>E: cached answer
+            Cache-->>H: cached answer
         else 缓存未命中
-            E->>LLM: completion(prompt)
-            LLM-->>E: AI answer
+            H->>LLM: completion(prompt)
+            LLM-->>H: AI answer
         else AI 失败
-            Note over E: 兜底随机答案
+            Note over H: 兜底随机答案
         end
-        E->>API: await _save_answer()
-        Note over E: sleep(random 0.3-0.8s) 防止请求风暴
+        H->>API: _save_answer()
+        Note over H: sleep(3-5s) 防止限流
     end
 
-    E->>API: 6. await _submit_exam()
-    Note over E: 7. 取消心跳任务
-    E->>Cache: 8. 检查结果，更新缓存
-    Note over E: 9. return (all_correct, correct_count, total_count)
+    H->>API: 6. _submit_homework()
+    Note over H: 7. 设置 _stopped=True 停止心跳
+    H->>Cache: 8. 检查结果，更新缓存
+    Note over H: 9. return (all_correct, correct_count, total_count)
 ```
 
-#### 2.8.4 ppt.py — PPT 转文本
+#### 2.8.5 exam.py — AI 考试（同步）
+
+```python
+class ExamCtx:
+    """AI 考试上下文（同步执行）
+
+    与 HomeworkCtx 的区别：
+    - taskList 使用 ai_key 加密（ai_task_query）
+    - openExam / getAnswerSheetInformation / getExamQuestionInfo / saveBatchAnswer /
+      updateUserUsedTime / submit 使用 exam_key（ai_exam_query / ai_exam_submit）
+    - openExamDetail 使用 ai_key（ai_task_query），用于提交后判断是否可查看答案
+    - 批量保存 saveBatchAnswer（每 save_nums 题保存一次）
+    - 填空题 answer 用 / 分隔
+    - submit 后若可查看答案（isLookAnswer/isAllowShowDetail=1）则保存正确答案到缓存
+    """
+
+    def __init__(
+        self,
+        session: ZhsSession,
+        course_id: str,
+        class_id: str,
+        exam_test_id: str,
+        exam_paper_id: str,
+        ai_config: AIConfig,
+        exam_config: ExamConfig,
+        op_extra: dict[str, Any] | None = None,
+        progress_view: bool = True,
+        student_id: int = 0,
+        task_id: str = "",
+    ) -> None: ...
+
+    def start(
+        self,
+        reference_materials: list[dict[str, str]] | None = None,
+        submit: bool = False,
+    ) -> tuple[bool, int, int]: ...
+
+    # --- 考试 API ---
+    def _open_exam(self) -> None: ...
+    def _get_sheet_content(self) -> list[QuestionSheet]: ...
+    def _get_question_content(self, question_id: int, version: int) -> QuestionContent | None: ...
+    def _save_batch_answer(self, answers: list[dict]) -> bool: ...
+    def _submit_exam(self) -> None: ...
+    def _open_exam_detail(self) -> dict: ...
+
+    # --- 心跳（daemon 线程，updateUserUsedTime） ---
+    def _heartbeat(self) -> None: ...
+
+    # --- 答题与缓存 ---
+    def _get_answer(self, question: QuestionContent) -> tuple[list[str], str]: ...
+    def _process_question(self, sheet: QuestionSheet) -> None: ...
+    def _load_cache(self) -> None: ...
+    def _save_cache(self) -> None: ...
+```
+
+**与 HomeworkCtx 的关键差异**：
+
+| 特性 | HomeworkCtx | ExamCtx |
+|------|-------------|---------|
+| 加密密钥 | `exam_key` | `exam_key`（考试 API）+ `ai_key`（taskList/openExamDetail） |
+| 保存方式 | 逐题 `saveStudentAnswer` | 批量 `saveBatchAnswer`（每 `save_nums` 题） |
+| 填空题答案分隔 | 换行 | `/` 分隔 |
+| 心跳 API | `updateUserUsedTime` | `updateUserUsedTime` |
+| 提交后行为 | 检查得分率 | `openExamDetail` 判断是否可查看答案 |
+| 配置 | `HomeworkConfig` | `ExamConfig`（`save_nums`/`delay_min`/`delay_max`） |
+| CLI 命令 | `zhs homework` | `zhs exam` |
+
+#### 2.8.6 ppt.py — PPT 转文本
 
 ```python
 class PptConverter:
@@ -927,25 +1295,23 @@ class PptConverter:
         cleanup_local: bool = True,
     ) -> None: ...
 
-    def convert(self, url: str) -> str:
-        """下载 PPT 并转为文本，完成后清理本地临时文件"""
+    def convert(self, url: str) -> str: ...
 
     # 内部方法
     def _download(self, url: str) -> Path: ...
-    def _upload(self, file_path: Path) -> str: ...    # 返回 file_id
-    def _extract(self, file_id: str) -> str:
-        """提取文本，先尝试 JSON 解析取 content 字段，失败则返回原始文本"""
+    def _upload(self, file_path: Path) -> str: ...
+    def _extract(self, file_id: str) -> str: ...
     def _delete_remote(self, file_id: str) -> None: ...
-    def _cleanup_local(self, file_path: Path) -> None:
-        """清理本地临时 .ppt/.pptx 文件，防止磁盘占用累积"""
-    def _manage_cache(self) -> None:
-        """按 LRU 策略清理远程缓存（超过 max_cache_files 或 max_cache_size_gb）"""
+    def _cleanup_local(self, file_path: Path) -> None: ...
+    def _manage_cache(self) -> None: ...
 ```
 
-**PPT 转文本关键细节**：
-- `convert` 流程：`_download` → `_upload` → `_extract` → `_delete_remote`（若 delete_after_convert）→ `_cleanup_local`（若 cleanup_local）
-- `cleanup_local=True`（默认）：转换完成后自动删除本地下载的临时文件，防止大文件课程占满磁盘
-- `cleanup_local=False`：保留本地文件，便于调试或离线复用
+**设计要点**：
+- `convert` 流程：`_download` → `_upload` → `_extract` → `_delete_remote`（若 `delete_after_convert`）→ `_cleanup_local`（若 `cleanup_local`）
+- `cleanup_local=True`（默认）：转换完成后自动删除本地临时文件，防止大文件课程占满磁盘
+- 属性 `_should_cleanup_local` 避免与方法 `_cleanup_local` 冲突
+- `_extract` 先尝试 JSON 解析取 `content` 字段，失败则返回原始文本
+- `_manage_cache` 按 LRU 策略清理远程缓存
 
 ### 2.9 llm/ — LLM 答题模块
 
@@ -967,11 +1333,8 @@ class LLMProvider(ABC):
     def fill_blank(self, question: str, reference: list[dict] = []) -> str: ...
 
     # 答案解析
-    def parse_choice_answer(self, completion: str) -> list[int]:
-        """从 ```answer\n[{"id": ..., "content": ...}]\n``` 提取选项 ID 列表"""
-
-    def parse_fill_blank_answer(self, completion: str) -> list[str]:
-        """从 ```answer\n答案1\n答案2\n``` 按行提取"""
+    def parse_choice_answer(self, completion: str) -> list[int]: ...
+    def parse_fill_blank_answer(self, completion: str) -> list[str]: ...
 ```
 
 #### 2.9.2 openai.py
@@ -983,8 +1346,9 @@ class OpenAIProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://api.openai.com",
-        model_name: str = "gpt-4",
+        base_url: str = "https://api.openai.com/v1",
+        model_name: str = "gpt-4o-mini",
+        max_token: int = 27900,
         stream: bool = False,
         extra: dict = {},
     ) -> None: ...
@@ -1001,12 +1365,18 @@ class ZhidaoAIProvider(LLMProvider):
     def __init__(
         self,
         session: ZhsSession,
+        course_id: str = "",
+        course_name: str = "",
         stream: bool = False,
         extra: dict = {},
     ) -> None: ...
 
     def completion(self, prompt: str, aim_start: str, aim_end: str) -> str: ...
 ```
+
+**设计要点**：
+- `ZhidaoAIProvider` 使用 `self._session._get_client().post()` 发送请求（`ZhsSession` 无 `post` 方法）
+- 内部实现签名逻辑（替代已删除的 `sign_zhidao_ai`）
 
 #### 2.9.4 prompts.py
 
@@ -1065,18 +1435,25 @@ def progress_bar(
     enabled: bool = True,
 ) -> None: ...
 
-def show_qr_image(
-    img_bytes: bytes,
-    show_in_terminal: bool = False,
-    ensure_unicode: bool = False,
-) -> None: ...
+def show_qrcode_img(img_bytes: bytes) -> None: ...
 
-def terminal_qr_unicode(img_bytes: bytes) -> None: ...
-def terminal_qr_tty(img_bytes: bytes) -> None: ...
-
-def tree_print(text: str, depth: int, width_limit: int = 80, prefix: str = "  |") -> None: ...
+def tree_print(text: str, depth: int = 0, width_limit: int = 80, prefix: str = "  |", enabled: bool = True) -> None: ...
 def wipe_line() -> None: ...
+
+# 消息样式辅助
+def msg_done(text: str) -> str: ...
+def msg_error(text: str) -> str: ...
+def msg_info(text: str) -> str: ...
+def msg_warn(text: str) -> str: ...
+def msg_skip(text: str) -> str: ...
+def course_tag(course_type: str) -> str: ...
+def styled(text: str, *styles: str) -> str: ...
 ```
+
+**设计要点**：
+- **已删除** `show_qr_image`（旧版二维码显示，已由 `show_qrcode_img` 替代）
+- **已删除** `terminal_qr_unicode` / `terminal_qr_tty`（不再使用终端二维码）
+- 新增消息样式辅助函数（`msg_done`/`msg_error`/`msg_info`/`msg_warn`/`msg_skip`/`course_tag`/`styled`）
 
 #### 2.10.2 cookie.py
 
@@ -1095,19 +1472,22 @@ def get_config_path() -> Path: ...
 def get_real_path(path: str) -> Path: ...
 ```
 
+**设计要点**：
+- **已删除** `version_cmp`（未使用的版本比较函数）
+
 ### 2.11 logger.py — 日志模块
 
-基于 loguru 的生产级日志系统，替代旧版自定义 MonoLogger。
+基于 loguru 的日志系统，替代旧版自定义 MonoLogger。
 
 #### 2.11.1 设计目标
 
 | 目标 | 说明 |
 |------|------|
 | 零配置可用 | 模块内 `from loguru import logger` 直接使用，无需手动初始化 |
-| 一次性配置 | CLI 入口调用 `setup_logging(config)` 完成所有 sink 注册 |
+| 一次性配置 | CLI 入口调用 `_setup_logger(config)` 完成所有 sink 注册 |
 | 双通道 | stderr（控制台实时）+ 文件（持久化审计） |
 | 敏感信息脱敏 | 自动过滤 cookie/token/password 等字段 |
-| 文件轮转 | 单文件 10 MB，保留 7 天，自动压缩 |
+| 文件轮转 | 按日期轮转，保留 30 天，gz 压缩 |
 | 线程安全 | loguru 本身线程安全，无需额外同步 |
 
 #### 2.11.2 公开 API
@@ -1117,23 +1497,15 @@ from zhs.config import AppConfig
 
 def setup_logging(config: AppConfig) -> None:
     """
-    配置 loguru 日志系统。
-
+    配置 loguru 日志系统（幂等）。
     - 移除 loguru 默认 sink（id=0）
-    - 注册 stderr sink（级别由 config.log_level 控制）
-    - 注册文件 sink（始终 DEBUG，轮转 10MB/7天）
-    - 注册敏感信息过滤 patcher
-    - 确保幂等：重复调用不会重复注册 sink
+    - 注册文件 sink（按日期轮转，保留 30 天，gz 压缩）
+    - 注册 stderr sink（可选，由 console_log/debug 控制）
+    - 注册敏感信息过滤 filter
     """
 
 def get_log_dir() -> Path:
     """返回日志文件目录路径（<data_dir>/logs/），自动创建"""
-
-# 敏感信息过滤的正则模式（内部使用，但文档化以便审查）
-_SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # 匹配 "CASLOGC=xxx", "token=xxx", "password=xxx" 等
-    # 替换为 "***"
-)
 ```
 
 #### 2.11.3 格式定义
@@ -1141,13 +1513,13 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
 **控制台格式**（紧凑、彩色）：
 
 ```
-14:23:01 | INFO    | 登录成功: uuid=Xe6arnRO
-14:23:02 | DEBUG   | API 请求: url=/login/gologin
-14:23:03 | WARNING | 视频进度异常: played=0.8 end=1.0
-14:23:04 | ERROR   | API 请求失败: code=-12
+INFO    | zhs.login - 登录成功: uuid=Xe6arnRO
+DEBUG   | zhs.session - API 请求: url=/login/gologin
+WARNING | zhs.video - 视频进度异常: played=0.8 end=1.0
+ERROR   | zhs.session - API 请求失败: code=-12
 ```
 
-格式串：`<green>{time:HH:mm:ss}</green> | <level>{level:<7}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - {message}`
+格式串：`<level>{level:<7}</level> | <cyan>{name}</cyan> - {message}`
 
 **文件格式**（完整、结构化）：
 
@@ -1160,10 +1532,10 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 #### 2.11.4 敏感信息过滤
 
-通过 loguru 的 `patcher` 机制，在日志记录创建时自动脱敏：
+通过 loguru 的 `filter` 机制（而非 `patcher`，因 loguru 0.7.3 的 `patch()` 返回新实例而非修改全局 logger）实现脱敏：
 
 ```python
-def _sensitive_patcher(record: loguru.Record) -> None:
+def _sensitive_filter(record: loguru.Record) -> None:
     """对 record["message"] 中的敏感字段进行脱敏"""
     for pattern in _SENSITIVE_PATTERNS:
         record["message"] = pattern.sub(r'\1=***', record["message"])
@@ -1179,128 +1551,165 @@ def _sensitive_patcher(record: loguru.Record) -> None:
 | `apiKey=<value>` | `apiKey=sk-xxxx` | `apiKey=***` |
 | `Authorization: Bearer <value>` | `Authorization: Bearer eyJ...` | `Authorization: Bearer ***` |
 
-#### 2.11.5 初始化流程
-
-```mermaid
-flowchart TD
-    Start([setup_logging 被调用]) --> Remove[移除 loguru 默认 sink]
-    Remove --> CheckIdempotent{已注册过?}
-    CheckIdempotent -->|是| Return[直接返回，幂等]
-    CheckIdempotent -->|否| AddStderr[注册 stderr sink<br/>level=config.log_level<br/>格式=紧凑彩色]
-    AddStderr --> AddFile[注册文件 sink<br/>level=DEBUG<br/>rotation=10 MB<br/>retention=7 days<br/>compression=zip]
-    AddFile --> AddPatcher[注册敏感信息 patcher]
-    AddPatcher --> MarkDone[标记已初始化]
-    MarkDone --> Return
-```
-
-#### 2.11.6 与其他模块的交互
-
-```mermaid
-flowchart LR
-    CLI[__main__.py] -->|调用| SetupLog[setup_logging]
-    SetupLog -->|配置| Loguru[loguru.logger]
-
-    subgraph 业务模块
-        Login[login.py]
-        Session[session.py]
-        Video[zhidao/video.py]
-        Hike[hike/video.py]
-        Exam[ai/exam.py]
-    end
-
-    Login -->|from loguru import logger| Loguru
-    Session -->|from loguru import logger| Loguru
-    Video -->|from loguru import logger| Loguru
-    Hike -->|from loguru import logger| Loguru
-    Exam -->|from loguru import logger| Loguru
-```
-
-关键点：
-- 所有业务模块统一使用 `from loguru import logger`，不直接依赖 `logger.py`
-- `logger.py` 仅负责**配置**（sink 注册、格式、过滤），不提供自定义 logger 实例
-- 这意味着 `setup_logging()` 必须在业务逻辑之前调用（CLI 入口负责）
-
-#### 2.11.7 线程安全考量
+#### 2.11.5 线程安全考量
 
 | 场景 | loguru 行为 | 结论 |
 |------|-------------|------|
 | 多线程写日志 | 内部有锁，消息不会交错 | 安全 |
 | `_watch_video` daemon 线程 | 线程内 logger 调用正常 | 安全 |
-| 异步协程写日志 | loguru 不依赖线程本地存储 | 安全 |
 | 运行时修改 sink | `logger.add()`/`logger.remove()` 线程安全 | 安全 |
 
-#### 2.11.8 AppConfig 扩展
-
-`AppConfig.log_level` 已存在（默认 `"INFO"`），无需新增字段。
-
-TOML 配置示例：
-
-```toml
-[app]
-log_level = "DEBUG"   # 控制台日志级别，文件始终 DEBUG
-```
-
-### 2.12 __main__.py — CLI 入口
+### 2.12 __main__.py — CLI 入口（命令式）
 
 ```python
 import typer
 
-app = typer.Typer(name="zhs", help="智慧树自动刷课工具")
+app = typer.Typer(name="zhs", help="智慧树自动刷课工具", no_args_is_help=True)
 
 @app.command()
-def main(
-    course: list[str] | None = typer.Option(None, "-c", "--course", help="课程 ID"),
-    course_type: str | None = typer.Option(None, "--type", help="课程类型: zhidao/hike/ai，覆盖自动检测"),
-    videos: list[str] | None = typer.Option(None, "-v", "--videos", help="视频 ID"),
-    speed: float | None = typer.Option(None, "-s", "--speed", help="播放速度"),
-    threshold: float | None = typer.Option(None, "-t", "--threshold", help="完成阈值"),
-    limit: int = typer.Option(0, "-l", "--limit", help="时间限制(分钟)"),
-    debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),
-    fetch: bool = typer.Option(False, "-f", "--fetch", help="获取课程列表"),
-    show_in_terminal: bool = typer.Option(False, help="终端显示二维码"),
-    proxy: str | None = typer.Option(None, "--proxy", help="代理"),
-    tree_view: bool | None = typer.Option(None, help="树形视图"),
-    progressbar_view: bool | None = typer.Option(None, help="进度条"),
-    image_path: str | None = typer.Option(None, "--image-path", help="二维码保存路径"),
-    aicourse: list[str] | None = typer.Option(None, "-ai", "--aicourse", help="AI 课程 ID 和班级 ID"),
-    noexam: bool = typer.Option(False, "--noexam", help="禁用 AI 考试"),
+def init() -> None:
+    """初始化 .zhs/ 目录及默认配置"""
+
+@app.command()
+def login(
+    show_in_terminal: bool = typer.Option(False, "--show-in-terminal"),
+    image_path: str | None = typer.Option(None, "--image-path"),
+    proxy: str | None = typer.Option(None, "--proxy"),
+    debug: bool = typer.Option(False, "-d", "--debug"),
+    console_log: bool = typer.Option(False, "--console-log"),
 ) -> None:
-    """智慧树自动刷课工具"""
-    ...
+    """扫码登录智慧树"""
+
+@app.command()
+def play(
+    course: list[str] | None = typer.Option(None, "-c", "--course"),
+    course_type: str | None = typer.Option(None, "--type"),
+    ai_course: int | None = typer.Option(None, "--ai-course"),
+    ai_class: int | None = typer.Option(None, "--ai-class"),
+    speed: float | None = typer.Option(None, "-s", "--speed"),
+    limit: int = typer.Option(0, "-l", "--limit", min=0),
+    proxy: str | None = typer.Option(None, "--proxy"),
+    debug: bool = typer.Option(False, "-d", "--debug"),
+    console_log: bool = typer.Option(False, "--console-log"),
+) -> None:
+    """刷视频"""
+
+@app.command()
+def homework(
+    course: list[str] | None = typer.Option(None, "-c", "--course"),
+    course_type: str | None = typer.Option(None, "--type"),
+    url: str | None = typer.Option(None, "--url"),
+    ai_course: int | None = typer.Option(None, "--ai-course"),
+    ai_class: int | None = typer.Option(None, "--ai-class"),
+    no_ai: bool = typer.Option(False, "--no-ai"),
+    homework_threshold: int | None = typer.Option(None, "--homework-threshold"),
+    max_submit: int | None = typer.Option(None, "--max-submit"),
+    proxy: str | None = typer.Option(None, "--proxy"),
+    debug: bool = typer.Option(False, "-d", "--debug"),
+    console_log: bool = typer.Option(False, "--console-log"),
+) -> None:
+    """写作业"""
+
+@app.command()
+def exam(
+    course: list[str] | None = typer.Option(None, "-c", "--course"),
+    course_type: str | None = typer.Option(None, "--type"),
+    ai_course: int | None = typer.Option(None, "--ai-course"),
+    ai_class: int | None = typer.Option(None, "--ai-class"),
+    submit: bool = typer.Option(False, "--submit"),
+    proxy: str | None = typer.Option(None, "--proxy"),
+    debug: bool = typer.Option(False, "-d", "--debug"),
+    console_log: bool = typer.Option(False, "--console-log"),
+) -> None:
+    """AI 课程考试"""
+
+@app.command()
+def fetch(
+    fetch_type: str = typer.Option("all", "--type"),
+    proxy: str | None = typer.Option(None, "--proxy"),
+    debug: bool = typer.Option(False, "-d", "--debug"),
+    console_log: bool = typer.Option(False, "--console-log"),
+) -> None:
+    """获取课程数据"""
 ```
+
+**CLI 命令一览**：
+
+| 命令 | 用途 | 关键参数 |
+|------|------|----------|
+| `zhs init` | 初始化配置目录 | 无 |
+| `zhs login` | 扫码登录 | `--show-in-terminal`, `--image-path`, `--proxy` |
+| `zhs play` | 刷视频 | `-c/--course`, `--type`, `--ai-course`, `--ai-class`, `-s/--speed`, `-l/--limit` |
+| `zhs homework` | 写作业 | `-c/--course`, `--type`, `--url`, `--ai-course`, `--ai-class`, `--no-ai`, `--homework-threshold`, `--max-submit` |
+| `zhs exam` | AI 课程考试 | `--ai-course`, `--ai-class`, `--type ai`, `--submit` |
+| `zhs fetch` | 获取课程数据 | `--type all/course/homework` |
 
 **CLI 执行主流程**：
 
 ```mermaid
 flowchart TD
     Start([zhs 命令启动]) --> LoadConfig[加载配置 ConfigManager]
-    LoadConfig --> Override[CLI 参数覆盖配置]
-    Override --> SetupLog[配置日志 loguru]
-    SetupLog --> ParseProxy[解析代理]
-    ParseProxy --> CheckUpdate[检查更新]
-    CheckUpdate --> CreateSession[创建 ZhsSession]
-    CreateSession --> Login[尝试恢复 cookies / 登录]
+    LoadConfig --> ParseProxy[解析代理]
+    ParseProxy --> SetupLog[配置日志 loguru]
+    SetupLog --> CreateSession[创建 ZhsSession]
+    CreateSession --> RestoreCookies[尝试恢复 cookies]
+    RestoreCookies -->|失败| PromptLogin[提示运行 zhs login]
+    RestoreCookies -->|成功| Dispatch{命令分发}
 
-    Login --> CheckAI{aicourse 参数?}
+    Dispatch -->|init| DoInit[创建目录 + 默认配置]
+    Dispatch -->|login| DoLogin[扫码登录 + 保存 cookies]
+    Dispatch -->|play| DoPlay[刷视频]
+    Dispatch -->|homework| DoHomework[写作业]
+    Dispatch -->|exam| DoExam[AI 考试]
+    Dispatch -->|fetch| DoFetch[获取课程列表]
+```
+
+**play 命令路由**：
+
+```mermaid
+flowchart TD
+    Play([zhs play]) --> CheckAI{--ai-course + --ai-class?}
     CheckAI -->|是| AiRun[AiCourseManager.run_course]
-    CheckAI -->|否| CheckFetch{fetch 参数?}
-    CheckFetch -->|是| SaveList[保存课程列表到 execution.json]
-    CheckFetch -->|否| CheckCourse{course 参数?}
-    CheckCourse -->|是| TypeOverride{--type 参数?}
+    CheckAI -->|否| CheckCourse{-c/--course?}
+    CheckCourse -->|是| TypeOverride{--type?}
     TypeOverride -->|zhidao| ZhidaoPlay[ZhidaoVideoPlayer]
     TypeOverride -->|hike| HikePlay[HikeVideoPlayer]
-    TypeOverride -->|ai| AiRun2[AiCourseManager.run_course]
-    TypeOverride -->|None 自动检测| DetectType[自动检测课程类型]
+    TypeOverride -->|ai| AiPlay[_run_ai_by_str: courseId:classId]
+    TypeOverride -->|auto/None| DetectType[自动检测]
     DetectType --> ZhidaoOrHike{含字母?}
-    ZhidaoOrHike -->|是 知到| ZhidaoPlay
-    ZhidaoOrHike -->|否 Hike| HikePlay
-    CheckCourse -->|否| FuckAll[fuckWhatever: 先刷知到再刷 Hike, 每课程独立 try/except]
+    ZhidaoOrHike -->|是| ZhidaoPlay
+    ZhidaoOrHike -->|否| HikePlay
+    CheckCourse -->|否| FuckAll[_run_all: 先知到再 Hike 再 AI]
+```
+
+**homework 命令路由**：
+
+```mermaid
+flowchart TD
+    HW([zhs homework]) --> CheckURL{--url?}
+    CheckURL -->|是| UrlMode[_run_homework_from_url: CAS SSO + 扫描 + 做题]
+    CheckURL -->|否| CheckAI{--ai-course + --ai-class?}
+    CheckAI -->|是| AiHW[_run_ai_homework: AiCourseManager.run_course]
+    CheckAI -->|否| CheckCourse{-c/--course?}
+    CheckCourse -->|是| CourseLoop[遍历课程]
+    CourseLoop --> DetectType{检测类型}
+    DetectType -->|ai| AiHWByStr[_run_ai_homework_by_str]
+    DetectType -->|zhidao| ZhidaoHW[_run_zhidao_homework_by_course: CAS SSO + 扫描 + 做题]
+    DetectType -->|hike| SkipHike[暂不支持]
+    CheckCourse -->|否| AllHW[_run_all_homework: 知到 + AI]
 ```
 
 **课程类型检测说明**：
-- `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai` 时直接路由，跳过自动检测
-- 自动检测（"含字母→知到，纯数字→Hike"）仅作为 fallback，该规则脆弱但兼容旧版 ID 格式
-- 若自动检测路由错误，用户可通过 `--type` 覆盖，如 `zhs -c 12345 --type hike`
+- `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai`/`auto` 时直接路由
+- 自动检测（"含字母→知到，纯数字→Hike"）仅作为 fallback
+- `--type auto` 等同于不指定，执行全刷模式
+
+**设计要点**：
+- 使用 typer 框架替代旧版 argparse
+- `B008` 规则使用 `# noqa: B008` 抑制（typer.Option 在函数默认参数中）
+- `no_args_is_help=True`：无参数时显示帮助
+- AI 课程使用 `--ai-course` + `--ai-class` 显式指定 courseId 和 classId
+- 知到作业需先调用 `session.exam_sso_login()` 进行 CAS SSO 认证
 
 ---
 
@@ -1337,31 +1746,64 @@ flowchart LR
     end
 ```
 
-### 3.2 AI 考试数据流
+### 3.2 知到作业数据流
 
 ```mermaid
 flowchart TD
-    EC[ExamCtx async] -->|POST questions-paper| KG[kg-ai-run.zhihuishu.com]
-    KG -->|exam_info| EC
+    CLI[zhs homework] --> SSO[session.exam_sso_login CAS SSO]
+    SSO --> Scanner[HomeworkScanner]
+    Scanner -->|getStudentHomework| HW_API[studentexam-api.zhihuishu.com]
+    HW_API -->|作业列表| Scanner
+    Scanner -->|filter_pending| Worker[HomeworkWorker]
 
-    EC -->|_open_exam| SE[studentexamtest.zhihuishu.com]
-    EC -->|_heartbeat 每10s| SE
-    EC -->|_get_sheet_content| SE
-    SE -->|question list| EC
+    Worker -->|doHomework| HW_API
+    HW_API -->|题目详情| Worker
+    Worker -->|生成答案| GenAnswer[缓存/LLM/随机]
+    GenAnswer -->|缓存| Cache[HomeworkCache]
+    GenAnswer -->|LLM| LLM[LLMProvider]
+    Worker -->|saveStudentAnswer| HW_API
+    Worker -->|submit| HW_API
 
-    subgraph AnswerLoop[逐题答题]
-        EC2[ExamCtx] -->|_get_question_content| SE2[studentexamtest]
-        SE2 -->|QuestionContent| EC2
-        EC2 -->|查缓存| Cache[本地缓存]
-        Cache -->|命中| EC2
+    Worker -->|lookHomework| HW_API
+    HW_API -->|已提交详情| Analyzer[HomeworkAnalyzer]
+    Analyzer -->|getStuAnswerInfo| HW_API
+    HW_API -->|对错信息| Analyzer
+    Analyzer -->|ai_analysis_run SSE| AI_API[ai-course-assistant-api]
+    AI_API -->|AI 解析| Analyzer
+    Analyzer -->|保存正确答案| Cache
+```
+
+### 3.3 AI 考试数据流
+
+```mermaid
+flowchart TD
+    CLI[zhs exam] --> AiMgr[AiCourseManager]
+    AiMgr -->|get_ai_course_list home_key| OS[onlineservice-api]
+    OS -->|课程列表| AiMgr
+    AiMgr -->|get_exam_tasks ai_task_query ai_key| TASK[kg-run-student]
+    TASK -->|未完成考试| AiMgr
+
+    AiMgr --> ExamCtx[ExamCtx 同步]
+    ExamCtx -->|openExam ai_exam_query exam_key| EXAM[studentexamtest]
+    ExamCtx -->|_heartbeat daemon 线程| EXAM
+    ExamCtx -->|getAnswerSheetInformation| EXAM
+    EXAM -->|question list| ExamCtx
+
+    subgraph AnswerLoop[顺序答题]
+        ExamCtx2[ExamCtx] -->|getExamQuestionInfo| EXAM2[studentexamtest]
+        EXAM2 -->|QuestionContent| ExamCtx2
+        ExamCtx2 -->|查缓存| Cache[本地缓存]
+        Cache -->|命中| ExamCtx2
         Cache -->|未命中| LLM[LLMProvider]
-        LLM -->|AI answer| EC2
-        EC2 -->|_save_answer| SE2
+        LLM -->|AI answer| ExamCtx2
+        ExamCtx2 -->|saveBatchAnswer 每 save_nums 题| EXAM2
     end
 
-    EC --> AnswerLoop
-    EC -->|_submit_exam| SE
-    EC -->|更新缓存| Cache
+    ExamCtx --> AnswerLoop
+    ExamCtx -->|submit ai_exam_submit| EXAM
+    ExamCtx -->|openExamDetail ai_task_query| TASK
+    TASK -->|isLookAnswer| ExamCtx
+    ExamCtx -->|可查看答案| Cache
 ```
 
 ---
@@ -1383,21 +1825,24 @@ flowchart LR
 
 | 层级 | 覆盖内容 | Mock 策略 |
 |------|----------|-----------|
-| **单元测试** | crypto、models、prompts、cookie、path | 无外部依赖 |
-| **集成测试** | session API 查询、login 流程 | Mock httpx 响应 |
-| **端到端测试** | 完整刷课流程 | Mock 全部 API |
+| **单元测试** | crypto、models、prompts、cookie、path、display | 无外部依赖 |
+| **集成测试** | session API 查询、login 流程、homework 流程 | Mock httpx 响应（respx） |
+| **端到端测试** | 完整刷课流程、CLI 命令 | Mock 全部 API |
 
 ### 4.3 关键测试用例
 
 **crypto.py**：
 - AES 加解密对称性
-- ev 编解码对称性
+- ev 编码（无对称解码测试，因 `decode_ev` 已删除）
 - Hike 签名与已知结果对比
 - WatchPoint 生成逻辑
 
 **session.py**：
-- zhidao_query 自动加密和时间戳
-- hike_query 自动签名
+- `zhidao_query` 自动加密和时间戳（`dateFormate` 加入 data 加密 + 独立字段）
+- `homework_query` 不发送 `dateFormate`
+- `ai_exam_query` 发送 `dateFormate`，检查 `code`
+- `ai_task_query` 使用 `ai_key`
+- `hike_query` 自动签名
 - Cookie 解析 uuid
 - API 错误码映射异常
 
@@ -1405,37 +1850,68 @@ flowchart LR
 - TOML 加载/保存
 - 旧版 JSON 配置迁移
 - 默认值填充
+- alias 字段兼容
 
-**llm/prompts.py**：
-- Prompt 模板输出格式
-- 答案解析（正常/异常格式）
+**zhidao/homework/**：
+- `HomeworkScanner` 扫描和过滤
+- `HomeworkWorker` 做题流程（doHomework → saveAnswer → submit → look → analyze）
+- `HomeworkAnalyzer` 错题分析
+- `HomeworkCache` 缓存读写
+- 滑块验证异常
+
+**ai/homework.py**：
+- 缓存命中/未命中
+- 同步心跳启停（`_stopped` 标志）
+- 顺序处理（不并发）
 
 **ai/exam.py**：
-- 缓存命中/未命中
-- 考试重试逻辑（mastery_score 阈值）
-- 异步心跳启停
+- 批量保存（`save_nums`）
+- 填空题 `/` 分隔
+- `openExamDetail` 判断可查看答案
+- 考试重试逻辑
+
+**ai/video.py**：
+- `play_video` 进度上报（`speed*2`, 2s 间隔）
+- `_watch_video` 独立线程
 
 ### 4.4 Mock 示例
 
 ```python
 # tests/conftest.py
 import pytest
-from unittest.mock import AsyncMock
+import respx
+from zhs.config import AppConfig
 from zhs.session import ZhsSession
 
 @pytest.fixture
-def mock_session():
-    session = ZhsSession()
-    session.sync_client = MagicMock()
-    session.async_client = MagicMock()
-    return session
+def mock_config() -> AppConfig:
+    """用于 Mock session 的配置"""
+    return AppConfig()
 
 @pytest.fixture
-def mock_api_response():
-    """通用 API 响应工厂"""
-    def _make(code: int = 0, data: dict = {}, message: str = ""):
-        return {"code": code, "data": data, "message": message, "status": code}
-    return _make
+def mock_session(mock_config: AppConfig) -> Generator[ZhsSession, None, None]:
+    """带 Mock HTTP 的 session
+
+    ⚠️ 注意：不能在 fixture 上使用 @respx.mock 装饰器！
+    因为 @respx.mock 的 Mock 环境仅在 fixture 函数体内生效，
+    当 fixture return 后 Mock 立即关闭，下游测试会穿透到真实网络。
+
+    正确做法：在 fixture 内用 respx.mock 上下文管理器 + yield，
+    使 Mock 生命周期覆盖整个测试用例执行期。
+    """
+    with respx.mock:
+        session = ZhsSession(mock_config)
+        yield session
+
+@pytest.fixture
+def authenticated_session(mock_session: ZhsSession) -> ZhsSession:
+    """已认证的 session（含 uuid 和 cookies）"""
+    mock_session.cookies.set(
+        "CASLOGC",
+        '{"uuid":"test-uuid-123"}',
+        domain="zhihuishu.com",
+    )
+    return mock_session
 ```
 
 ---
@@ -1448,48 +1924,55 @@ def mock_api_response():
 flowchart TD
     subgraph P1["Phase 1: 基础设施"]
         direction LR
-        E[1. exceptions.py] --> C[2. crypto.py]
-        UP[3. utils/path.py] --> UC[4. utils/cookie.py]
-        UD[5. utils/display.py]
-        CFG[6. config.py] --> S[7. session.py]
+        E[1.1 exceptions.py] --> C[1.2 crypto.py]
+        UP[1.3 utils/path.py] --> UC[1.4 utils/cookie.py]
+        UD[1.5 utils/display.py]
+        CFG[1.6 config.py] --> S[1.7 session.py]
+        UP --> LOG[1.8 logger.py]
+        CFG --> LOG
     end
 
     subgraph P2["Phase 2: 登录"]
-        L[8. login.py]
+        L[2.1 login.py]
     end
 
     subgraph P3["Phase 3: 知到课程"]
         direction LR
-        ZM[9. zhidao/models.py] --> ZC[10. zhidao/course.py]
-        ZM --> ZQ[11. zhidao/quiz.py]
-        ZC --> ZV[12. zhidao/video.py]
+        ZM[3.1 zhidao/models.py] --> ZC[3.2 zhidao/course.py]
+        ZM --> ZQ[3.3 zhidao/quiz.py]
+        ZC --> ZV[3.4 zhidao/video.py]
         ZQ --> ZV
+        ZV --> ZHW[3.5 zhidao/homework/*]
     end
 
     subgraph P4["Phase 4: Hike 课程"]
         direction LR
-        HM[13. hike/models.py] --> HC[14. hike/course.py]
-        HC --> HV[15. hike/video.py]
+        HM[4.1 hike/models.py] --> HC[4.2 hike/course.py]
+        HC --> HV[4.3 hike/video.py]
     end
 
     subgraph P5["Phase 5: LLM 答题"]
         direction LR
-        LP[16. llm/prompts.py] --> LB[17. llm/base.py]
-        LB --> LO[18. llm/openai.py]
-        LB --> LZ[19. llm/zhidao.py]
+        LP[5.1 llm/prompts.py] --> LB[5.2 llm/base.py]
+        LB --> LO[5.3 llm/openai.py]
+        LB --> LZ[5.4 llm/zhidao.py]
     end
 
     subgraph P6["Phase 6: AI 课程"]
         direction LR
-        AM[20. ai/models.py] --> AP[21. ai/ppt.py]
-        AM --> AE[22. ai/exam.py]
-        AP --> AC[23. ai/course.py]
+        AM[6.1 ai/models.py] --> AP[6.2 ai/ppt.py]
+        AM --> AV[6.3 ai/video.py]
+        AM --> AHW[6.4 ai/homework.py]
+        AM --> AE[6.5 ai/exam.py]
+        AP --> AC[6.6 ai/course.py]
+        AV --> AC
+        AHW --> AC
         AE --> AC
     end
 
     subgraph P7["Phase 7: CLI"]
         direction LR
-        CLI[24. __main__.py]
+        CLI[7.1 __main__.py]
     end
 
     P1 --> P2 --> P3
@@ -1505,3 +1988,24 @@ flowchart TD
 ```
 
 每个 Phase 内的模块可并行开发，Phase 间有依赖需顺序完成。
+
+---
+
+## 6. 设计约束
+
+1. **密钥不硬编码**：所有密钥从 `CryptoConfig` 获取，构造时显式传入
+2. **URL 不硬编码**：所有 URL 从 `UrlConfig` 获取
+3. **异常链**：`raise ZhsError(...) from e`，禁止裸 `raise ZhsError`
+4. **线程安全**：`_watch_video` 使用独立 `httpx.Client`，daemon=True，全捕获 Exception
+5. **同步延迟**：所有代码均为同步，使用 `time.sleep()`，禁止 `asyncio.sleep()`
+6. **顺序处理**：`HomeworkCtx` 顺序处理题目（不再并发），每题 sleep 3-5s，避免 API 限流
+7. **心跳线程**：`HomeworkCtx._heartbeat` 使用 `threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
+8. **本地文件清理**：`PptConverter` 默认 `cleanup_local=True`
+9. **课程类型**：CLI `--type` 支持 `zhidao/hike/ai/auto` 显式覆盖自动检测
+10. **Hike 资源树**：无 `file_id` 的非标准节点跳过 + 日志，`play_file` 内 try/except 防护 KeyError
+11. **测试 Mock**：`mock_session` fixture 用 `with respx.mock: yield`，禁止 `@respx.mock` 装饰器
+12. **AI 作业命名**：AI 课程的"考试"统一称为"作业"（homework），代码中使用 `HomeworkCtx`（非 ExamCtx），文件名 `ai/homework.py`（非 `ai/exam.py`）
+13. **CLI 命令式**：使用 `zhs play/homework/exam/fetch` 命令式接口，禁止旧的 `zhs -c ID` 风格
+14. **作业 API 加密**：知到作业 API（`studentexam-api`）使用 `exam_key` 加密，**不发送 `dateFormate`** 字段，与知到视频 API（`studyservice-api`）不同
+15. **AI 考试 API 加密**：AI 考试 API（`studentexamtest`）使用 `exam_key` 加密，**发送 `dateFormate`** 字段，检查 `code` 字段（与知到作业 API 不同）
+16. **禁止 asyncio**：项目不再使用 `asyncio`，所有代码同步实现；`session.py` 无 `_async_client`/`async_api_query`/`aclose` 等异步接口

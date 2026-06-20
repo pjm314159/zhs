@@ -26,9 +26,5 @@ class LoginFailed(ZhsError):
     """登录失败"""
 
 
-class InvalidCookies(ZhsError):
-    """Cookies 无效或过期"""
-
-
 class TimeLimitExceeded(ZhsError):
     """刷课时间超过限制"""

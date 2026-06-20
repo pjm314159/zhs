@@ -1,16 +1,12 @@
 """ZHS 加解密模块
 
-提供 AES-128-CBC 加解密、ev 编解码、Hike 签名、智慧树 AI 签名、视频观看轨迹点生成等功能。
+提供 AES-128-CBC 加解密、ev 编解码、Hike 签名、视频观看轨迹点生成等功能。
 """
 
 import hashlib
-import json
-import random
-import string
 from base64 import b64decode, b64encode
 from collections.abc import Iterator, Sequence
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from Crypto.Cipher import AES
 
@@ -110,24 +106,6 @@ def encode_ev(data: Sequence[int | str], key: str = "zzpttjd") -> str:
     return ev
 
 
-def decode_ev(encoded: str, key: str = "zzpttjd") -> str:
-    """ev 解码
-
-    将编码字符串逆向解码为原始字符串。
-    """
-    key_chars = _key_generator(key)
-    ev = list(encoded)
-    ls: list[int] = []
-    while ev:
-        d2, d1 = ev.pop(), ev.pop()
-        c = int(d1 + d2, 16)
-        ls.append(c)
-    ret = ""
-    for c in ls[::-1]:
-        ret += chr(c ^ next(key_chars))
-    return ret
-
-
 def sign_hike(params: dict[str, Any], salt: str) -> str:
     """Hike API 签名（MD5）
 
@@ -149,52 +127,8 @@ def sign_hike(params: dict[str, Any], salt: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def sign_zhidao_ai(data: dict[str, Any], prefix: str = "8ZflKEagfL") -> tuple[str, dict[str, Any]]:
-    """智慧树 AI 对话签名
-
-    生成 sessionNid（chatcmpl- + 24 位随机字符），构建签名，
-    返回带 sign 参数的 URL 和更新后的 body 字典。
-    """
-    url = data.pop("url", "")
-    if "sessionNid" not in data:
-        data["sessionNid"] = _generate_session_nid()
-
-    input_string = _build_input_string(data)
-    signature = _generate_signature(input_string, prefix)
-
-    scheme, netloc, path, query_string, fragment = urlsplit(url)
-    query_params = dict(parse_qsl(query_string))
-    query_params["sign"] = signature
-    new_query_string = urlencode(query_params)
-    signed_url = urlunsplit((scheme, netloc, path, new_query_string, fragment))
-
-    return signed_url, data
-
-
 def _key_generator(key: str) -> Iterator[int]:
     """生成密钥字符的循环迭代器"""
     while True:
         for c in key:
             yield ord(c)
-
-
-def _generate_session_nid() -> str:
-    """生成随机会话 ID（chatcmpl- + 24 位随机字符）"""
-    chars = string.ascii_lowercase + string.digits
-    return "chatcmpl-" + "".join(random.choice(chars) for _ in range(24))
-
-
-def _build_input_string(data: dict[str, Any]) -> str:
-    """构建签名输入字符串"""
-    json_data = {
-        "messageList": "[object Object]",
-        "modelCode": data.get("modelCode", ""),
-        "sessionNid": data.get("sessionNid", ""),
-        "stream": data.get("stream", False),
-    }
-    return json.dumps(json_data, separators=(",", ":")).replace('"true"', "true").replace('"false"', "false")
-
-
-def _generate_signature(input_string: str, prefix: str) -> str:
-    """生成 MD5 签名"""
-    return hashlib.md5((prefix + input_string).encode("utf-8")).hexdigest()

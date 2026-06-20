@@ -49,8 +49,6 @@ class ZhidaoVideoPlayer:
 
         单个视频失败不中断整个课程，记录错误后继续下一个视频。
         """
-        from zhs.exceptions import CaptchaRequired
-
         course = ctx.course
         course_name = course.course_info.name if course.course_info else course.course_name
         begin_time = time.time()
@@ -246,14 +244,18 @@ class ZhidaoVideoPlayer:
             if elapsed_time % db_interval == 0 or played_time >= end_time or report:
                 report = False
                 wp.add(int(played_time))
-                server_played = self._report_progress_v2(
+                server_played, success = self._report_progress_v2(
                     rac_id, video_id, ctx, played_time, last_submit, wp.get(), token_id, initial=False
                 )
-                # 同步服务器时间（处理 -8 学习总时长下降）
-                if server_played > played_time:
-                    played_time = server_played
-                last_submit = played_time
-                wp.reset(int(played_time))
+                if success:
+                    # 同步服务器时间（处理 -8 学习总时长下降）
+                    if server_played > played_time:
+                        played_time = server_played
+                    last_submit = played_time
+                    wp.reset(int(played_time))
+                else:
+                    # 上报失败：不更新 last_submit，下次重试时增量正确
+                    logger.warning(f"Progress report failed, will retry with delta={played_time - last_submit:.1f}s")
 
             # 显示进度条（始终相对于真实结束时间，不受时间限制影响）
             bar_current, bar_total = (60 - pause, 60) if pause else (int(played_time), int(real_end_time))
@@ -355,8 +357,8 @@ class ZhidaoVideoPlayer:
         watch_point: str,
         token_id: str,
         initial: bool = False,
-    ) -> float:
-        """上报进度 V2，返回服务器最新学习时间（用于同步 played_time）"""
+    ) -> tuple[float, bool]:
+        """上报进度 V2，返回 (服务器最新学习时间, 是否上报成功)"""
         url = f"{self._session.urls.study}/gateway/t/v1/learning/saveDatabaseIntervalTimeV2"
         video = ctx.videos[video_id]
         recruit_id = ctx.course.recruit_id or 0
@@ -409,6 +411,7 @@ class ZhidaoVideoPlayer:
 
         try:
             self._session.zhidao_query(url, data)
+            return played_time, True
         except CaptchaRequired:
             raise
         except Exception as exc:
@@ -422,6 +425,7 @@ class ZhidaoVideoPlayer:
                     data["zwsds"] = new_token
                     self._session.zhidao_query(url, data)
                     logger.info("Progress report succeeded after token refresh")
+                    return played_time, True
                 except Exception as retry_exc:
                     logger.error(f"Progress report failed after retry: {retry_exc}")
             elif "-8" in exc_msg:
@@ -443,9 +447,9 @@ class ZhidaoVideoPlayer:
                         data["zwsds"] = new_token
                         self._session.zhidao_query(url, data)
                         logger.info(f"Progress report succeeded after -8 sync (server={server_time}s)")
-                        return float(server_time)
+                        return float(server_time), True
                 except Exception as retry_exc:
                     logger.error(f"Progress report failed after -8 retry: {retry_exc}")
             else:
                 logger.error(f"Failed to report progress: {exc}")
-        return played_time
+        return played_time, False

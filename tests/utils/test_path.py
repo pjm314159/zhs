@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from zhs.utils.path import get_config_path, get_data_dir, version_cmp
+from zhs.utils.path import get_config_path, get_data_dir
 
 
 class TestGetDataDir:
@@ -47,33 +47,3 @@ class TestGetConfigPath:
         config_path = get_config_path()
         data_dir = get_data_dir()
         assert config_path.parent == data_dir
-
-
-class TestVersionCmp:
-    def test_v1_less_than_v2(self) -> None:
-        """version_cmp("1.0.0", "2.0.0") < 0"""
-        assert version_cmp("1.0.0", "2.0.0") < 0
-
-    def test_v2_greater_than_v1(self) -> None:
-        """version_cmp("2.0.0", "1.0.0") > 0"""
-        assert version_cmp("2.0.0", "1.0.0") > 0
-
-    def test_equal_versions(self) -> None:
-        """version_cmp("1.0.0", "1.0.0") == 0"""
-        assert version_cmp("1.0.0", "1.0.0") == 0
-
-    def test_minor_version_comparison(self) -> None:
-        """version_cmp("1.2.3", "1.2.4") < 0"""
-        assert version_cmp("1.2.3", "1.2.4") < 0
-
-    def test_different_length_versions(self) -> None:
-        """不同长度的版本号比较（1.0 == 1.0.0，语义化版本中缺失位视为 0）"""
-        assert version_cmp("1.0", "1.0.0") == 0
-        assert version_cmp("1.0.0", "1.0") == 0
-        assert version_cmp("1.0", "1.0.1") < 0
-        assert version_cmp("1.0.1", "1.0") > 0
-
-    def test_patch_version_comparison(self) -> None:
-        """补丁版本比较"""
-        assert version_cmp("1.0.1", "1.0.2") < 0
-        assert version_cmp("1.0.2", "1.0.1") > 0

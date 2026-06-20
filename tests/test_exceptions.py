@@ -2,7 +2,7 @@
 
 import pytest
 
-from zhs.exceptions import ApiError, CaptchaRequired, InvalidCookies, LoginFailed, TimeLimitExceeded, ZhsError
+from zhs.exceptions import ApiError, CaptchaRequired, LoginFailed, TimeLimitExceeded, ZhsError
 
 
 class TestZhsError:
@@ -56,11 +56,6 @@ class TestLoginFailed:
     def test_message(self) -> None:
         err = LoginFailed("账号或密码错误")
         assert "账号或密码错误" in str(err)
-
-
-class TestInvalidCookies:
-    def test_inherits_zhs_error(self) -> None:
-        assert issubclass(InvalidCookies, ZhsError)
 
 
 class TestTimeLimitExceeded:

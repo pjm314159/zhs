@@ -20,8 +20,8 @@ dependencies = [
     "openai>=2.41.1",        # LLM API 调用（OpenAI 兼容接口）
     "tiktoken>=0.9",         # Token 计数，Prompt 长度截断
     "Pillow>=11.0",          # 二维码图片渲染与显示
-    "qrcode>=8.2",
-    "tomli-w>=1.2.0",
+    "qrcode>=8.2",           # 编码二维码
+    "tomli-w>=1.2.0",        # config的toml
     "python-pptx>=1.0",      # PPT 本地文本提取（python-pptx）
 ]
 

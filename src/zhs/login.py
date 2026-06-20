@@ -36,11 +36,6 @@ class LoginManager:
         self._session = session
         self._config = config
 
-    @property
-    def session(self) -> ZhsSession:
-        """获取关联的 ZhsSession"""
-        return self._session
-
     def login_with_qr(
         self,
         qr_callback: Callable[[bytes], None],

@@ -124,9 +124,15 @@ class HikeVideoPlayer:
 
             # 上报进度
             if played_time >= end_time or not (int(played_time - prev_time) % interval):
-                ret_time = self.save_stu_study_record(course_id, file_id, played_time, prev_time, start_date)
-                prev_time = ret_time
-                played_time = float(ret_time)
+                try:
+                    ret_time = self.save_stu_study_record(course_id, file_id, played_time, prev_time, start_date)
+                    prev_time = ret_time
+                    # 只在服务器时间更大时才更新 played_time，防止进度回退
+                    if ret_time > played_time:
+                        played_time = float(ret_time)
+                except Exception as exc:
+                    # 上报失败：不更新 prev_time，下次重试时增量正确
+                    logger.warning(f"Failed to save study record for {file_id}: {exc}")
 
             # 显示进度条
             bar_str = progress_bar(int(played_time), int(end_time))

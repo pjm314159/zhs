@@ -158,15 +158,6 @@ def wipe_line() -> None:
     print("\r" + " " * width, end="\r", flush=True)
 
 
-def show_qrcode(data: str) -> None:
-    """从 URL/data 字符串生成并显示二维码"""
-    import qrcode  # type: ignore[import-untyped]
-
-    img = qrcode.make(data)
-    _display_qr_terminal(img)
-    print("请扫描二维码")
-
-
 def show_qrcode_img(img_bytes: bytes) -> None:
     """从 PNG bytes 直接显示二维码图片到终端"""
     import io

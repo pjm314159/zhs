@@ -238,3 +238,57 @@ class TestDefaultSpeed:
         """自定义速度"""
         player = HikeVideoPlayer(mock_session, speed=2.0)
         assert player.speed == 2.0
+
+
+class TestProgressNoRegression:
+    """防止进度回退"""
+
+    def test_server_time_less_than_local_keeps_local(self, mock_session: MagicMock) -> None:
+        """服务器返回时间小于本地进度时，不回退 played_time"""
+        mock_session.hike_query.return_value = {
+            "rt": {"fileId": 100, "dataId": 200, "totalTime": 120},
+        }
+        player = HikeVideoPlayer(mock_session, speed=10, end_threshold=1.0)
+        # save_stu_study_record 返回比 played_time 小的值
+        call_count = 0
+
+        def _save_side_effect(*args: object, **kwargs: object) -> int:
+            nonlocal call_count
+            call_count += 1
+            # 第一次返回 50（比 played_time 小），不应回退
+            if call_count == 1:
+                return 50
+            return int(args[3]) + 10  # type: ignore[call-overload, no-any-return]
+
+        with (
+            patch.object(player, "_watch_video"),
+            patch.object(player, "save_stu_study_record", side_effect=_save_side_effect),
+            patch("zhs.hike.video.time.sleep"),
+            patch("zhs.hike.video.random", return_value=0),
+        ):
+            player.play_video("course1", 100, 0)
+        # 测试不应抛异常，且进度不应回退
+
+    def test_save_failure_does_not_update_prev_time(self, mock_session: MagicMock) -> None:
+        """save_stu_study_record 抛异常时，prev_time 不更新"""
+        mock_session.hike_query.return_value = {
+            "rt": {"fileId": 100, "dataId": 200, "totalTime": 120},
+        }
+        player = HikeVideoPlayer(mock_session, speed=10, end_threshold=1.0)
+        call_count = 0
+
+        def _save_side_effect(*args: object, **kwargs: object) -> int:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Network error")
+            return int(args[3]) + 10  # type: ignore[call-overload, no-any-return]
+
+        with (
+            patch.object(player, "_watch_video"),
+            patch.object(player, "save_stu_study_record", side_effect=_save_side_effect),
+            patch("zhs.hike.video.time.sleep"),
+            patch("zhs.hike.video.random", return_value=0),
+        ):
+            player.play_video("course1", 100, 0)
+        # 测试不应抛异常，第一次失败后继续重试

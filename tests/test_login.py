@@ -233,7 +233,7 @@ class TestQrScannedDedup:
 
 
 class TestCookieRestore:
-    def test_restore_valid_cookies(self, login_manager: LoginManager, tmp_path: Path) -> None:
+    def test_restore_valid_cookies(self, login_manager: LoginManager, session: ZhsSession, tmp_path: Path) -> None:
         """从文件恢复有效 cookies"""
         cookies_data = [
             {"name": "CASLOGC", "value": '{"uuid":"test-uuid-123"}', "domain": "zhihuishu.com"},
@@ -245,7 +245,7 @@ class TestCookieRestore:
         result = login_manager.try_restore_cookies(cookies_file)
 
         assert result is True
-        assert login_manager.session.uuid == "test-uuid-123"
+        assert session.uuid == "test-uuid-123"
 
     def test_restore_missing_file(self, login_manager: LoginManager, tmp_path: Path) -> None:
         """cookies 文件不存在 → 返回 False"""
@@ -275,13 +275,13 @@ class TestCookieRestore:
 
 
 class TestCookieExpired:
-    def test_save_cookies(self, login_manager: LoginManager, tmp_path: Path) -> None:
+    def test_save_cookies(self, login_manager: LoginManager, session: ZhsSession, tmp_path: Path) -> None:
         """save_cookies 正确保存 cookies 到文件"""
         # 先设置一些 cookies
         c = httpx.Cookies()
         c.set("sessionid", "test-session", domain="zhihuishu.com")
         c.set("CASLOGC", '{"uuid":"save-test"}', domain="zhihuishu.com")
-        login_manager.session.cookies = c
+        session.cookies = c
 
         cookies_file = tmp_path / "cookies.json"
         login_manager.save_cookies(cookies_file)
@@ -291,12 +291,12 @@ class TestCookieExpired:
         assert isinstance(data, list)
         assert len(data) >= 2
 
-    def test_save_and_restore_roundtrip(self, login_manager: LoginManager, tmp_path: Path) -> None:
+    def test_save_and_restore_roundtrip(self, login_manager: LoginManager, session: ZhsSession, tmp_path: Path) -> None:
         """保存后恢复 cookies 保持一致"""
         c = httpx.Cookies()
         c.set("sessionid", "roundtrip-session", domain="zhihuishu.com")
         c.set("CASLOGC", '{"uuid":"roundtrip-uuid"}', domain="zhihuishu.com")
-        login_manager.session.cookies = c
+        session.cookies = c
 
         cookies_file = tmp_path / "cookies.json"
         login_manager.save_cookies(cookies_file)

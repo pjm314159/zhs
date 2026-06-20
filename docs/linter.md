@@ -9,16 +9,17 @@
 | 工具 | 用途 | 触发时机 |
 |------|------|----------|
 | **ruff** | Linter + Formatter | 每次提交 / CI |
-| **mypy** | 静态类型检查 | 每次提交 / CI |
-| **pytest** | 测试 | 每次提交 / CI |
+| **mypy** | 静态类型检查（strict） | 每次提交 / CI |
+| **pytest** | 测试（含 respx HTTP Mock、freezegun 时间 Mock） | 每次提交 / CI |
 
-运行命令：
+运行命令（项目使用 `uv`）：
 
 ```bash
-ruff check src/          # Lint 检查
-ruff check src/ --fix    # 自动修复
-ruff format src/         # 格式化
-mypy src/                # 类型检查
+uv run ruff check src/ tests/           # Lint 检查
+uv run ruff check src/ tests/ --fix     # 自动修复
+uv run ruff format src/ tests/          # 格式化
+uv run mypy src/ tests/                 # 类型检查
+uv run pytest                           # 运行测试（默认跳过 integration）
 ```
 
 ---
@@ -76,9 +77,10 @@ from zhs.crypto import Cipher, WatchPoint  # noqa: F401
 
 ```python
 # 1. 标准库
-import asyncio
 import json
+import time
 from pathlib import Path
+from typing import Any
 
 # 2. 第三方库
 import httpx
@@ -90,6 +92,8 @@ from zhs.config import AppConfig, CryptoConfig
 from zhs.crypto import Cipher, encode_ev
 from zhs.exceptions import ZhsError
 ```
+
+> **禁止** `import asyncio`：项目已全面同步化，禁止使用 `asyncio`、`async def`、`await`。
 
 #### UP006 / UP035 — 现代化类型注解
 
@@ -253,10 +257,11 @@ logger.debug("ev 数据: {}", ev_data)
 - 日志配置统一由 `zhs.logger.setup_logging(config)` 完成，仅在 CLI 入口调用
 - 业务模块只需 `from loguru import logger`，无需 import `zhs.logger`
 - `setup_logging()` 必须在业务逻辑之前调用
+- `setup_logging()` 是幂等的：重复调用不会重复注册 sink（由 `_initialized` 标志保证）
 
 ```python
 # ✅ 正确：CLI 入口配置
-# __main__.py
+# __main__.py 中 _setup_logger() 调用 zhs.logger.setup_logging(config)
 from zhs.logger import setup_logging
 setup_logging(config)
 
@@ -271,11 +276,17 @@ from loguru import logger
 logger.add("login.log")  # 禁止！
 ```
 
-#### 敏感信息
+#### 敏感信息脱敏
 
 - 日志中**禁止**输出完整的 cookie、token、password、apiKey 值
-- `setup_logging()` 注册的 patcher 会自动脱敏，但仍应避免主动传入敏感值
-- 脱敏规则见 `design.md` 2.11.4
+- `setup_logging()` 注册的 `_sensitive_filter` 会自动脱敏（基于 loguru 的 `filter` 机制，而非 `patcher`）
+- 脱敏规则定义在 `zhs.logger._SENSITIVE_PATTERNS`，覆盖：
+  - `CASLOGC=<value>` → `CASLOGC=***`
+  - `token=<value>` → `token=***`
+  - `password=<value>` → `password=***`
+  - `apiKey=<value>` → `apiKey=***`
+  - `Bearer <value>` → `Bearer ***`
+- 仍应避免主动传入敏感值
 
 ```python
 # ✅ 正确：不输出敏感值
@@ -285,33 +296,81 @@ logger.info("登录成功: uuid={}", uuid)
 logger.debug("cookies: {}", dict(cookies))
 ```
 
-### 4.5 异步代码规范
+> **注意**：loguru 0.7.3 的 `patch()` 返回新实例而非修改全局 logger，因此项目使用 `filter` 而非 `patcher` 实现脱敏。
 
-- `asyncio.Semaphore` 用于限制并发
-- `await asyncio.sleep()` 用于延迟，不要用 `time.sleep()`
-- 异步函数用 `async def`，调用用 `await`
-- 心跳等后台任务用 `asyncio.create_task()` + 显式取消
+### 4.5 同步代码规范（禁止 asyncio）
+
+**项目已全面同步化，禁止使用 `asyncio`**：
+
+- ❌ 禁止 `import asyncio`
+- ❌ 禁止 `async def` / `await`
+- ❌ 禁止 `asyncio.sleep()` / `asyncio.create_task()` / `asyncio.Semaphore`
+- ❌ 禁止 `pytest-asyncio` / `@pytest.mark.asyncio` / `AsyncMock`
+- ✅ 所有延迟使用 `time.sleep()`
+- ✅ 所有 HTTP 请求使用 `httpx.Client`（同步）
+- ✅ 后台任务使用 `threading.Thread`
 
 ```python
-# ✅
-async def _heartbeat(self, interval: int = 10) -> None:
-    while self._running:
-        await self._update_time()
-        await asyncio.sleep(interval)
+# ✅ 正确：同步延迟
+import time
+time.sleep(3)
 
-# ❌ 在异步上下文中使用 time.sleep
-async def _heartbeat(self):
-    while True:
+# ✅ 正确：同步 HTTP 请求
+client = httpx.Client()
+resp = client.post(url, data=data)
+
+# ✅ 正确：后台任务用 threading
+import threading
+def _heartbeat(self) -> None:
+    while not self._stopped:
         self._update_time()
-        time.sleep(10)  # 阻塞事件循环！
+        time.sleep(10)
+
+thread = threading.Thread(target=self._heartbeat, daemon=True)
+thread.start()
+
+# ❌ 错误：禁止 asyncio
+import asyncio
+await asyncio.sleep(3)
+async def fetch(): ...
 ```
 
 ### 4.6 线程规范
 
-- `_watch_video` 使用独立 `httpx.Client`，不共享 session
-- 线程必须 `daemon=True`
-- 线程内部 `try/except Exception` 全捕获
+- 后台任务使用 `threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
+- `_watch_video` 使用独立 `httpx.Client`，不共享 session 的 cookies/headers
+- 线程内部必须 `try/except Exception` 全捕获并 `logger.error`，禁止裸 `except: pass`
 - 不在线程间共享可变状态（cookies、headers）
+
+```python
+# ✅ 正确：daemon 线程 + _stopped 标志 + 全捕获
+class HomeworkCtx:
+    def __init__(self) -> None:
+        self._stopped = False
+
+    def _heartbeat(self) -> None:
+        while not self._stopped:
+            try:
+                self._update_time()
+            except Exception:
+                logger.error("心跳失败", exc_info=True)
+            time.sleep(10)
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._heartbeat, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stopped = True
+        self._thread.join(timeout=5)
+
+# ❌ 错误：吞掉异常
+def _watch_video(self) -> None:
+    try:
+        ...
+    except Exception:
+        pass  # 禁止！
+```
 
 ### 4.7 字符串引号
 
@@ -331,6 +390,27 @@ f'course_id={self.course_id}'
 
 - 所有 `.py` 文件 UTF-8 编码
 - 不需要 `# -*- coding: utf-8 -*-` 声明（Python 3 默认）
+
+### 4.9 typer CLI 规范
+
+- CLI 使用 typer 框架，命令式接口（`zhs play/homework/exam/fetch`）
+- 禁止旧版 `zhs -c ID` 风格
+- `typer.Option` 默认值用 `# noqa: B008` 抑制（typer 推荐写法）
+- 命令参数必须有完整类型注解和 `help` 说明
+
+```python
+# ✅ 正确：typer 命令式
+@app.command()
+def play(
+    course: list[str] | None = typer.Option(None, "-c", "--course", help="课程 ID"),  # noqa: B008
+    speed: float | None = typer.Option(None, "-s", "--speed", help="播放速度"),  # noqa: B008
+) -> None:
+    """刷视频"""
+    ...
+
+# ❌ 错误：旧版 argparse 风格
+parser.add_argument("-c", "--course")
+```
 
 ---
 
@@ -431,8 +511,14 @@ pre-commit install
 每次提交必须通过：
 
 ```bash
-ruff check src/           # 0 errors
-ruff format --check src/  # 0 changes needed
-mypy src/                 # 0 errors
-pytest -m unit            # all green
+ruff check src/ tests/           # 0 errors
+ruff format --check src/ tests/  # 0 changes needed
+mypy src/ tests/                 # 0 errors
+pytest                            # all green（默认跳过 integration 标记）
+```
+
+完整命令（含集成测试，需真实 API + 扫码登录）：
+
+```bash
+pytest -m integration tests/integration/
 ```
