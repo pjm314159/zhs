@@ -210,6 +210,57 @@ class TestAiExamQuery:
 
 
 # ---------------------------------------------------------------------------
+# ai_task_query
+# ---------------------------------------------------------------------------
+
+
+class TestAiTaskQuery:
+    def test_sync_query_works(self, config: AppConfig, mock_http: Any) -> None:
+        """ai_task_query 同步版本正常工作"""
+        session = ZhsSession(config)
+        respx.post("https://task.example.com/api").mock(
+            return_value=httpx.Response(200, json={"code": 200, "data": []})
+        )
+        result = session.ai_task_query("https://task.example.com/api", data={"courseId": "123"})
+        assert result["code"] == 200
+        session.close()
+
+    def test_uses_ai_key(self, config: AppConfig, mock_http: Any) -> None:
+        """密钥从 config.crypto.ai_key 获取，发送 dateFormate"""
+        session = ZhsSession(config)
+        route = respx.post("https://task.example.com/api").mock(
+            return_value=httpx.Response(200, json={"code": 200, "data": []})
+        )
+        session.ai_task_query("https://task.example.com/api", data={"courseId": "123"})
+        assert route.called
+        request = route.calls[0].request
+        body = request.content.decode()
+        assert "secretStr" in body
+        assert "dateFormate" in body
+        session.close()
+
+    def test_ok_code_200(self, config: AppConfig, mock_http: Any) -> None:
+        """默认 ok_code=200（任务列表 API 返回 200）"""
+        session = ZhsSession(config)
+        respx.post("https://task.example.com/api").mock(
+            return_value=httpx.Response(200, json={"code": 200, "data": []})
+        )
+        result = session.ai_task_query("https://task.example.com/api", data={})
+        assert result["code"] == 200
+        session.close()
+
+    def test_non_ok_code_raises_api_error(self, config: AppConfig, mock_http: Any) -> None:
+        """非 ok_code 抛 ApiError"""
+        session = ZhsSession(config)
+        respx.post("https://task.example.com/api").mock(
+            return_value=httpx.Response(200, json={"code": 500, "message": "error"})
+        )
+        with pytest.raises(ApiError):
+            session.ai_task_query("https://task.example.com/api", data={})
+        session.close()
+
+
+# ---------------------------------------------------------------------------
 # homework_query
 # ---------------------------------------------------------------------------
 

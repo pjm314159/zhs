@@ -47,7 +47,7 @@ class TestHomeworkItem:
             "courseName": "形势与政策",
             "examName": "第一章单元测试",
             "cpOrderNumber": "第一章",
-            "chapterId": 1001283586,
+            "chapterId": 7567890123,
             "totalScore": "10",
             "problemNum": 5,
         }

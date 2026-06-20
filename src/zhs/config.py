@@ -102,6 +102,7 @@ class UrlConfig(BaseModel):
     study: str = "https://studyservice-api.zhihuishu.com"
     hike: str = "https://hike.zhihuishu.com"
     ai: str = "https://kg-ai-run.zhihuishu.com"
+    ai_task: str = "https://kg-run-student.zhihuishu.com"
     ai_chat: str = "https://ai-knowledge-map-platform.zhihuishu.com/knowledgemap/gateway/t/qa/platform/stream"
     exam: str = "https://studentexamtest.zhihuishu.com"
     homework: str = "https://studentexam-api.zhihuishu.com"
@@ -118,6 +119,14 @@ class AIConfig(BaseModel):
     base_url: str = Field(default="https://api.openai.com/v1", description="API Base URL")
     model: str = Field(default="gpt-4o-mini", description="模型名称")
     max_token: int = Field(default=27900, description="最大 Token 数")
+
+
+class ExamConfig(BaseModel):
+    """AI 考试配置"""
+
+    save_nums: int = Field(default=5, description="每批保存答案的题目数量")
+    delay_min: float = Field(default=3.0, description="每批保存后最小休息时间（秒）")
+    delay_max: float = Field(default=5.0, description="每批保存后最大休息时间（秒）")
 
 
 class AppConfig(BaseModel):
@@ -137,6 +146,7 @@ class AppConfig(BaseModel):
     crypto: CryptoConfig = CryptoConfig()
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()
+    exam: ExamConfig = ExamConfig()
 
 
 # ============================================================
@@ -303,6 +313,10 @@ class ConfigManager:
         if "ai" in data:
             result["ai"] = AIConfig(**data["ai"])
 
+        # [exam] section
+        if "exam" in data:
+            result["exam"] = ExamConfig(**data["exam"])
+
         return result
 
     @staticmethod
@@ -329,7 +343,7 @@ class ConfigManager:
             result["threshold"] = data.pop("threshold")
 
         # 嵌套配置
-        for section in ("video", "homework", "display", "proxies", "qr", "crypto", "urls", "ai"):
+        for section in ("video", "homework", "display", "proxies", "qr", "crypto", "urls", "ai", "exam"):
             if section in data:
                 result[section] = ConfigManager._strip_none(data.pop(section))
 

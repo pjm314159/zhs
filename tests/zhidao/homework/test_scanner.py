@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from zhs.config import AppConfig
+from zhs.config import AppConfig, HomeworkConfig
 from zhs.session import ZhsSession
 from zhs.zhidao.homework.models import HomeworkItem
 from zhs.zhidao.homework.scanner import HomeworkScanner
@@ -20,7 +20,7 @@ def _make_config(
     max_submit: int = 3,
 ) -> AppConfig:
     """创建测试配置"""
-    return AppConfig(homework_threshold=homework_threshold, max_submit=max_submit)
+    return AppConfig(homework=HomeworkConfig(threshold=homework_threshold, max_submit=max_submit))
 
 
 def _make_homework_response(items: list[dict[str, object]]) -> dict[str, object]:

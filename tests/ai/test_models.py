@@ -267,7 +267,7 @@ class TestQuestionContent:
             "dataFileVos": None,
             "examDesc": None,
             "examTitle": None,
-            "id": 1013705024,
+            "id": 7234567890,
             "optionVos": [
                 {"content": "仅有助于提高学生的身体素质", "id": 739512774, "isCorrect": None, "sort": 1},
                 {"content": "主要培养学生的专业技能", "id": 739512775, "isCorrect": None, "sort": 2},
@@ -288,7 +288,7 @@ class TestQuestionContent:
             "userAnswerVo": None,
         }
         qc = QuestionContent.model_validate(data)
-        assert qc.id == 1013705024
+        assert qc.id == 7234567890
         assert qc.question_type == 1
         assert len(qc.option_vos) == 4
         # isCorrect 为 None 时应回退为 0
@@ -299,7 +299,7 @@ class TestQuestionContent:
     def test_fill_blank_question_with_null_option_content(self) -> None:
         """填空题 optionVos 的 content 为 None 时应回退为空字符串"""
         data = {
-            "id": 1013704827,
+            "id": 7345678901,
             "content": "大学体育课程不仅提升学生体质健康，还能培养团队协作、____等社会能力。",
             "questionType": 3,
             "questionTypeName": "填空客观题（自动批阅）",

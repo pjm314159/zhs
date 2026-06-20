@@ -73,9 +73,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # ============================================================================
 [tool.pytest.ini_options]
 testpaths = ["tests"]       # 测试目录
+addopts = "-m 'not integration'"  # 默认跳过集成测试（需真实 API）
 markers = [
     "unit: 单元测试（无外部依赖）",
-    "integration: 集成测试（Mock HTTP）",
+    "integration: 集成测试（需真实 API，需扫码登录）",
     "e2e: 端到端测试（Mock 全部 API）",
 ]
 

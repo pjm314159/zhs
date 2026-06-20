@@ -70,7 +70,7 @@ class TestQrLoginFullFlow:
         # Mock getLoginQrInfo: -1 → 0 → 1
         call_count = 0
 
-        def qr_info_side_effect(request: httpx.Request) -> httpx.Response:
+        def qr_info_side_effect(_request: object) -> httpx.Response:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -117,7 +117,7 @@ class TestQrExpiredRetry:
         # Mock getLoginQrImg: 两次调用（第一次过期后重新获取）
         qr_call_count = 0
 
-        def qr_img_side_effect(request: httpx.Request) -> httpx.Response:
+        def qr_img_side_effect(_request: object) -> httpx.Response:
             nonlocal qr_call_count
             qr_call_count += 1
             return httpx.Response(200, json={"qrToken": f"token-{qr_call_count}", "img": "aW1n"})
@@ -127,7 +127,7 @@ class TestQrExpiredRetry:
         # Mock getLoginQrInfo: 第一次过期 → 第二次成功
         info_call_count = 0
 
-        def qr_info_side_effect(request: httpx.Request) -> httpx.Response:
+        def qr_info_side_effect(_request: object) -> httpx.Response:
             nonlocal info_call_count
             info_call_count += 1
             if info_call_count == 1:
@@ -138,7 +138,7 @@ class TestQrExpiredRetry:
 
         callback_count = 0
 
-        def qr_callback(img: bytes) -> None:
+        def qr_callback(_data: bytes) -> None:
             nonlocal callback_count
             callback_count += 1
 
@@ -199,7 +199,7 @@ class TestQrScannedDedup:
         # Mock: -1 → 0 → 0 → 0 → 1
         call_count = 0
 
-        def qr_info_side_effect(request: httpx.Request) -> httpx.Response:
+        def qr_info_side_effect(_request: object) -> httpx.Response:
             nonlocal call_count
             call_count += 1
             if call_count == 1:

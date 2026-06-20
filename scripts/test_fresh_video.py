@@ -2,11 +2,9 @@
 import sys
 from pathlib import Path
 
-from loguru import logger
-
 from zhs.config import ConfigManager
-from zhs.login import LoginManager
 from zhs.logger import setup_logging
+from zhs.login import LoginManager
 from zhs.session import ZhsSession
 from zhs.zhidao.course import ZhidaoCourseManager
 from zhs.zhidao.video import ZhidaoVideoPlayer

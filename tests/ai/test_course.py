@@ -23,6 +23,7 @@ def mock_session() -> MagicMock:
     session.crypto.key_bytes = MagicMock(return_value=b"hw2fdlwcj4cs1mx7")
     session.urls = MagicMock()
     session.urls.ai = "https://kg-ai-run.zhihuishu.com"
+    session.urls.ai_task = "https://kg-run-student.zhihuishu.com"
     session.urls.base = "https://onlineservice-api.zhihuishu.com"
     session.speed = 1.25
     return session
@@ -101,6 +102,62 @@ class TestCompleteResource:
             mock_query.assert_called_once()
             call_data = mock_query.call_args[0][1]
             assert call_data["resourcesUid"] == 10
+
+
+class TestGetExamTasks:
+    """获取考试任务列表（taskList）"""
+
+    def test_returns_task_list(self, manager: AiCourseManager) -> None:
+        """返回未完成的考试任务列表"""
+        mock_data = {
+            "code": 200,
+            "data": [
+                {
+                    "id": 416884,
+                    "taskName": "大一期末作业",
+                    "courseId": "7123456789012345678",
+                    "classId": 203843,
+                    "examId": 3056052,
+                    "examTestId": 2786542,
+                    "examPaperId": 270661609,
+                    "taskType": 1,
+                    "status": 1,
+                }
+            ],
+        }
+        with patch.object(manager._session, "ai_task_query", return_value=mock_data) as mock_query:
+            tasks = manager.get_exam_tasks("7123456789012345678")
+            assert len(tasks) == 1
+            assert tasks[0]["examTestId"] == 2786542
+            assert tasks[0]["examPaperId"] == 270661609
+            mock_query.assert_called_once()
+
+    def test_filters_unfinished_tasks(self, manager: AiCourseManager) -> None:
+        """只返回 taskType=1 的任务（请求参数 status=0 已筛选未完成，响应中 status=1 也是未完成）"""
+        mock_data = {
+            "code": 200,
+            "data": [
+                {"examTestId": 1, "examPaperId": 1, "taskType": 1, "status": 1},
+                {"examTestId": 2, "examPaperId": 2, "taskType": 4, "status": 0},
+            ],
+        }
+        with patch.object(manager._session, "ai_task_query", return_value=mock_data):
+            tasks = manager.get_exam_tasks("123")
+            assert len(tasks) == 1
+            assert tasks[0]["examTestId"] == 1
+
+    def test_empty_data(self, manager: AiCourseManager) -> None:
+        """空数据返回空列表"""
+        mock_data = {"code": 200, "data": []}
+        with patch.object(manager._session, "ai_task_query", return_value=mock_data):
+            tasks = manager.get_exam_tasks("123")
+            assert tasks == []
+
+    def test_error_returns_empty(self, manager: AiCourseManager) -> None:
+        """异常时返回空列表"""
+        with patch.object(manager._session, "ai_task_query", side_effect=Exception("network error")):
+            tasks = manager.get_exam_tasks("123")
+            assert tasks == []
 
 
 class TestResourceTypeRouting:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from zhs.config import AIConfig, AppConfig, ConfigManager, CryptoConfig, UrlConfig
+from zhs.config import AIConfig, AppConfig, ConfigManager, CryptoConfig, ExamConfig, UrlConfig
 
 # ---------------------------------------------------------------------------
 # CryptoConfig
@@ -89,6 +89,25 @@ class TestAIConfig:
 
 
 # ---------------------------------------------------------------------------
+# ExamConfig
+# ---------------------------------------------------------------------------
+
+
+class TestExamConfig:
+    def test_default_values(self) -> None:
+        e = ExamConfig()
+        assert e.save_nums == 5
+        assert e.delay_min == 3.0
+        assert e.delay_max == 5.0
+
+    def test_custom_values(self) -> None:
+        e = ExamConfig(save_nums=1, delay_min=1.0, delay_max=2.0)
+        assert e.save_nums == 1
+        assert e.delay_min == 1.0
+        assert e.delay_max == 2.0
+
+
+# ---------------------------------------------------------------------------
 # AppConfig
 # ---------------------------------------------------------------------------
 
@@ -104,6 +123,8 @@ class TestAppConfig:
         assert isinstance(cfg.crypto, CryptoConfig)
         assert isinstance(cfg.urls, UrlConfig)
         assert isinstance(cfg.ai, AIConfig)
+        assert isinstance(cfg.exam, ExamConfig)
+        assert cfg.exam.save_nums == 5
 
     def test_custom_values(self) -> None:
         cfg = AppConfig(save_cookies=False)

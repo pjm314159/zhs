@@ -35,7 +35,7 @@ def _make_stream_ctx(lines: list[str]) -> MagicMock:
     return mock_stream_ctx
 
 
-def _mock_map_uid_response(map_uid: str = "1879396934922407936", sc_map_uid: str = "2036787923612635136") -> MagicMock:
+def _mock_map_uid_response(map_uid: str = "8234567890123456789", sc_map_uid: str = "7123456789012345678") -> MagicMock:
     """构造 get-course-mapUid 响应"""
     resp = MagicMock()
     resp.json.return_value = {
@@ -73,7 +73,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136", course_name="测试课程")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678", course_name="测试课程")
         result = provider.completion("test prompt")
         assert "```answer" in result
 
@@ -99,7 +99,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678")
         result = provider.completion("test prompt")
         assert "```answer" in result
 
@@ -127,7 +127,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678")
         result = provider.completion("test prompt")
         assert "```answer" in result
         assert "后续无用内容" not in result
@@ -150,7 +150,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678")
         provider.completion("test1")
         provider.completion("test2")
 
@@ -166,7 +166,7 @@ class TestZhidaoAICompletion:
         mock_client.post.return_value = _mock_map_uid_response()
         mock_client.stream.side_effect = Exception("Network error")
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136", max_retries=1)
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678", max_retries=1)
         with pytest.raises(Exception, match="Network error"):
             provider.completion("test prompt")
 
@@ -198,7 +198,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136", course_name="测试课程")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678", course_name="测试课程")
         provider.completion("test prompt")
 
         # 验证 chatHome 调用参数
@@ -209,8 +209,8 @@ class TestZhidaoAICompletion:
         assert payload["course_name"] == "测试课程"
         assert payload["model"] == "bot"
         assert payload["user_id"] == 0
-        assert payload["courseId"] == "2036787923612635136"
-        assert payload["course_id"] == "2036787923612635136"
+        assert payload["courseId"] == "7123456789012345678"
+        assert payload["course_id"] == "7123456789012345678"
         assert payload["language"] == "chinese"
         assert payload["bizType"] == "HOME_PAGE"
         assert len(payload["conversationId"]) == 20
@@ -220,8 +220,8 @@ class TestZhidaoAICompletion:
         assert data_info["top_k"] == 5
         assert data_info["threshold"] == 0.95
         relation_list = json.loads(payload["relation_id_list"])
-        assert relation_list[0]["course_id"] == "2036787923612635136"
-        assert relation_list[0]["map_uid"] == "1879396934922407936"
+        assert relation_list[0]["course_id"] == "7123456789012345678"
+        assert relation_list[0]["map_uid"] == "8234567890123456789"
 
     @patch("zhs.llm.zhidao.Cipher")
     def test_no_answer_marker_raises_error(self, mock_cipher_cls: MagicMock, mock_session: MagicMock) -> None:
@@ -242,7 +242,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136", max_retries=1)
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678", max_retries=1)
         with pytest.raises(Exception, match="AI 未返回有效答案"):
             provider.completion("test prompt")
 
@@ -258,7 +258,7 @@ class TestZhidaoAICompletion:
         stream_lines = ["id:1", "event:END", "data:"]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136", max_retries=1)
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678", max_retries=1)
         with pytest.raises(Exception, match="SSE 流响应为空"):
             provider.completion("test prompt")
 
@@ -292,7 +292,7 @@ class TestZhidaoAICompletion:
             _make_stream_ctx(success_lines),
         ]
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136", max_retries=3, retry_delay=0)
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678", max_retries=3, retry_delay=0)
         result = provider.completion("test prompt")
         assert "```answer" in result
 
@@ -319,7 +319,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678")
         result = provider.completion("test prompt")
         assert "```answer" in result
 
@@ -341,7 +341,7 @@ class TestZhidaoAICompletion:
         ]
         mock_client.stream.return_value = _make_stream_ctx(stream_lines)
 
-        provider = ZhidaoAIProvider(mock_session, course_id="2036787923612635136")
+        provider = ZhidaoAIProvider(mock_session, course_id="7123456789012345678")
         provider.completion("test prompt")
 
         # 不应调用 client.get（user/info）

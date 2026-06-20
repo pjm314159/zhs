@@ -328,6 +328,10 @@ class HomeworkWorker:
         if qt == HomeworkQuestionType.MULTI:
             available_options = all_options
             logger.debug(f"多选题: 不排除选项，所有 {len(available_options)} 个选项给 AI")
+        elif qt == HomeworkQuestionType.FILL:
+            # 填空题无选项，直接调用 LLM
+            available_options = []
+            logger.debug("填空题: 无选项，直接调用 LLM")
         else:
             # 单选题/判断题：排除错误选项
             available_options = (

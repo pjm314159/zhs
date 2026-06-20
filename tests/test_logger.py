@@ -7,8 +7,9 @@ from typing import Any
 from loguru import logger
 from pytest import CaptureFixture
 
-from zhs.config import AppConfig
-from zhs.logger import _SENSITIVE_PATTERNS, get_log_dir, setup_logging
+from zhs.config import AppConfig, DisplayConfig
+from zhs.logger import _SENSITIVE_PATTERNS as SENSITIVE_PATTERNS  # noqa: F401
+from zhs.logger import get_log_dir, setup_logging
 
 # ---------------------------------------------------------------------------
 # 辅助：每次测试前重置 logger 状态，确保测试隔离
@@ -60,14 +61,14 @@ class TestSetupLogging:
     def test_removes_default_sink(self) -> None:
         """setup_logging 移除 loguru 默认 sink (id=0)"""
         _reset_logger()
-        config = AppConfig(log_level="INFO")
+        config = AppConfig(display=DisplayConfig(log_level="INFO"))
         setup_logging(config)
         assert 0 not in logger._core.handlers  # type: ignore[attr-defined]
 
     def test_registers_stderr_sink(self) -> None:
         """注册 stderr sink，级别由 config.log_level 控制"""
         _reset_logger()
-        config = AppConfig(log_level="WARNING")
+        config = AppConfig(display=DisplayConfig(log_level="WARNING"))
         setup_logging(config)
         stderr_handlers = _find_stderr_handlers()
         assert len(stderr_handlers) >= 1
@@ -77,7 +78,7 @@ class TestSetupLogging:
     def test_registers_file_sink(self) -> None:
         """注册文件 sink，始终 DEBUG 级别"""
         _reset_logger()
-        config = AppConfig(log_level="INFO")
+        config = AppConfig(display=DisplayConfig(log_level="INFO"))
         setup_logging(config)
         file_handlers = _find_file_handlers()
         assert len(file_handlers) >= 1
@@ -110,7 +111,7 @@ class TestSetupLogging:
         """log_level 大小写不敏感"""
         for level in ["info", "INFO", "Info"]:
             _reset_logger()
-            config = AppConfig(log_level=level)
+            config = AppConfig(display=DisplayConfig(log_level=level))
             setup_logging(config)
             # 不应抛异常
 
@@ -139,9 +140,10 @@ class TestGetLogDir:
 
 
 class TestSensitiveFilter:
-    def _redact(self, text: str) -> str:
+    @staticmethod
+    def _redact(text: str) -> str:
         """使用与实现相同的替换逻辑"""
-        for pattern in _SENSITIVE_PATTERNS:
+        for pattern in SENSITIVE_PATTERNS:
             text = pattern.sub(r"\1***", text)
         return text
 
@@ -184,7 +186,7 @@ class TestSensitiveFilter:
         """filter 与 loguru 集成后，日志消息自动脱敏"""
         _reset_logger()
         log_file = tmp_path / "test_patcher.log"
-        config = AppConfig(log_level="DEBUG")
+        config = AppConfig(display=DisplayConfig(log_level="DEBUG"))
 
         import zhs.logger as mod
 
@@ -218,7 +220,7 @@ class TestConsoleFormat:
     def test_console_output_format(self, capsys: CaptureFixture[str]) -> None:
         """控制台输出格式包含时间戳+级别+消息"""
         _reset_logger()
-        config = AppConfig(log_level="DEBUG")
+        config = AppConfig(display=DisplayConfig(log_level="DEBUG"))
         setup_logging(config)
         logger.info("测试格式消息")
         sys.stderr.flush()

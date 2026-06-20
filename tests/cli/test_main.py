@@ -329,18 +329,18 @@ class TestInitCommand:
 
 
 class TestExamCommand:
-    """exam 命令（暂未实现）"""
+    """exam 命令"""
 
     @patch("zhs.__main__._load_config_and_session")
-    def test_exam_not_implemented(self, mock_load: MagicMock) -> None:
-        """zhs exam 提示暂未实现"""
+    def test_exam_without_type_prompts_message(self, mock_load: MagicMock) -> None:
+        """zhs exam 不带 --type ai 提示仅支持 AI 课程"""
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
 
         result = runner.invoke(app, ["exam"])
         assert result.exit_code == 1
-        assert "暂未实现" in result.output
+        assert "仅支持 AI 课程考试" in result.output
 
     def test_exam_help_no_error(self) -> None:
         """zhs exam --help 不报错"""
@@ -385,7 +385,7 @@ class TestTypeFilterInRunAll:
     @patch("zhs.__main__._run_all")
     @patch("zhs.__main__._load_config_and_session")
     def test_type_ai_only_runs_ai(self, mock_load: MagicMock, mock_run_all: MagicMock) -> None:
-        """zhs play --type ai 传递 type 到 _run_all"""
+        """zhs play --type AI 传递 type 到 _run_all"""
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)

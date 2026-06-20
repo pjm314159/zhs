@@ -60,7 +60,7 @@ class ExamInfo(BaseModel):
 
     exam_test_id: int = Field(alias="examTestId")
     paper_id: int = Field(alias="paperId")
-    mastery_score: int = Field(default=0, alias="masteryScore")
+    mastery_score: int = Field(default=0, alias="highMasteryScore")
 
 
 class QuestionSheet(BaseModel):

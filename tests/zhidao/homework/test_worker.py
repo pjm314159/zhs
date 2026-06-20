@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from zhs.config import AppConfig
+from zhs.config import AppConfig, HomeworkConfig
 from zhs.session import ZhsSession
 from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import (
@@ -18,6 +18,7 @@ def _make_mock_session() -> MagicMock:
     """创建 mock session"""
     session = MagicMock(spec=ZhsSession)
     session.urls.homework = "https://studentexam-api.zhihuishu.com"
+    session.ai_analysis_run.return_value = ""
     return session
 
 
@@ -26,7 +27,7 @@ def _make_config(
     max_submit: int = 3,
 ) -> AppConfig:
     """创建测试配置"""
-    return AppConfig(homework_threshold=homework_threshold, max_submit=max_submit)
+    return AppConfig(homework=HomeworkConfig(threshold=homework_threshold, max_submit=max_submit))
 
 
 def _make_cache(tmp_path: Path | None = None) -> HomeworkCache:

@@ -49,6 +49,29 @@ class AiCourseManager:
             logger.error(f"获取 AI 课程列表失败: {e}")
             return []
 
+    def get_exam_tasks(self, course_id: str) -> list[dict[str, Any]]:
+        """获取课程考试任务列表（taskList，ai_key 加密）
+
+        只返回 taskType=1 的任务（请求参数 status=0 已筛选未完成）。
+        """
+        url = f"{self._session.urls.ai_task}/student/gateway/t/task/taskList"
+        data = {
+            "courseId": course_id,
+            "taskType": 1,
+            "taskName": "",
+            "status": 0,
+        }
+        try:
+            result = self._session.ai_task_query(url, data)
+            tasks = result.get("data", [])
+            if not isinstance(tasks, list):
+                return []
+            # 只返回 taskType=1 的任务（请求参数 status=0 已筛选未完成）
+            return [t for t in tasks if t.get("taskType") == 1]
+        except Exception as e:
+            logger.error(f"获取考试任务列表失败: {e}")
+            return []
+
     def get_knowledge_points(self, course_id: int, class_id: int) -> AiCourseInfo:
         """获取知识点列表"""
         url = f"{self._session.urls.ai}/run/gateway/t/stu/knowledge-study/course-basic"

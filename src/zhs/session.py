@@ -256,6 +256,65 @@ class ZhsSession:
 
         return result
 
+    def ai_exam_submit(self, url: str, data: dict[str, Any]) -> bool:
+        """AI 考试提交（exam_key 加密，无返回体，HTTP 200=成功）
+
+        与 ai_exam_query 的区别：
+        - 无 JSON 返回体，仅通过 HTTP status code 判断成功
+        """
+        key = self.crypto.key_bytes("exam_key")
+        iv = self.crypto.key_bytes("iv")
+
+        cipher = Cipher(key, iv)
+        encrypted_data = cipher.encrypt(json.dumps(data))
+
+        form_data = {
+            "secretStr": encrypted_data,
+            "dateFormate": str(int(time.time()) * 1000),
+        }
+
+        client = self._get_client()
+        headers: dict[str, str] = dict(client.headers)
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        resp = client.post(url, data=form_data, headers=headers)
+        resp.raise_for_status()
+        return True
+
+    def ai_task_query(
+        self,
+        url: str,
+        data: dict[str, Any],
+        key: bytes | None = None,
+        ok_code: int = 200,
+        method: str = "POST",
+    ) -> dict[str, Any]:
+        """AI 任务列表 API 查询（AES-128-CBC + ai_key + dateFormate）
+
+        用于 queryCourseTaskType / taskList 接口。
+        与 ai_exam_query 的区别：
+        - 使用 ai_key 加密（而非 exam_key）
+        - 默认 ok_code=200（任务列表返回 200）
+        """
+        if key is None:
+            key = self.crypto.key_bytes("ai_key")
+        iv = self.crypto.key_bytes("iv")
+
+        cipher = Cipher(key, iv)
+        encrypted_data = cipher.encrypt(json.dumps(data))
+
+        form_data = {
+            "secretStr": encrypted_data,
+            "dateFormate": str(int(time.time()) * 1000),
+        }
+
+        result = self.api_query(url, data=form_data, method=method, content_type="json")
+
+        code = result.get("code", 0)
+        if code != ok_code:
+            raise ApiError(code=code, message=result.get("message", ""))
+
+        return result
+
     def homework_query(
         self,
         url: str,
