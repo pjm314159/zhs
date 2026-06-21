@@ -235,6 +235,7 @@ def play(
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
     speed: float | None = typer.Option(None, "-s", "--speed", help="播放速度"),  # noqa: B008
     limit: int = typer.Option(0, "-l", "--limit", help="每门课程时间限制(分钟)", min=0),  # noqa: B008
+    learn_optional: bool = typer.Option(False, "--learn-optional", help="AI 课程学习选学资源"),  # noqa: B008
     proxy: str | None = typer.Option(None, "--proxy", help="代理"),  # noqa: B008
     debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),  # noqa: B008
     console_log: bool = typer.Option(False, "--console-log", help="日志输出到控制台"),  # noqa: B008
@@ -258,6 +259,8 @@ def play(
         config.video.ai_speed = speed
     if limit:
         config.limit = limit
+    if learn_optional:
+        config.video.ai_learn_optional = True
 
     # AI 课程走 --ai-course + --ai-class
     if ai_course is not None and ai_class is not None:
@@ -451,11 +454,20 @@ def _run_courses(
 
 
 def _run_ai(session: ZhsSession, config: AppConfig, course_id: int, class_id: int) -> None:
-    """刷 AI 课程（视频 + 作业）"""
+    """刷 AI 课程（仅视频/知识点，不做作业）"""
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, config.homework, no_homework=False, speed=config.video.ai_speed)
+    mgr.run_course(
+        course_id,
+        class_id,
+        config.ai,
+        config.homework,
+        video_config=config.video,
+        no_homework=True,
+        speed=config.video.ai_speed,
+        learn_optional=config.video.ai_learn_optional,
+    )
 
 
 def _run_ai_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) -> None:
@@ -580,8 +592,10 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
                             int(class_id),
                             config.ai,
                             config.homework,
-                            no_homework=False,
+                            video_config=config.video,
+                            no_homework=True,
                             speed=config.video.ai_speed,
+                            learn_optional=config.video.ai_learn_optional,
                         )
                     else:
                         logger.warning(f"AI 课程 {course_name} 缺少 courseId 或 classId")
@@ -595,11 +609,11 @@ def _run_all(session: ZhsSession, config: AppConfig, course_type: str | None = N
 
 
 def _run_ai_homework(session: ZhsSession, config: AppConfig, course_id: int, class_id: int) -> None:
-    """AI 课程作业"""
+    """AI 课程作业（仅做作业，不刷视频）"""
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, config.homework, no_homework=False, speed=config.video.ai_speed)
+    mgr.run_course(course_id, class_id, config.ai, config.homework, speed=config.video.ai_speed)
 
 
 def _run_ai_exam(
@@ -740,7 +754,6 @@ def _run_all_homework(session: ZhsSession, config: AppConfig, course_type: str |
                             int(class_id),
                             config.ai,
                             config.homework,
-                            no_homework=False,
                             speed=config.video.ai_speed,
                         )
                     else:

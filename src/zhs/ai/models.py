@@ -42,6 +42,7 @@ class ResourceDetail(BaseModel):
     resources_distribute_type: int = Field(alias="resourcesDistributeType")
     resources_url: str = Field(default="", alias="resourcesUrl")
     resources_file_id: int = Field(default=0, alias="resourcesFileId")
+    resources_sync_type: int = Field(default=1, alias="resourcesSyncType")
 
 
 class Resource(BaseModel):
@@ -50,6 +51,7 @@ class Resource(BaseModel):
     model_config = {"populate_by_name": True}
 
     study_status: int = Field(default=0, alias="studyStatus")
+    schedule: int = Field(default=0, alias="schedule")
     resources_detail: ResourceDetail = Field(alias="resourcesDetail")
 
 

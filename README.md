@@ -214,7 +214,7 @@ max_token = 27900
 [urls]                   # API URL（一般无需修改）
 ```
 
-> **AI 答题**：默认使用智慧树内置 AI，无需任何 API Key。如需使用自定义 LLM，将 `use_zhidao_ai = false` 并填写 `api_key` 与 `base_url`。
+> **AI 答题**：默认使用智慧树内置 AI，无需任何 API Key。前提是有ai智慧课程，内置的AI性能低下，建议是使用自定义的。如需使用自定义 LLM，将 `use_zhidao_ai = false` 并填写 `api_key` 与 `base_url`。
 
 ## 数据目录
 

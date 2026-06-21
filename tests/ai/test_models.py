@@ -175,7 +175,7 @@ class TestExamInfo:
 
     def test_from_api_json(self) -> None:
         """从 API JSON 构建"""
-        data = {"examTestId": 10, "paperId": 20, "masteryScore": 95}
+        data = {"examTestId": 10, "paperId": 20, "highMasteryScore": 95}
         info = ExamInfo.model_validate(data)
         assert info.exam_test_id == 10
         assert info.mastery_score == 95

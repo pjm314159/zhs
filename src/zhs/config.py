@@ -34,6 +34,8 @@ class VideoConfig(BaseModel):
     zhidao_speed: float = Field(default=1.5, description="知到视频播放速度（默认 1.5，最高 2.0）")
     hike_speed: float = Field(default=1.25, description="Hike 视频播放速度（默认 1.25，最高 2.0）")
     ai_speed: float = Field(default=1.5, description="AI 课程视频播放速度（默认 1.5，最高 2.0）")
+    ai_learn_optional: bool = Field(default=False, description="AI 课程是否学习选学资源（resourcesSyncType != 1）")
+    ai_threshold: int = Field(default=90, description="AI 视频完成阈值（0-100，进度达到此百分比视为完成）")
 
 
 class HomeworkConfig(BaseModel):

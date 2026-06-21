@@ -10,6 +10,7 @@ from typing import Any
 from loguru import logger
 
 from zhs.session import ZhsSession
+from zhs.utils.display import progress_bar, wipe_line
 
 
 class AiVideoPlayer:
@@ -34,10 +35,17 @@ class AiVideoPlayer:
         class_id: int,
         file_id: int,
         knowledge_id: int,
-        start_at: int = 0,
+        schedule: int = 0,
         speed: float | None = None,
+        threshold: int = 100,
     ) -> None:
-        """播放 AI 视频（speed*2, 2s 间隔）"""
+        """播放 AI 视频（speed*2, 2s 间隔）
+
+        Args:
+            schedule: 视频当前进度（0-100），用于计算起始播放位置
+            speed: 播放速度，默认使用构造时的 speed
+            threshold: 完成阈值（0-100），进度达到此百分比视为完成
+        """
         play_speed = speed if speed is not None else self._speed
 
         # 获取视频长度
@@ -46,15 +54,33 @@ class AiVideoPlayer:
         result = self._ai_query(url, data)
         video_length = result["data"][0]["time"]
 
+        # 根据 schedule 计算起始时间（schedule 是 0-100 的百分比）
+        start_at = int(video_length * schedule / 100)
+        # 根据 threshold 计算结束时间
+        end_at = int(video_length * threshold / 100)
+        if end_at <= start_at:
+            logger.info(f"视频已完成（schedule={schedule}% >= threshold={threshold}%），跳过")
+            return
+
+        # 换算后的播放范围
+        play_length = end_at - start_at
+
         # 模拟真实播放（请求视频链接）
         self._watch_video(file_id)
 
         played_time = start_at
 
-        while played_time < video_length:
-            played_time = min(int(round(played_time + play_speed * 2)), video_length)
+        while played_time < end_at:
+            played_time = min(int(round(played_time + play_speed * 2)), end_at)
             self._report_video_progress(course_id, class_id, file_id, knowledge_id, played_time)
+
+            # 显示进度条（0-100%，基于换算后的播放范围）
+            bar_str = progress_bar(played_time - start_at, play_length)
+            print(f"\rplaying {bar_str}", end="", flush=True)
+
             time.sleep(2)
+
+        wipe_line()
 
     def _watch_video(self, file_id: int) -> None:
         """模拟真实视频播放请求（独立线程）"""
