@@ -15,17 +15,23 @@ tests/
 ├── conftest.py                       # 全局 fixtures
 ├── fixtures/
 │   └── __init__.py
-├── test_exceptions.py                # 异常层级
+├── test_exceptions.py                # 异常层级（含 ApiUnavailableError / RateLimitError）
 ├── test_crypto.py                    # AES/ev/签名/WatchPoint
 ├── test_config.py                    # TOML 加载/保存/迁移
 ├── test_session.py                   # API 查询封装
 ├── test_login.py                     # 登录流程
 ├── test_logger.py                    # 日志/脱敏
+├── test_reporter.py                  # 进度报告器
 ├── utils/
 │   ├── __init__.py
 │   ├── test_cookie.py                # Cookie 序列化
 │   ├── test_display.py               # 显示工具
 │   └── test_path.py                  # 路径工具
+├── cache/                            # 统一缓存子包测试
+│   ├── __init__.py
+│   ├── test_base.py                  # BaseQuestionCache[T] 抽象基类
+│   ├── test_zhidao_cache.py          # ZhidaoHomeworkCache
+│   └── test_ai_cache.py              # AiExamCache
 ├── zhidao/
 │   ├── __init__.py
 │   ├── conftest.py
@@ -39,7 +45,7 @@ tests/
 │       ├── test_scanner.py           # 作业扫描
 │       ├── test_worker.py            # 做题器
 │       ├── test_analyzer.py          # 题目分析
-│       ├── test_cache.py             # 答案缓存
+│       ├── test_cache.py             # 兼容入口（PEP 562 懒加载）
 │       └── test_ai_analysis_integration.py  # AI 分析集成
 ├── hike/
 │   ├── __init__.py
@@ -49,21 +55,29 @@ tests/
 ├── ai/
 │   ├── __init__.py
 │   ├── conftest.py
-│   ├── test_models.py                # AI 课程模型
+│   ├── test_models.py                # AI 课程模型（含 QuestionType 枚举）
 │   ├── test_course.py                # AI 课程管理
 │   ├── test_ppt.py                   # PPT 转文本
 │   ├── test_video.py                 # AI 视频播放
-│   ├── test_homework.py              # AI 作业（HomeworkCtx）
-│   └── test_exam.py                  # AI 考试（ExamCtx）
+│   ├── test_exam_base.py             # AiExamBase 模板方法基类
+│   ├── test_homework.py              # AI 作业（HomeworkCtx，继承 AiExamBase）
+│   └── test_exam.py                  # AI 考试（ExamCtx，继承 AiExamBase）
 ├── llm/
 │   ├── __init__.py
 │   ├── test_prompts.py               # Prompt 模板
 │   ├── test_base.py                  # LLMProvider 抽象
+│   ├── test_factory.py               # LLMProviderFactory 工厂
 │   ├── test_openai.py                # OpenAI 兼容
 │   └── test_zhidao.py                # 智慧树内置 AI
 ├── cli/
 │   ├── __init__.py
-│   └── test_main.py                  # CLI 命令式接口
+│   ├── test_main.py                  # CLI 命令式接口
+│   └── services/                     # 命令服务测试
+│       ├── __init__.py
+│       ├── test_play_service.py
+│       ├── test_homework_service.py
+│       ├── test_exam_service.py
+│       └── test_fetch_service.py
 └── integration/                      # 集成测试（需真实 API + 扫码登录）
     ├── __init__.py
     ├── conftest.py                   # logged_in_session fixture
@@ -374,8 +388,10 @@ def test_config_save(tmp_path: Path) -> None:
 ```python
 from zhs.exceptions import (
     ApiError,
+    ApiUnavailableError,
     CaptchaRequired,
     LoginFailed,
+    RateLimitError,
     SliderVerificationRequired,
     TimeLimitExceeded,
     ZhsError,
@@ -386,6 +402,8 @@ class TestExceptions:
     def test_zhs_error_is_base(self) -> None:
         """ZhsError 是所有自定义异常的基类"""
         assert issubclass(ApiError, ZhsError)
+        assert issubclass(ApiUnavailableError, ZhsError)
+        assert issubclass(RateLimitError, ZhsError)
         assert issubclass(CaptchaRequired, ZhsError)
         assert issubclass(SliderVerificationRequired, ZhsError)
         assert issubclass(LoginFailed, ZhsError)
@@ -397,6 +415,16 @@ class TestExceptions:
         assert err.code == -12
         assert err.message == "需要验证码"
         assert "-12" in str(err)
+
+    def test_api_unavailable_error(self) -> None:
+        """API 不可用异常（HTTP 5xx / 网络异常）"""
+        with pytest.raises(ApiUnavailableError):
+            raise ApiUnavailableError("服务端 503")
+
+    def test_rate_limit_error(self) -> None:
+        """API 限流异常"""
+        with pytest.raises(RateLimitError):
+            raise RateLimitError("请求过快")
 
     def test_catch_specific_then_base(self) -> None:
         """可以先捕获子异常再捕获基类"""
@@ -1010,15 +1038,156 @@ class TestHomeworkAnalyzer:
 #### 4.8.5 homework/test_cache.py
 
 ```python
-class TestHomeworkCache:
-    def test_save_and_load(self, tmp_path) -> None:
-        """保存后加载一致"""
+class TestHomeworkCacheCompat:
+    def test_lazy_import_returns_zhidao_cache(self) -> None:
+        """PEP 562 __getattr__ 懒加载返回 ZhidaoHomeworkCache 类"""
+        from zhs.zhidao.homework import cache as compat_module
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+
+        assert compat_module.HomeworkCache is ZhidaoHomeworkCache
+
+    def test_all_export(self) -> None:
+        """__all__ 包含 HomeworkCache（向后兼容）"""
+        from zhs.zhidao.homework.cache import __all__
+
+        assert "HomeworkCache" in __all__
+```
+
+### 4.9 cache/ 子包
+
+#### 4.9.1 cache/test_base.py
+
+```python
+class TestBaseQuestionCache:
+    def test_path_format(self, tmp_path) -> None:
+        """缓存路径格式：{cache_dir}/{course_type}/{course_id}/{exam_id}.json"""
+        from zhs.cache.base import BaseQuestionCache
+
+        class DummyCache(BaseQuestionCache[dict]):
+            def _serialize(self, data: dict) -> dict:
+                return data
+            def _deserialize(self, raw: dict) -> dict:
+                return raw
+
+        cache = DummyCache(
+            cache_dir=tmp_path,
+            course_type="zhidao",
+            course_id="C1001",
+            exam_id="E2001",
+        )
+        assert cache.path == tmp_path / "zhidao" / "C1001" / "E2001.json"
+
+    def test_lazy_loading(self, tmp_path) -> None:
+        """懒加载：首次访问才读取文件"""
+        # 文件不存在时返回空字典
+        # 文件存在时加载内容
+        ...
+
+    def test_save_and_load_roundtrip(self, tmp_path) -> None:
+        """保存后重新加载一致"""
+        ...
+
+    def test_generic_type_parameter(self) -> None:
+        """PEP 695 泛型：BaseQuestionCache[T] 支持不同类型参数"""
+        ...
+```
+
+#### 4.9.2 cache/test_zhidao_cache.py
+
+```python
+class TestZhidaoHomeworkCache:
+    def test_save_and_get(self, tmp_path) -> None:
+        """put 后 get 返回相同答案"""
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+
+        cache = ZhidaoHomeworkCache(
+            cache_dir=tmp_path, course_id="C1", exam_id="E1"
+        )
+        cache.put("q1_1", {"answer": "A", "question": "题目"})
+        assert cache.get("q1_1")["answer"] == "A"
 
     def test_cache_miss_returns_none(self, tmp_path) -> None:
         """缓存未命中返回 None"""
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+
+        cache = ZhidaoHomeworkCache(
+            cache_dir=tmp_path, course_id="C1", exam_id="E1"
+        )
+        assert cache.get("nonexistent") is None
+
+    def test_mark_correct_and_wrong(self, tmp_path) -> None:
+        """标记对错"""
+        ...
+
+    def test_save_ai_analysis(self, tmp_path) -> None:
+        """保存 AI 解析"""
+        ...
+
+    def test_save_options(self, tmp_path) -> None:
+        """保存选项"""
+        ...
+
+    def test_find_key_by_options(self, tmp_path) -> None:
+        """根据选项文本反查缓存键"""
+        ...
+
+    def test_load_all_for_course(self, tmp_path) -> None:
+        """加载课程下所有作业的缓存（合并）"""
+        ...
+
+    def test_path_under_zhidao_dir(self, tmp_path) -> None:
+        """路径在 zhidao/ 子目录下"""
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+
+        cache = ZhidaoHomeworkCache(
+            cache_dir=tmp_path, course_id="C1", exam_id="E1"
+        )
+        assert "zhidao" in cache.path.parts
 ```
 
-### 4.9 ai/video.py
+#### 4.9.3 cache/test_ai_cache.py
+
+```python
+class TestAiExamCache:
+    def test_save_and_get(self, tmp_path) -> None:
+        """put 后 get 返回相同答案"""
+        from zhs.cache.ai_cache import AiExamCache
+
+        cache = AiExamCache(
+            cache_dir=tmp_path, course_id="C1", exam_id="E1"
+        )
+        cache.put("q1_1", {"answer": "A"})
+        assert cache.get("q1_1")["answer"] == "A"
+
+    def test_parse_answer_choice(self) -> None:
+        """parse_answer 解析选择题答案（#@# 分隔）"""
+        from zhs.cache.ai_cache import AiExamCache
+
+        result = AiExamCache.parse_answer("opt1#@#opt2#@#opt3")
+        assert result == ["opt1", "opt2", "opt3"]
+
+    def test_parse_answer_fill_blank(self) -> None:
+        """parse_answer 解析填空题答案（/ 分隔）"""
+        from zhs.cache.ai_cache import AiExamCache
+
+        result = AiExamCache.parse_answer("答案1/答案2/答案3")
+        assert result == ["答案1", "答案2", "答案3"]
+
+    def test_load_all_for_course(self, tmp_path) -> None:
+        """加载课程下所有考试缓存"""
+        ...
+
+    def test_path_under_ai_dir(self, tmp_path) -> None:
+        """路径在 ai/ 子目录下"""
+        from zhs.cache.ai_cache import AiExamCache
+
+        cache = AiExamCache(
+            cache_dir=tmp_path, course_id="C1", exam_id="E1"
+        )
+        assert "ai" in cache.path.parts
+```
+
+### 4.10 ai/video.py
 
 ```python
 class TestAiVideoPlayer:
@@ -1035,12 +1204,12 @@ class TestAiVideoPlayer:
         """_watch_video 使用独立 httpx.Client + daemon 线程"""
 ```
 
-### 4.10 ai/homework.py（HomeworkCtx）
+### 4.11 ai/homework.py（HomeworkCtx）
 
 ```python
 class TestHomeworkCtx:
     def test_init(self, mock_session, ai_config) -> None:
-        """HomeworkCtx 初始化"""
+        """HomeworkCtx 初始化（继承 AiExamBase）"""
         from zhs.ai.homework import HomeworkCtx
 
         ctx = HomeworkCtx(
@@ -1051,11 +1220,18 @@ class TestHomeworkCtx:
         )
         assert ctx._course_id == "1001"
 
+    def test_inherits_ai_exam_base(self) -> None:
+        """HomeworkCtx 继承 AiExamBase"""
+        from zhs.ai.exam_base import AiExamBase
+        from zhs.ai.homework import HomeworkCtx
+
+        assert issubclass(HomeworkCtx, AiExamBase)
+
     def test_heartbeat_daemon_thread(self) -> None:
-        """心跳使用 daemon 线程"""
+        """心跳使用 daemon 线程（基类提供）"""
 
     def test_stopped_flag_exits_heartbeat(self) -> None:
-        """_stopped 标志退出心跳循环"""
+        """_stopped 标志退出心跳循环（基类提供）"""
 
     def test_sequential_processing(self) -> None:
         """顺序处理题目（不并发），每题 sleep delay_min-delay_max"""
@@ -1065,14 +1241,61 @@ class TestHomeworkCtx:
         answers = ["opt1", "opt2", "opt3"]
         assert "#@#".join(answers) == "opt1#@#opt2#@#opt3"
 
-    def test_uses_zhidao_ai_provider_by_default(self) -> None:
-        """默认使用 ZhidaoAIProvider（use_zhidao_ai=True）"""
-
-    def test_uses_openai_provider_when_configured(self) -> None:
-        """use_zhidao_ai=False 时使用 OpenAIProvider"""
+    def test_provider_from_base(self) -> None:
+        """LLMProvider 由 AiExamBase.__init__ 通过 LLMProviderFactory 创建"""
 ```
 
-### 4.11 ai/exam.py（ExamCtx）
+### 4.12 ai/exam_base.py（AiExamBase 模板方法基类）
+
+```python
+class TestAiExamBase:
+    def test_is_abstract(self) -> None:
+        """AiExamBase 是 ABC，不能直接实例化"""
+        from zhs.ai.exam_base import AiExamBase
+
+        with pytest.raises(TypeError):
+            AiExamBase(...)  # type: ignore[abstract]
+
+    def test_template_method_start(self) -> None:
+        """start() 模板方法按序调用 _open → _get_sheet_content → _answer_questions → _submit"""
+        # 通过子类化并 Mock 抽象方法验证调用顺序
+        ...
+
+    def test_two_level_cache_initialization(self) -> None:
+        """两级缓存初始化：_answer_cache（当前）+ _all_answer_cache（汇总）"""
+        ...
+
+    def test_load_all_for_course(self) -> None:
+        """load_all_for_course 加载课程下所有考试缓存到 _all_answer_cache"""
+        ...
+
+    def test_heartbeat_lifecycle(self) -> None:
+        """心跳生命周期：start() 启动 daemon 线程，_stopped=True 后退出"""
+        ...
+
+    def test_provider_factory_called_in_init(self) -> None:
+        """__init__ 调用 LLMProviderFactory.create() 初始化 _provider"""
+        ...
+
+    def test_three_level_answer_strategy(self) -> None:
+        """三级答题策略：缓存命中 → AI 生成 → 兜底答案"""
+        ...
+
+    def test_abstract_methods(self) -> None:
+        """抽象方法列表：_open / _get_sheet_content / _save_answer / _submit / _answer_questions"""
+        from zhs.ai.exam_base import AiExamBase
+
+        abstract_methods = {
+            "_open",
+            "_get_sheet_content",
+            "_save_answer",
+            "_submit",
+            "_answer_questions",
+        }
+        assert abstract_methods.issubset(AiExamBase.__abstractmethods__)
+```
+
+### 4.13 ai/exam.py（ExamCtx）
 
 ```python
 class TestExamCtx:
@@ -1127,7 +1350,7 @@ class TestExamCtx:
 > | 心跳方法 | updateUserUsedTime | updateUserUsedTime |
 > | dateFormate | 不发送 | 发送 |
 
-### 4.12 ai/ppt.py
+### 4.14 ai/ppt.py
 
 ```python
 class TestPptConverter:
@@ -1157,7 +1380,7 @@ class TestPptConverter:
         """_should_cleanup_local 属性（避免与方法 _cleanup_local 冲突）"""
 ```
 
-### 4.13 llm/prompts.py
+### 4.15 llm/prompts.py
 
 ```python
 class TestPrompts:
@@ -1196,7 +1419,39 @@ class TestPrompts:
         """_truncate_prompt 超过 max_token 截断"""
 ```
 
-### 4.14 cli/test_main.py
+### 4.16 llm/test_factory.py（LLMProviderFactory）
+
+```python
+class TestLLMProviderFactory:
+    def test_create_zhidao_ai_when_use_zhidao_ai_true(self) -> None:
+        """use_zhidao_ai=True → 返回 ZhidaoAIProvider"""
+        from zhs.config import AIConfig
+        from zhs.llm.factory import LLMProviderFactory
+        from zhs.llm.zhidao import ZhidaoAIProvider
+
+        config = AIConfig(use_zhidao_ai=True)
+        provider = LLMProviderFactory.create(config, session=...)
+        assert isinstance(provider, ZhidaoAIProvider)
+
+    def test_create_openai_when_use_zhidao_ai_false(self) -> None:
+        """use_zhidao_ai=False → 返回 OpenAIProvider"""
+        from zhs.config import AIConfig
+        from zhs.llm.factory import LLMProviderFactory
+        from zhs.llm.openai import OpenAIProvider
+
+        config = AIConfig(use_zhidao_ai=False, api_key="sk-test")
+        provider = LLMProviderFactory.create(config, session=...)
+        assert isinstance(provider, OpenAIProvider)
+
+    def test_create_is_static_method(self) -> None:
+        """create 是静态方法"""
+        from zhs.llm.factory import LLMProviderFactory
+
+        # 静态方法可直接通过类调用
+        assert callable(LLMProviderFactory.create)
+```
+
+### 4.17 cli/test_main.py
 
 ```python
 from typer.testing import CliRunner
@@ -1236,7 +1491,7 @@ class TestCLI:
         """CLI 参数覆盖 config 值（如 -s 覆盖 video speed）"""
 ```
 
-### 4.15 logger.py
+### 4.18 logger.py
 
 ```python
 import re
@@ -1393,10 +1648,12 @@ uv run pytest --cov=zhs --cov-report=html
 | zhidao/video.py | 75% | 复杂主循环 |
 | hike/video.py | 75% | 资源树遍历 |
 | zhidao/homework/ | 80% | 作业扫描/做题/缓存 |
+| cache/ | 85% | 统一缓存子包（base/zhidao/ai） |
 | ai/video.py | 75% | AI 视频播放 |
-| ai/homework.py | 80% | 同步作业处理 |
-| ai/exam.py | 80% | 同步考试处理 |
-| llm/ | 85% | Prompt + 解析 |
+| ai/exam_base.py | 80% | 模板方法基类 |
+| ai/homework.py | 80% | 同步作业处理（继承 AiExamBase） |
+| ai/exam.py | 80% | 同步考试处理（继承 AiExamBase） |
+| llm/ | 85% | Prompt + 解析 + Factory |
 | cli/ | 70% | 集成测试为主 |
 
 ---
@@ -1434,3 +1691,6 @@ jobs:
 6. **禁止测试中硬编码密钥**：从 `CryptoConfig` 获取
 7. **集成测试必须标记 `@pytest.mark.integration`**：默认跳过
 8. **fixture 中 Mock 生命周期必须覆盖测试用例**：用 `with + yield`
+9. **缓存测试使用 `tmp_path`**：禁止写入真实 `~/.zhs/cache/` 目录
+10. **PEP 562 兼容入口测试**：测试 `zhs.zhidao.homework.cache.HomeworkCache` 必须验证其 `is ZhidaoHomeworkCache`
+11. **AiExamBase 测试通过子类化**：ABC 不能直接实例化，测试模板方法时通过子类 + Mock 抽象方法

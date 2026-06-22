@@ -105,13 +105,6 @@ class TestGetAnswer:
         assert result is not None
         assert result == ["1", "2"]
 
-    def test_old_version_key_compat(self, homework_ctx: HomeworkCtx) -> None:
-        """兼容旧缓存 key（带 _version 后缀）"""
-        homework_ctx._all_answer_cache = {"789_2": {"answer": "3"}}
-        result = homework_ctx._get_cached_answer(789)
-        assert result is not None
-        assert result == ["3"]
-
     def test_slash_separator_compat(self, homework_ctx: HomeworkCtx) -> None:
         """填空题 answer 含 / 不拆分，返回单元素列表"""
         homework_ctx._all_answer_cache = {"123": {"answer": "身体健康/心理健康"}}
@@ -153,13 +146,14 @@ class TestSubmitHomework:
     """提交作业（同步）"""
 
     def test_submit_homework_contains_course_type(self, homework_ctx: HomeworkCtx) -> None:
-        """_submit_homework 含 courseType=8（同步调用）"""
+        """_submit 含 courseType=8（同步调用）"""
         with patch.object(homework_ctx, "_api_query") as mock_api:
             mock_api.return_value = {"code": 0}
-            homework_ctx._submit_homework()
+            homework_ctx._submit()
             call_data = mock_api.call_args
             # 检查调用参数包含 courseType=8
             assert call_data is not None
+            assert call_data[0][1]["courseType"] == 8
 
 
 class TestProcessQuestion:
@@ -195,7 +189,7 @@ class TestHomeworkRetry:
             from zhs.exceptions import ZhsError
 
             with pytest.raises(ZhsError, match="openExam"):
-                homework_ctx._open_homework()
+                homework_ctx._open()
             # 应该重试 3 次
             assert mock_api.call_count == 3
 
@@ -239,9 +233,11 @@ class TestHeartbeatThread:
 
     def test_heartbeat_thread_daemon(self, homework_ctx: HomeworkCtx) -> None:
         """心跳线程属性为 daemon"""
-        # 验证 HomeworkCtx 使用 threading.Thread 而非 asyncio.Task
+        # 验证 AiExamBase 基类使用 threading.Thread 而非 asyncio.Task
         import inspect
 
-        source = inspect.getsource(HomeworkCtx)
+        from zhs.ai.exam_base import AiExamBase
+
+        source = inspect.getsource(AiExamBase)
         assert "threading.Thread" in source
         assert "daemon=True" in source

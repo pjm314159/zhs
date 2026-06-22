@@ -58,7 +58,11 @@ zhs init
 ├── config.toml       # 配置文件
 ├── cookies.json      # 登录 Cookie（登录后生成）
 ├── execution.json    # 课程列表（zhs fetch 生成）
-├── cache/            # 缓存目录（PPT、作业答案等）
+├── cache/            # 答案缓存目录
+│   ├── zhidao/       # 知到作业答案缓存
+│   │   └── {course_id}/{exam_id}.json
+│   └── ai/           # AI 作业/考试答案缓存
+│       └── {course_id}/{exam_id}.json
 └── logs/             # 日志目录（按日期轮转）
 ```
 
@@ -483,9 +487,12 @@ https = "http://127.0.0.1:7890"
 | `config.toml` | 配置文件（`zhs init` 生成） |
 | `cookies.json` | 登录 Cookie（`zhs login` 生成） |
 | `execution.json` | 课程列表（`zhs fetch` 生成） |
-| `cache/` | 缓存目录（PPT 转文本、作业答案等） |
+| `cache/zhidao/{course_id}/{exam_id}.json` | 知到作业答案缓存（含对错标记、AI 解析） |
+| `cache/ai/{course_id}/{exam_id}.json` | AI 作业/考试答案缓存（HomeworkCtx 与 ExamCtx 共用） |
 | `logs/` | 日志目录（按日期轮转，保留 30 天，gz 压缩） |
 | `qrcode.png` | 登录二维码图片（`zhs login` 生成） |
+
+> **缓存路径格式**：`~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json`，按课程类型分目录。从旧版缓存格式升级时，运行 `uv run python scripts/migrate_cache.py --dry-run` 预览，确认后去掉 `--dry-run` 执行迁移。
 
 ---
 

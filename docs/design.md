@@ -12,6 +12,8 @@ e:\project\python\ZHS\
 ├── pyproject.toml              # 项目配置（依赖、ruff、mypy、pytest）
 ├── config.toml.example         # 配置文件示例
 ├── README.md
+├── scripts/
+│   └── migrate_cache.py        # 旧缓存 → 新格式迁移脚本
 ├── src/
 │   └── zhs/
 │       ├── __init__.py         # 版本号导出
@@ -22,6 +24,12 @@ e:\project\python\ZHS\
 │       ├── login.py            # 登录（扫码）
 │       ├── exceptions.py       # 全局异常定义
 │       ├── logger.py           # 日志配置（loguru）
+│       ├── reporter.py         # 进度报告器（ConsoleReporter / ProgressReporter）
+│       ├── cache/              # 统一缓存子包
+│       │   ├── __init__.py
+│       │   ├── base.py         # BaseQuestionCache[T] 抽象基类（PEP 695 泛型）
+│       │   ├── zhidao_cache.py # ZhidaoHomeworkCache（知到作业缓存）
+│       │   └── ai_cache.py     # AiExamCache（AI 作业/考试缓存）
 │       ├── zhidao/             # 知到共享课程
 │       │   ├── __init__.py
 │       │   ├── models.py       # 数据模型
@@ -34,7 +42,7 @@ e:\project\python\ZHS\
 │       │       ├── scanner.py  # 作业扫描器
 │       │       ├── worker.py   # 作业做题器
 │       │       ├── analyzer.py # 错题分析器
-│       │       └── cache.py    # 作业缓存
+│       │       └── cache.py    # 兼容入口（PEP 562 懒加载 → zhs.cache.zhidao_cache）
 │       ├── hike/               # 职教云课程
 │       │   ├── __init__.py
 │       │   ├── models.py       # 数据模型
@@ -42,18 +50,30 @@ e:\project\python\ZHS\
 │       │   └── video.py        # 视频刷课
 │       ├── ai/                 # AI 课程
 │       │   ├── __init__.py
-│       │   ├── models.py       # 数据模型
+│       │   ├── models.py       # 数据模型（含 QuestionType 枚举）
 │       │   ├── course.py       # AI 课程学习编排
 │       │   ├── video.py        # AI 视频播放器（AiVideoPlayer）
-│       │   ├── homework.py     # AI 作业（HomeworkCtx，同步）
-│       │   ├── exam.py         # AI 考试（ExamCtx，同步）
+│       │   ├── exam_base.py    # AiExamBase 基类（模板方法模式）
+│       │   ├── homework.py     # AI 作业（HomeworkCtx，继承 AiExamBase）
+│       │   ├── exam.py         # AI 考试（ExamCtx，继承 AiExamBase）
 │       │   └── ppt.py          # PPT 转文本
 │       ├── llm/                # LLM 答题
 │       │   ├── __init__.py
 │       │   ├── base.py         # 抽象基类
+│       │   ├── factory.py      # LLMProviderFactory 工厂
 │       │   ├── openai.py       # OpenAI 兼容接口
 │       │   ├── zhidao.py       # 智慧树内置 AI
 │       │   └── prompts.py      # Prompt 模板
+│       ├── cli/                # CLI 子包
+│       │   ├── __init__.py
+│       │   ├── bootstrap.py    # CLI 初始化（配置、日志、session）
+│       │   ├── course_type.py  # 课程类型检测
+│       │   └── services/       # 命令服务
+│       │       ├── __init__.py
+│       │       ├── play_service.py
+│       │       ├── homework_service.py
+│       │       ├── exam_service.py
+│       │       └── fetch_service.py
 │       └── utils/              # 工具
 │           ├── __init__.py
 │           ├── display.py      # 进度条 / 二维码 / 树形视图
@@ -67,6 +87,12 @@ e:\project\python\ZHS\
 │   ├── test_login.py
 │   ├── test_exceptions.py
 │   ├── test_logger.py
+│   ├── test_reporter.py
+│   ├── cache/                  # 缓存测试
+│   │   ├── __init__.py
+│   │   ├── test_base.py        # BaseQuestionCache 测试
+│   │   ├── test_zhidao_cache.py
+│   │   └── test_ai_cache.py
 │   ├── zhidao/
 │   │   ├── conftest.py
 │   │   ├── test_course.py
@@ -78,7 +104,6 @@ e:\project\python\ZHS\
 │   │       ├── test_scanner.py
 │   │       ├── test_worker.py
 │   │       ├── test_analyzer.py
-│   │       ├── test_cache.py
 │   │       └── test_ai_analysis_integration.py
 │   ├── hike/
 │   │   ├── test_course.py
@@ -90,12 +115,14 @@ e:\project\python\ZHS\
 │   │   ├── test_video.py
 │   │   ├── test_homework.py
 │   │   ├── test_exam.py
+│   │   ├── test_exam_base.py   # AiExamBase 测试
 │   │   ├── test_ppt.py
 │   │   └── test_models.py
 │   ├── llm/
 │   │   ├── test_openai.py
 │   │   ├── test_zhidao.py
 │   │   ├── test_prompts.py
+│   │   ├── test_factory.py     # LLMProviderFactory 测试
 │   │   └── test_base.py
 │   ├── integration/            # 集成测试
 │   │   ├── test_ai_integration.py
@@ -114,10 +141,8 @@ e:\project\python\ZHS\
     ├── spec.md                 # 功能规格
     ├── design.md               # 本文档
     ├── test.md                 # 测试计划
-    ├── task.md                 # 开发任务清单
     ├── linter.md               # 代码规范
-    ├── tutorial.md             # 使用教程
-    └── log.md                  # 开发日志
+    └── tutorial.md             # 使用教程
 ```
 
 使用 `src` layout，通过 `uv sync --dev` 安装后 `zhs` 命令可用。
@@ -150,6 +175,12 @@ class LoginFailed(ZhsError):
 
 class TimeLimitExceeded(ZhsError):
     """刷课时间超过限制"""
+
+class ApiUnavailableError(ZhsError):
+    """API 服务不可用（网络错误、5xx 等）"""
+
+class RateLimitError(ZhsError):
+    """API 限流（429 Too Many Requests 等）"""
 ```
 
 **设计要点**：
@@ -157,6 +188,7 @@ class TimeLimitExceeded(ZhsError):
 - `ApiError` 携带 `code` 和 `message`，用于 API 错误码透传
 - `CaptchaRequired` 对应知到视频 API 的 `code=-12`
 - `SliderVerificationRequired` 对应作业 API 的滑块验证响应
+- `ApiUnavailableError` / `RateLimitError` 用于网络层与限流场景，便于上层重试或降级
 - **已删除** `InvalidCookies`（不再使用，Cookie 失效由 `_try_restore_cookies` 返回 False 处理）
 
 ### 2.2 crypto.py — 加解密模块
@@ -560,9 +592,126 @@ stateDiagram-v2
 - `gologin` 返回 HTML 不解析 JSON
 - Cookie 恢复由 CLI 的 `_try_restore_cookies` 处理，通过调用 `ZhidaoCourseManager.get_course_list()` 验证有效性
 
-### 2.6 zhidao/ — 知到共享课程
+### 2.6 cache/ — 统一缓存子包
 
-#### 2.6.1 models.py
+统一管理知到作业与 AI 作业/考试的答案缓存，消除各模块自行实现 JSON 读写的重复代码。
+
+#### 2.6.1 base.py — BaseQuestionCache 抽象基类
+
+```python
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+class BaseQuestionCache[T](ABC):
+    """题目缓存基类（PEP 695 泛型）
+
+    子类通过设置 course_type 与实现序列化方法，复用路径管理与持久化逻辑。
+    """
+
+    course_type: str = ""
+
+    def __init__(self, cache_dir: Path | None = None) -> None: ...
+
+    def _cache_path(self, course_id: int | str, exam_id: int | str) -> Path:
+        """缓存文件路径: {cache_dir}/{course_type}/{course_id}/{exam_id}.json"""
+
+    def _load_exam(self, course_id: int | str, exam_id: int | str) -> dict[str, T]:
+        """加载某个 exam 的缓存（惰性加载，结果缓存在 _loaded）"""
+
+    def _save_exam(self, course_id: int | str, exam_id: int | str, entries: dict[str, T]) -> None:
+        """保存某个 exam 的缓存"""
+
+    def _load_all_exams(self, course_id: int | str) -> dict[str, T]:
+        """加载课程下所有 exam 的缓存（扫描目录合并）"""
+
+    @abstractmethod
+    def _deserialize_entry(self, data: dict[str, Any]) -> T: ...
+    @abstractmethod
+    def _serialize_entry(self, entry: T) -> dict[str, Any]: ...
+```
+
+**设计要点**：
+- 使用 PEP 695 类型参数语法 `class BaseQuestionCache[T](ABC):`（替代 `Generic[T]`，ruff UP046 要求）
+- 缓存路径统一格式：`{cache_dir}/{course_type}/{course_id}/{exam_id}.json`
+- 惰性加载：`_loaded` 字典缓存已读取的 exam，避免重复 IO
+- 损坏文件自动跳过并记录日志（`logger.error`），不抛异常
+- `_load_all_exams` 扫描课程目录下所有 `.json` 文件并合并，用于构建跨 exam 的合并缓存
+
+#### 2.6.2 zhidao_cache.py — ZhidaoHomeworkCache
+
+```python
+class ZhidaoHomeworkCache(BaseQuestionCache[HomeworkCacheEntry]):
+    """知到作业答案本地缓存"""
+
+    course_type = "zhidao"
+
+    def get(self, course_id: int, exam_id: str, question_key: str) -> HomeworkCacheEntry | None: ...
+    def put(self, course_id: int, exam_id: str, question_key: str, entry: HomeworkCacheEntry) -> None: ...
+    def mark_correct(self, course_id: int, exam_id: str, question_key: str, option_ids: list[int]) -> None: ...
+    def mark_wrong(self, course_id: int, exam_id: str, question_key: str, option_ids: list[int]) -> None: ...
+    def get_correct_options(self, course_id: int, exam_id: str, question_key: str) -> list[int]: ...
+    def get_wrong_options(self, course_id: int, exam_id: str, question_key: str) -> list[int]: ...
+    def save_ai_analysis(self, course_id: int, exam_id: str, question_key: str, ai_analysis: str) -> None: ...
+    def save_options(self, course_id: int, exam_id: str, question_key: str, question_type: int, options: list[HomeworkCacheOption]) -> None: ...
+    def find_key_by_options(self, course_id: int, exam_id: str, option_ids: list[int]) -> str | None: ...
+    def load_all_for_course(self, course_id: int) -> dict[str, HomeworkCacheEntry]: ...
+```
+
+**与旧 HomeworkCache 的差异**：
+- 路径从 `zhidao_homework_cache/{courseId}/{examId}.json` 改为 `zhidao/{course_id}/{exam_id}.json`
+- key 从 `courseId:examId:questionKey` 改为纯 `question_key`
+- 继承 `BaseQuestionCache[HomeworkCacheEntry]`，复用路径与持久化逻辑
+
+#### 2.6.3 ai_cache.py — AiExamCache
+
+```python
+class AiExamCache(BaseQuestionCache[dict[str, Any]]):
+    """AI 作业/考试缓存（HomeworkCtx 与 ExamCtx 共用）"""
+
+    course_type = "ai"
+
+    def get(self, course_id: int | str, exam_id: int | str, question_id: int) -> dict[str, Any] | None: ...
+    def put(self, course_id: int | str, exam_id: int | str, question_id: int, entry: dict[str, Any]) -> None: ...
+    def load_all_for_course(self, course_id: int | str) -> dict[str, dict[str, Any]]: ...
+
+    @staticmethod
+    def parse_answer(answer_str: str) -> list[str] | None:
+        """解析 answer 字段：含 #@# → 分隔，否则单元素列表"""
+```
+
+**设计要点**：
+- 条目格式：`{"question": str, "answer": str, "answer_content": str, "questionDict": dict}`
+- key 为 `question_id` 的字符串形式
+- `parse_answer` 静态方法供 `AiExamBase._parse_cached_answer` 委托调用
+- `load_all_for_course` 用于构建 `_all_answer_cache`（跨 exam 合并缓存）
+
+#### 2.6.4 zhidao/homework/cache.py — 兼容入口
+
+```python
+"""知到作业本地缓存管理（兼容入口）
+
+实际实现已迁移至 zhs.cache.zhidao_cache.ZhidaoHomeworkCache。
+本模块通过 PEP 562 懒加载保留 HomeworkCache 别名，避免循环导入。
+"""
+
+def __getattr__(name: str) -> object:
+    """懒加载 HomeworkCache，避免循环导入"""
+    if name == "HomeworkCache":
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+        return ZhidaoHomeworkCache
+    raise AttributeError(...)
+
+__all__ = ["HomeworkCache"]  # noqa: F822
+```
+
+**循环导入解决方案**：
+- `zhs.cache.zhidao_cache` → `zhs.zhidao.homework.models` → `zhs.zhidao.homework.__init__` → `analyzer` / `worker`
+- `analyzer.py` / `worker.py` 使用 `TYPE_CHECKING` 守卫导入 `HomeworkCache`（仅类型注解，运行时不需要）
+- `cache.py` 使用 PEP 562 `__getattr__` 懒加载，打破 `cache → zhidao_cache → cache` 循环
+
+### 2.7 zhidao/ — 知到共享课程
+
+#### 2.7.1 models.py
 
 ```python
 class CourseInfo(BaseModel):
@@ -634,7 +783,7 @@ class ZhidaoContext(BaseModel):
 - mypy 启用 pydantic 插件
 - **已删除** `CourseInfo.en_name`（未使用字段）
 
-#### 2.6.2 course.py
+#### 2.7.2 course.py
 
 ```python
 class ZhidaoCourseManager:
@@ -649,7 +798,7 @@ class ZhidaoCourseManager:
     def query_study_info(self, lesson_ids: list, video_ids: list, recruit_id: int) -> dict: ...
 ```
 
-#### 2.6.3 video.py
+#### 2.7.3 video.py
 
 ```python
 class ZhidaoVideoPlayer:
@@ -720,7 +869,7 @@ flowchart TD
     HumanDelay --> End
 ```
 
-#### 2.6.4 quiz.py
+#### 2.7.4 quiz.py
 
 ```python
 class ZhidaoQuizzer:
@@ -733,7 +882,7 @@ class ZhidaoQuizzer:
     def save_answer(self, rac_id: str, video_id: int, question_id: int, answer: str) -> None: ...
 ```
 
-#### 2.6.5 zhidao/homework/ — 知到作业子包
+#### 2.7.5 zhidao/homework/ — 知到作业子包
 
 ##### models.py
 
@@ -822,7 +971,7 @@ class HomeworkWorker:
         self,
         session: ZhsSession,
         config: AppConfig,
-        cache: HomeworkCache,
+        cache: ZhidaoHomeworkCache,
         llm: LLMProvider | None = None,
     ) -> None: ...
 
@@ -869,7 +1018,7 @@ class HomeworkAnalyzer:
         self,
         session: ZhsSession,
         config: AppConfig,
-        cache: HomeworkCache,
+        cache: ZhidaoHomeworkCache,
     ) -> None: ...
 
     def analyze(self, item: HomeworkItem, recruit_id: str, school_id: str) -> None:
@@ -880,24 +1029,17 @@ class HomeworkAnalyzer:
 - 调用 `homework_look` 获取已提交作业详情
 - 调用 `homework_get_answer` 获取每题对错信息
 - 调用 `ai_analysis_run`（SSE 流式）获取 AI 解析
-- 将正确答案保存到 `HomeworkCache` 供下次做题使用
+- 将正确答案保存到 `ZhidaoHomeworkCache` 供下次做题使用
 
-##### cache.py
+##### cache.py — 兼容入口
 
-```python
-class HomeworkCache:
-    """知到作业缓存（JSON 文件持久化）"""
+> 实际实现已迁移至 [2.6.2 zhidao_cache.py](#262-zhidao_cachepy--zhidaohomeworkcache)。
+> 本模块通过 PEP 562 `__getattr__` 懒加载保留 `HomeworkCache` 别名，避免循环导入。
+> 新代码应直接使用 `from zhs.cache.zhidao_cache import ZhidaoHomeworkCache`。
 
-    def __init__(self) -> None: ...
-    def get(self, question_id: int) -> dict | None: ...
-    def set(self, question_id: int, data: dict) -> None: ...
-    def save(self) -> None: ...
-    def load(self) -> None: ...
-```
+### 2.8 hike/ — 职教云课程
 
-### 2.7 hike/ — 职教云课程
-
-#### 2.7.1 models.py
+#### 2.8.1 models.py
 
 ```python
 class HikeCourse(BaseModel):
@@ -919,7 +1061,7 @@ class FileInfo(BaseModel):
     total_time: int
 ```
 
-#### 2.7.2 course.py
+#### 2.8.2 course.py
 
 ```python
 class HikeCourseManager:
@@ -929,7 +1071,7 @@ class HikeCourseManager:
     def query_resource_menu_tree(self, course_id: str) -> list[ResourceNode]: ...
 ```
 
-#### 2.7.3 video.py
+#### 2.8.3 video.py
 
 ```python
 class HikeVideoPlayer:
@@ -972,11 +1114,22 @@ flowchart TD
 - 非标准节点（讨论帖子、微课链接、直播回放、外部跳转链接等）无 `file_id`，自动跳过并记录日志
 - `play_file` 内部对 API 返回做 try/except 防护，避免非标准文件导致 KeyError 崩溃
 
-### 2.8 ai/ — AI 课程
+### 2.9 ai/ — AI 课程
 
-#### 2.8.1 models.py
+#### 2.9.1 models.py
 
 ```python
+class QuestionType(IntEnum):
+    """AI 模块题型枚举（替代魔法数字）"""
+    SINGLE = 1     # 单选题
+    MULTI = 2      # 多选题
+    FILL = 3       # 填空题
+    JUDGE = 14     # 判断题
+
+    @classmethod
+    def from_int(cls, value: int) -> QuestionType | None:
+        """从 int 构造枚举，未知值返回 None"""
+
 class KnowledgePoint(BaseModel):
     knowledge_id: int
     knowledge_name: str
@@ -1014,7 +1167,7 @@ class QuestionSheet(BaseModel):
 class QuestionContent(BaseModel):
     id: int
     content: str
-    question_type: int            # 1=单选, 2=多选, 3=填空, 14=判断
+    question_type: int            # 1=单选, 2=多选, 3=填空, 14=判断（见 QuestionType）
     option_vos: list[OptionVo] = []
     version: int = 1
 
@@ -1025,10 +1178,11 @@ class OptionVo(BaseModel):
 ```
 
 **设计要点**：
+- `QuestionType` IntEnum 替代魔法数字（1/2/3/14），`from_int` 方法对未知值返回 None 而非抛异常
 - `ExamInfo.mastery_score` 使用 `alias="masteryScore"`（曾误改为 `highMasteryScore`，已回归修复）
 - **已删除** `AnswerCache`（未使用模型）
 
-#### 2.8.2 course.py — AI 课程编排
+#### 2.9.2 course.py — AI 课程编排
 
 ```python
 class AiCourseManager:
@@ -1098,7 +1252,7 @@ flowchart TD
 - 作业委托给 `HomeworkCtx`
 - **已删除** 旧的 `ppt_processing` 死分支（PPT 转文本功能不再集成到课程流程）
 
-#### 2.8.3 video.py — AI 视频播放器
+#### 2.9.3 video.py — AI 视频播放器
 
 ```python
 class AiVideoPlayer:
@@ -1126,11 +1280,79 @@ class AiVideoPlayer:
 - `_watch_video` 使用独立 `httpx.Client` + daemon 线程请求视频流（反检测）
 - 从 `AiCourseManager` 中提取，降低 `course.py` 复杂度
 
-#### 2.8.4 homework.py — AI 作业（同步）
+#### 2.9.4 exam_base.py — AiExamBase 基类（模板方法模式）
+
+封装 `HomeworkCtx` 与 `ExamCtx` 的公共流程与状态，消除约 500 行重复代码。
 
 ```python
-class HomeworkCtx:
-    """AI 作业上下文（同步执行）
+class AiExamBase(ABC):
+    """AI 作业/考试基类（模板方法模式）
+
+    子类 HomeworkCtx（逐题保存）与 ExamCtx（批量保存）共享此基类。
+    """
+
+    def __init__(
+        self,
+        session: ZhsSession,
+        course_id: int | str,
+        exam_test_id: int | str,
+        exam_paper_id: int | str,
+        ai_config: AIConfig,
+        op_extra: dict[str, Any] | None = None,
+        progress_view: bool = True,
+        reporter: ProgressReporter | None = None,
+        cache: AiExamCache | None = None,
+    ) -> None: ...
+
+    # --- 模板方法 ---
+    def start(
+        self,
+        reference_materials: list[dict[str, str]] | None = None,
+        submit: bool = False,
+    ) -> tuple[bool, int, int]:
+        """执行完整流程：加载缓存 → 打开 → 心跳 → 答题 → 提交 → 结果检查"""
+
+    # --- 抽象方法（子类实现） ---
+    @property
+    @abstractmethod
+    def _exam_base_url(self) -> str: ...
+    @abstractmethod
+    def _api_query(self, url: str, data: dict[str, Any], method: str = "POST") -> dict[str, Any]: ...
+    @abstractmethod
+    def _open(self) -> None: ...
+    @abstractmethod
+    def _get_sheet_content(self) -> list[QuestionSheet]: ...
+    @abstractmethod
+    def _get_question_content(self, question_id: int, version: int) -> QuestionContent | None: ...
+    @abstractmethod
+    def _save_answer(self, question_id: int, answers: list[str]) -> bool: ...
+    @abstractmethod
+    def _submit(self, submit: bool) -> None: ...
+    @abstractmethod
+    def _answer_questions(self, sheets: list[QuestionSheet]) -> None: ...
+
+    # --- 公共实现 ---
+    def _get_cached_answer(self, question_id: int) -> list[str] | None: ...
+    @staticmethod
+    def _parse_cached_answer(answer_str: str) -> list[str] | None: ...
+    def _load_cache(self) -> None: ...
+    def _save_cache(self) -> None: ...
+    def _heartbeat(self) -> None: ...
+```
+
+**设计要点**：
+- **模板方法模式**：`start()` 定义算法骨架（加载缓存 → 打开 → 心跳 → 答题 → 提交），子类实现差异化步骤
+- **两级缓存**：`_answer_cache`（当前 exam）+ `_all_answer_cache`（跨 exam 合并），持久化通过 `AiExamCache`
+- **三级答案策略**：缓存 → AI（LLM）→ 随机兜底
+- **LLM 提供者初始化**：通过 `LLMProviderFactory.create()` 统一创建，消除子类重复代码
+- **心跳**：`threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
+- **缓存委托**：`_load_cache` / `_save_cache` 通过 `self._cache`（`AiExamCache`）读写新格式缓存
+
+#### 2.9.5 homework.py — AI 作业（继承 AiExamBase）
+
+```python
+class HomeworkCtx(AiExamBase):
+    """AI 作业上下文（逐题保存）
 
     AI 课程的"考试"实际上是作业，统一命名为 homework。
     """
@@ -1147,44 +1369,31 @@ class HomeworkCtx:
         progress_view: bool = True,
     ) -> None: ...
 
-    def start(self, reference_materials: list[dict[str, str]] | None = None) -> tuple[bool, int, int]: ...
-
-    # --- 作业 API（exam_key 加密） ---
-    def _open_homework(self) -> None: ...
-    def _get_sheet_content(self) -> list[QuestionSheet]: ...
-    def _get_question_content(self, question_id: int, version: int) -> QuestionContent | None: ...
-    def _save_answer(self, question_id: int, answers: list[str]) -> bool: ...
-    def _submit_homework(self) -> None: ...
-
-    # --- 心跳（daemon 线程） ---
-    def _heartbeat(self) -> None: ...
-
-    # --- 答题 ---
-    def _get_answer(self, question: QuestionContent) -> tuple[list[str], str]: ...
-    def _process_question(self, sheet: QuestionSheet) -> None: ...
-
-    # --- 缓存 ---
-    def _load_cache(self) -> None: ...
-    def _save_cache(self) -> None: ...
+    # 实现抽象方法
+    def _open(self) -> None: ...           # openExam（含 examPaperId）
+    def _get_sheet_content(self) -> list[QuestionSheet]: ...  # getExamSheetInfo partSheetVos[0]
+    def _save_answer(self, question_id: int, answers: list[str]) -> bool: ...  # 逐题 saveAnswer
+    def _submit(self, submit: bool) -> None: ...  # submit（含 courseType=8, aiKnlowledgeId）
+    def _answer_questions(self, sheets: list[QuestionSheet]) -> None: ...  # 逐题处理
 ```
 
 **同步实现说明**：
 - **顺序处理题目**（不再并发），避免作业 API 限流
 - 心跳使用 `threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
 - 延迟使用 `time.sleep()`
-- LLM 提供者初始化：`use_zhidao_ai=True` → `ZhidaoAIProvider`，否则 → `OpenAIProvider`
+- LLM 提供者由基类通过 `LLMProviderFactory` 统一初始化
 
 **作业流程**：
 
 ```mermaid
 sequenceDiagram
     participant H as HomeworkCtx
-    participant Cache as 本地缓存
+    participant Cache as AiExamCache
     participant API as studentexamtest
     participant LLM as LLMProvider
 
     H->>Cache: 1. _load_cache()
-    H->>API: 2. _open_homework()
+    H->>API: 2. _open() (openExam)
     Note over H: 3. 启动 _heartbeat() daemon 线程
     H->>API: 4. _get_sheet_content()
     API-->>H: question list
@@ -1192,7 +1401,7 @@ sequenceDiagram
     loop 每道题目（顺序处理，每题 sleep 3-5s）
         H->>API: _get_question_content()
         API-->>H: QuestionContent
-        H->>Cache: 查缓存
+        H->>Cache: 查缓存（_all_answer_cache → _answer_cache）
         alt 缓存命中
             Cache-->>H: cached answer
         else 缓存未命中
@@ -1201,21 +1410,21 @@ sequenceDiagram
         else AI 失败
             Note over H: 兜底随机答案
         end
-        H->>API: _save_answer()
+        H->>API: _save_answer() (逐题)
         Note over H: sleep(3-5s) 防止限流
     end
 
-    H->>API: 6. _submit_homework()
+    H->>API: 6. _submit() (submit)
     Note over H: 7. 设置 _stopped=True 停止心跳
-    H->>Cache: 8. 检查结果，更新缓存
+    H->>Cache: 8. _save_cache() 更新缓存
     Note over H: 9. return (all_correct, correct_count, total_count)
 ```
 
-#### 2.8.5 exam.py — AI 考试（同步）
+#### 2.9.6 exam.py — AI 考试（继承 AiExamBase）
 
 ```python
-class ExamCtx:
-    """AI 考试上下文（同步执行）
+class ExamCtx(AiExamBase):
+    """AI 考试上下文（批量保存）
 
     与 HomeworkCtx 的区别：
     - taskList 使用 ai_key 加密（ai_task_query）
@@ -1242,28 +1451,13 @@ class ExamCtx:
         task_id: str = "",
     ) -> None: ...
 
-    def start(
-        self,
-        reference_materials: list[dict[str, str]] | None = None,
-        submit: bool = False,
-    ) -> tuple[bool, int, int]: ...
-
-    # --- 考试 API ---
-    def _open_exam(self) -> None: ...
-    def _get_sheet_content(self) -> list[QuestionSheet]: ...
-    def _get_question_content(self, question_id: int, version: int) -> QuestionContent | None: ...
-    def _save_batch_answer(self, answers: list[dict]) -> bool: ...
-    def _submit_exam(self) -> None: ...
-    def _open_exam_detail(self) -> dict: ...
-
-    # --- 心跳（daemon 线程，updateUserUsedTime） ---
-    def _heartbeat(self) -> None: ...
-
-    # --- 答题与缓存 ---
-    def _get_answer(self, question: QuestionContent) -> tuple[list[str], str]: ...
-    def _process_question(self, sheet: QuestionSheet) -> None: ...
-    def _load_cache(self) -> None: ...
-    def _save_cache(self) -> None: ...
+    # 实现抽象方法
+    def _open(self) -> None: ...           # openExam
+    def _get_sheet_content(self) -> list[QuestionSheet]: ...  # getAnswerSheetInformation
+    def _save_answer(self, question_id: int, answers: list[str]) -> bool: ...
+    def _submit(self, submit: bool) -> None: ...  # submit
+    def _answer_questions(self, sheets: list[QuestionSheet]) -> None: ...  # 批量处理
+    def _open_exam_detail(self) -> dict: ...  # 提交后判断是否可查看答案
 ```
 
 **与 HomeworkCtx 的关键差异**：
@@ -1278,7 +1472,7 @@ class ExamCtx:
 | 配置 | `HomeworkConfig` | `ExamConfig`（`save_nums`/`delay_min`/`delay_max`） |
 | CLI 命令 | `zhs homework` | `zhs exam` |
 
-#### 2.8.6 ppt.py — PPT 转文本
+#### 2.9.7 ppt.py — PPT 转文本
 
 ```python
 class PptConverter:
@@ -1313,9 +1507,9 @@ class PptConverter:
 - `_extract` 先尝试 JSON 解析取 `content` 字段，失败则返回原始文本
 - `_manage_cache` 按 LRU 策略清理远程缓存
 
-### 2.9 llm/ — LLM 答题模块
+### 2.10 llm/ — LLM 答题模块
 
-#### 2.9.1 base.py
+#### 2.10.1 base.py
 
 ```python
 from abc import ABC, abstractmethod
@@ -1337,7 +1531,34 @@ class LLMProvider(ABC):
     def parse_fill_blank_answer(self, completion: str) -> list[str]: ...
 ```
 
-#### 2.9.2 openai.py
+#### 2.10.2 factory.py — LLMProviderFactory
+
+```python
+class LLMProviderFactory:
+    """LLM 提供者工厂
+
+    根据 AIConfig 创建对应的 LLMProvider 实例：
+    - AI 禁用 → None
+    - use_zhidao_ai=True → ZhidaoAIProvider
+    - 有 api_key → OpenAIProvider
+    - 其他 → None
+    """
+
+    @staticmethod
+    def create(
+        ai_config: AIConfig,
+        session: ZhsSession | None = None,
+        course_id: str = "",
+        course_name: str = "",
+    ) -> LLMProvider | None: ...
+```
+
+**设计要点**：
+- 统一 LLM 提供者初始化逻辑，消除 `HomeworkCtx`/`ExamCtx` 中的重复代码
+- `AiExamBase.__init__` 通过 `LLMProviderFactory.create()` 初始化 `self._provider`
+- `ZhidaoAIProvider` 需要 `session` 参数；`OpenAIProvider` 不需要
+
+#### 2.10.3 openai.py
 
 ```python
 class OpenAIProvider(LLMProvider):
@@ -1356,7 +1577,7 @@ class OpenAIProvider(LLMProvider):
     def completion(self, prompt: str, aim_start: str, aim_end: str) -> str: ...
 ```
 
-#### 2.9.3 zhidao.py
+#### 2.10.4 zhidao.py
 
 ```python
 class ZhidaoAIProvider(LLMProvider):
@@ -1378,7 +1599,7 @@ class ZhidaoAIProvider(LLMProvider):
 - `ZhidaoAIProvider` 使用 `self._session._get_client().post()` 发送请求（`ZhsSession` 无 `post` 方法）
 - 内部实现签名逻辑（替代已删除的 `sign_zhidao_ai`）
 
-#### 2.9.4 prompts.py
+#### 2.10.5 prompts.py
 
 ```python
 def build_choice_prompt(
@@ -1420,9 +1641,9 @@ flowchart TD
     end
 ```
 
-### 2.10 utils/ — 工具模块
+### 2.11 utils/ — 工具模块
 
-#### 2.10.1 display.py
+#### 2.11.1 display.py
 
 ```python
 def progress_bar(
@@ -1455,14 +1676,14 @@ def styled(text: str, *styles: str) -> str: ...
 - **已删除** `terminal_qr_unicode` / `terminal_qr_tty`（不再使用终端二维码）
 - 新增消息样式辅助函数（`msg_done`/`msg_error`/`msg_info`/`msg_warn`/`msg_skip`/`course_tag`/`styled`）
 
-#### 2.10.2 cookie.py
+#### 2.11.2 cookie.py
 
 ```python
 def cookies_to_list(cookies: httpx.Cookies) -> list[dict]: ...
 def list_to_cookies(data: list[dict]) -> httpx.Cookies: ...
 ```
 
-#### 2.10.3 path.py
+#### 2.11.3 path.py
 
 ```python
 def get_data_dir() -> Path:
@@ -1475,11 +1696,11 @@ def get_real_path(path: str) -> Path: ...
 **设计要点**：
 - **已删除** `version_cmp`（未使用的版本比较函数）
 
-### 2.11 logger.py — 日志模块
+### 2.12 logger.py — 日志模块
 
 基于 loguru 的日志系统，替代旧版自定义 MonoLogger。
 
-#### 2.11.1 设计目标
+#### 2.12.1 设计目标
 
 | 目标 | 说明 |
 |------|------|
@@ -1490,7 +1711,7 @@ def get_real_path(path: str) -> Path: ...
 | 文件轮转 | 按日期轮转，保留 30 天，gz 压缩 |
 | 线程安全 | loguru 本身线程安全，无需额外同步 |
 
-#### 2.11.2 公开 API
+#### 2.12.2 公开 API
 
 ```python
 from zhs.config import AppConfig
@@ -1508,7 +1729,7 @@ def get_log_dir() -> Path:
     """返回日志文件目录路径（<data_dir>/logs/），自动创建"""
 ```
 
-#### 2.11.3 格式定义
+#### 2.12.3 格式定义
 
 **控制台格式**（紧凑、彩色）：
 
@@ -1530,7 +1751,7 @@ ERROR   | zhs.session - API 请求失败: code=-12
 
 格式串：`{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {thread.name} | {name}:{function}:{line} | {message}`
 
-#### 2.11.4 敏感信息过滤
+#### 2.12.4 敏感信息过滤
 
 通过 loguru 的 `filter` 机制（而非 `patcher`，因 loguru 0.7.3 的 `patch()` 返回新实例而非修改全局 logger）实现脱敏：
 
@@ -1551,7 +1772,7 @@ def _sensitive_filter(record: loguru.Record) -> None:
 | `apiKey=<value>` | `apiKey=sk-xxxx` | `apiKey=***` |
 | `Authorization: Bearer <value>` | `Authorization: Bearer eyJ...` | `Authorization: Bearer ***` |
 
-#### 2.11.5 线程安全考量
+#### 2.12.5 线程安全考量
 
 | 场景 | loguru 行为 | 结论 |
 |------|-------------|------|
@@ -1559,7 +1780,7 @@ def _sensitive_filter(record: loguru.Record) -> None:
 | `_watch_video` daemon 线程 | 线程内 logger 调用正常 | 安全 |
 | 运行时修改 sink | `logger.add()`/`logger.remove()` 线程安全 | 安全 |
 
-### 2.12 __main__.py — CLI 入口（命令式）
+### 2.13 __main__.py — CLI 入口（命令式）
 
 ```python
 import typer
@@ -1759,7 +1980,7 @@ flowchart TD
     Worker -->|doHomework| HW_API
     HW_API -->|题目详情| Worker
     Worker -->|生成答案| GenAnswer[缓存/LLM/随机]
-    GenAnswer -->|缓存| Cache[HomeworkCache]
+    GenAnswer -->|缓存| Cache[ZhidaoHomeworkCache]
     GenAnswer -->|LLM| LLM[LLMProvider]
     Worker -->|saveStudentAnswer| HW_API
     Worker -->|submit| HW_API
@@ -1856,8 +2077,18 @@ flowchart LR
 - `HomeworkScanner` 扫描和过滤
 - `HomeworkWorker` 做题流程（doHomework → saveAnswer → submit → look → analyze）
 - `HomeworkAnalyzer` 错题分析
-- `HomeworkCache` 缓存读写
+- `ZhidaoHomeworkCache` 缓存读写（新路径格式 `zhidao/{course_id}/{exam_id}.json`）
 - 滑块验证异常
+
+**cache/**：
+- `BaseQuestionCache` 路径管理、惰性加载、损坏文件处理
+- `ZhidaoHomeworkCache` 对错标记、AI 解析保存、选项匹配
+- `AiExamCache` 答案存取、跨 exam 合并、`parse_answer` 静态方法
+
+**ai/exam_base.py**：
+- `AiExamBase` 模板方法流程（start → load_cache → open → heartbeat → answer → submit）
+- 两级缓存（`_answer_cache` / `_all_answer_cache`）
+- 三级答案策略（缓存 → AI → 随机）
 
 **ai/homework.py**：
 - 缓存命中/未命中
@@ -1999,7 +2230,7 @@ flowchart TD
 4. **线程安全**：`_watch_video` 使用独立 `httpx.Client`，daemon=True，全捕获 Exception
 5. **同步延迟**：所有代码均为同步，使用 `time.sleep()`，禁止 `asyncio.sleep()`
 6. **顺序处理**：`HomeworkCtx` 顺序处理题目（不再并发），每题 sleep 3-5s，避免 API 限流
-7. **心跳线程**：`HomeworkCtx._heartbeat` 使用 `threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
+7. **心跳线程**：`AiExamBase._heartbeat` 使用 `threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
 8. **本地文件清理**：`PptConverter` 默认 `cleanup_local=True`
 9. **课程类型**：CLI `--type` 支持 `zhidao/hike/ai/auto` 显式覆盖自动检测
 10. **Hike 资源树**：无 `file_id` 的非标准节点跳过 + 日志，`play_file` 内 try/except 防护 KeyError
@@ -2009,3 +2240,7 @@ flowchart TD
 14. **作业 API 加密**：知到作业 API（`studentexam-api`）使用 `exam_key` 加密，**不发送 `dateFormate`** 字段，与知到视频 API（`studyservice-api`）不同
 15. **AI 考试 API 加密**：AI 考试 API（`studentexamtest`）使用 `exam_key` 加密，**发送 `dateFormate`** 字段，检查 `code` 字段（与知到作业 API 不同）
 16. **禁止 asyncio**：项目不再使用 `asyncio`，所有代码同步实现；`session.py` 无 `_async_client`/`async_api_query`/`aclose` 等异步接口
+17. **统一缓存路径**：所有缓存路径格式为 `~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json`，通过 `BaseQuestionCache` 子类实现
+18. **PEP 695 泛型**：泛型类使用 `class Foo[T](ABC):` 语法（非 `Generic[T]`），ruff UP046 要求
+19. **循环导入**：`zhidao/homework/cache.py` 使用 PEP 562 `__getattr__` 懒加载；`analyzer.py`/`worker.py` 使用 `TYPE_CHECKING` 守卫仅用于类型注解的导入
+20. **模板方法模式**：`HomeworkCtx` 与 `ExamCtx` 必须继承 `AiExamBase`，公共流程在基类实现，差异通过抽象方法委托

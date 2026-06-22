@@ -1,7 +1,6 @@
 """知到作业功能模块"""
 
 from zhs.zhidao.homework.analyzer import HomeworkAnalyzer
-from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
     HomeworkCacheEntry,
@@ -19,7 +18,6 @@ from zhs.zhidao.homework.worker import HomeworkWorker
 __all__ = [
     "HomeworkAnalyzer",
     "HomeworkAnswerInfo",
-    "HomeworkCache",
     "HomeworkCacheEntry",
     "HomeworkDetail",
     "HomeworkExamBase",

@@ -5,20 +5,22 @@ doHomework → 生成答案（缓存/LLM）→ saveStudentAnswer → submit
 → 提交后检查 → 错题分析 → 保存到缓存 → 重做循环
 """
 
+from __future__ import annotations
+
 import random
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from zhs.config import AppConfig
 from zhs.exceptions import SliderVerificationRequired, ZhsError
 from zhs.llm.base import LLMProvider
+from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
-from zhs.utils.display import _C, msg_done, msg_error, msg_info, msg_warn, progress_bar, styled, wipe_line
+from zhs.utils.display import _C, msg_done, msg_error, msg_info, msg_warn, progress_bar, styled
 from zhs.zhidao.homework.analyzer import HomeworkAnalyzer
-from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
     HomeworkCacheOption,
@@ -28,6 +30,9 @@ from zhs.zhidao.homework.models import (
     HomeworkQuestionOption,
     HomeworkQuestionType,
 )
+
+if TYPE_CHECKING:
+    from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
 
 
 def _strip_html(text: str) -> str:
@@ -44,11 +49,13 @@ class HomeworkWorker:
         config: AppConfig,
         cache: HomeworkCache,
         llm: LLMProvider | None = None,
+        reporter: ProgressReporter | None = None,
     ) -> None:
         self._session = session
         self._config = config
         self._cache = cache
         self._llm = llm
+        self._reporter = reporter or ConsoleReporter()
         self._analyzer = HomeworkAnalyzer(session, config, cache)
 
     def run_homework(self, item: HomeworkItem, recruit_id: str, school_id: str) -> float:
@@ -69,19 +76,19 @@ class HomeworkWorker:
             最终得分率（0-100）
         """
         # 作业标题
-        print()
-        print(styled("=" * 60, _C.DIM))
-        print(styled(f"作业: {item.exam_name}", _C.BOLD, _C.BRIGHT_CYAN))
-        print(styled("=" * 60, _C.DIM))
-        print(f"  课程: {styled(item.course_name, _C.CYAN)}")
-        print(f"  状态: state={item.state}, score={item.score}/{item.total_score}")
-        print(f"  重做: 已重做{item.is_marking}次, 总次数{item.back_num}, 剩余{item.remaining_redo}次")
+        self._reporter.print()
+        self._reporter.print(styled("=" * 60, _C.DIM))
+        self._reporter.print(styled(f"作业: {item.exam_name}", _C.BOLD, _C.BRIGHT_CYAN))
+        self._reporter.print(styled("=" * 60, _C.DIM))
+        self._reporter.print(f"  课程: {styled(item.course_name, _C.CYAN)}")
+        self._reporter.print(f"  状态: state={item.state}, score={item.score}/{item.total_score}")
+        self._reporter.print(f"  重做: 已重做{item.is_marking}次, 总次数{item.back_num}, 剩余{item.remaining_redo}次")
 
         # 已提交的作业（state=4）需要先重置状态才能答题
         # state=5 是已重置状态，可直接做题
         if item.state == 4:
-            print()
-            print(msg_info("重置作业状态..."))
+            self._reporter.print()
+            self._reporter.print(msg_info("重置作业状态..."))
             self._redo_homework(item, recruit_id)
 
         score_rate = self.do_homework(item, recruit_id, school_id)
@@ -89,38 +96,40 @@ class HomeworkWorker:
 
         while self._analyzer.should_redo(item, score_rate):
             attempt += 1
-            print()
-            print(styled("-" * 60, _C.DIM))
-            print(msg_warn(f"第 {attempt} 次尝试（重做）"))
-            print(styled("-" * 60, _C.DIM))
+            self._reporter.print()
+            self._reporter.print(styled("-" * 60, _C.DIM))
+            self._reporter.print(msg_warn(f"第 {attempt} 次尝试（重做）"))
+            self._reporter.print(styled("-" * 60, _C.DIM))
 
             # 提交后检查：分析错题并保存到缓存
-            print(msg_info("分析错题..."))
+            self._reporter.print(msg_info("分析错题..."))
             questions, answers = self._analyzer.check_result(item, recruit_id, school_id)
             if questions and answers:
                 correct_count = sum(1 for a in answers.values() if a.is_correct)
                 wrong_count = sum(1 for a in answers.values() if a.is_wrong)
-                print(f"  正确: {msg_done(str(correct_count))} 题, 错误: {msg_error(str(wrong_count))} 题")
+                self._reporter.print(
+                    f"  正确: {msg_done(str(correct_count))} 题, 错误: {msg_error(str(wrong_count))} 题"
+                )
                 self._analyzer.save_to_cache(item, questions, answers)
 
                 # 为错题请求 AI 解析并保存到缓存
                 self._save_ai_analysis_for_wrong(item, questions, answers, recruit_id)
 
             # 重做：先重置作业状态，再重新答题
-            print(msg_info("重置作业状态..."))
+            self._reporter.print(msg_info("重置作业状态..."))
             self._redo_homework(item, recruit_id)
             score_rate = self.do_homework(item, recruit_id, school_id)
 
-        print()
-        print(styled("=" * 60, _C.DIM))
+        self._reporter.print()
+        self._reporter.print(styled("=" * 60, _C.DIM))
         if score_rate >= self._config.homework.threshold:
-            print(msg_done(f"作业完成: {item.exam_name}"))
-            print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.GREEN)} (达标)")
+            self._reporter.print(msg_done(f"作业完成: {item.exam_name}"))
+            self._reporter.print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.GREEN)} (达标)")
         else:
-            print(msg_warn(f"作业完成: {item.exam_name}"))
+            self._reporter.print(msg_warn(f"作业完成: {item.exam_name}"))
             threshold_str = f"(未达标，阈值 {self._config.homework.threshold}%)"
-            print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.YELLOW)} {threshold_str}")
-        print(styled("=" * 60, _C.DIM))
+            self._reporter.print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.YELLOW)} {threshold_str}")
+        self._reporter.print(styled("=" * 60, _C.DIM))
 
         return score_rate
 
@@ -142,21 +151,21 @@ class HomeworkWorker:
             得分率（0-100）
         """
         # 1. 获取题目
-        print()
-        print(msg_info("获取题目..."))
+        self._reporter.print()
+        self._reporter.print(msg_info("获取题目..."))
         detail = self._fetch_homework_detail(item, recruit_id, school_id)
         questions = self._extract_questions(detail)
 
         if not questions:
             logger.warning(f"作业 {item.exam_name} 无题目，跳过")
-            print(f"  {msg_error('无题目，跳过')}")
+            self._reporter.print(f"  {msg_error('无题目，跳过')}")
             return 0.0
 
-        print(f"  共 {styled(str(len(questions)), _C.BRIGHT_CYAN)} 题")
+        self._reporter.print(f"  共 {styled(str(len(questions)), _C.BRIGHT_CYAN)} 题")
 
         # 2. 保存选项到缓存 + 逐题生成答案并保存
-        print()
-        print(msg_info("开始答题..."))
+        self._reporter.print()
+        self._reporter.print(msg_info("开始答题..."))
         answer_count = 0
         for i, question in enumerate(questions, 1):
             # 保存选项到缓存
@@ -166,36 +175,36 @@ class HomeworkWorker:
             qt_name = self._get_question_type_name(question.question_type_id)
             question_text = _strip_html(question.name)[:30]
             bar_str = progress_bar(i - 1, len(questions), width=30)
-            print(
-                f"\r  {bar_str} [{styled(qt_name, _C.CYAN)}] {question_text}... ",
-                end="",
-                flush=True,
-            )
+            self._reporter.progress(f"  {bar_str} [{styled(qt_name, _C.CYAN)}] {question_text}... ")
 
             # 生成答案
             answer, source = self._generate_answer_with_source(question, item)
             if answer is None:
-                wipe_line()
-                print(f"  {progress_bar(i, len(questions), width=30)} [{styled(qt_name, _C.CYAN)}] {question_text}")
-                print(f"    {msg_warn('无法生成答案，跳过')}")
+                self._reporter.wipe_line()
+                self._reporter.print(
+                    f"  {progress_bar(i, len(questions), width=30)} [{styled(qt_name, _C.CYAN)}] {question_text}"
+                )
+                self._reporter.print(f"    {msg_warn('无法生成答案，跳过')}")
                 logger.warning(f"第 {i} 题无法生成答案，跳过")
                 continue
 
             # 显示答案来源和内容（清除进度条后显示）
             answer_display = self._format_answer_display(answer, question)
             source_styled = self._style_source(source)
-            wipe_line()
-            print(f"  {progress_bar(i, len(questions), width=30)} [{styled(qt_name, _C.CYAN)}] {question_text}")
-            print(f"    来源: {source_styled}, 答案: {styled(answer_display, _C.BRIGHT_CYAN)}")
+            self._reporter.wipe_line()
+            self._reporter.print(
+                f"  {progress_bar(i, len(questions), width=30)} [{styled(qt_name, _C.CYAN)}] {question_text}"
+            )
+            self._reporter.print(f"    来源: {source_styled}, 答案: {styled(answer_display, _C.BRIGHT_CYAN)}")
 
             # 保存答案
             try:
                 self._save_answer(question, answer, item, recruit_id, school_id)
                 answer_count += 1
-                print(f"    {msg_done('已保存')}")
+                self._reporter.print(f"    {msg_done('已保存')}")
                 logger.debug(f"第 {i} 题答案已保存: {answer}")
             except Exception as e:
-                print(f"    {msg_error(f'保存失败: {e}')}")
+                self._reporter.print(f"    {msg_error(f'保存失败: {e}')}")
                 logger.error(f"第 {i} 题保存答案失败: {e}")
 
             # 随机休息（使用配置的延迟范围）
@@ -205,15 +214,15 @@ class HomeworkWorker:
         # 3. 提交
         if answer_count == 0:
             logger.warning(f"作业 {item.exam_name} 无答案可提交")
-            print()
-            print(f"  {msg_error('无答案可提交')}")
+            self._reporter.print()
+            self._reporter.print(f"  {msg_error('无答案可提交')}")
             return 0.0
 
-        print()
-        print(msg_info(f"提交作业 ({answer_count}/{len(questions)} 题)..."))
+        self._reporter.print()
+        self._reporter.print(msg_info(f"提交作业 ({answer_count}/{len(questions)} 题)..."))
         score_rate = self._submit(item, recruit_id, answer_count)
         score_color = _C.GREEN if score_rate >= self._config.homework.threshold else _C.YELLOW
-        print(f"  得分率: {styled(f'{score_rate:.1f}%', score_color)}")
+        self._reporter.print(f"  得分率: {styled(f'{score_rate:.1f}%', score_color)}")
         logger.info(f"作业 {item.exam_name}: 提交成功，得分率 {score_rate:.1f}%")
         return score_rate
 
@@ -426,7 +435,7 @@ class HomeworkWorker:
         if not wrong_questions:
             return
 
-        print(msg_info(f"请求 AI 解析 {len(wrong_questions)} 道错题..."))
+        self._reporter.print(msg_info(f"请求 AI 解析 {len(wrong_questions)} 道错题..."))
 
         for question, _answer_info in wrong_questions:
             question_key = question.eid or (str(question.id) if question.id is not None else "")
@@ -510,7 +519,7 @@ class HomeworkWorker:
                     f"  2. 完成滑块验证\n"
                     f"  3. 重新运行程序"
                 )
-                print(f"\n⚠️ {msg}")
+                self._reporter.print(f"\n⚠️ {msg}")
                 logger.warning(msg)
                 raise SliderVerificationRequired(msg) from e
             raise

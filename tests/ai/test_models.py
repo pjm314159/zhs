@@ -7,10 +7,49 @@ from zhs.ai.models import (
     OptionVo,
     QuestionContent,
     QuestionSheet,
+    QuestionType,
     Resource,
     ResourceDetail,
     Theme,
 )
+
+
+class TestQuestionType:
+    """题型枚举"""
+
+    def test_single_choice_value(self) -> None:
+        """单选题值为 1"""
+        assert int(QuestionType.SINGLE) == 1
+
+    def test_multiple_choice_value(self) -> None:
+        """多选题值为 2"""
+        assert int(QuestionType.MULTI) == 2
+
+    def test_fill_blank_value(self) -> None:
+        """填空题值为 3"""
+        assert int(QuestionType.FILL) == 3
+
+    def test_judgement_value(self) -> None:
+        """判断题值为 14"""
+        assert int(QuestionType.JUDGE) == 14
+
+    def test_comparable_to_int(self) -> None:
+        """枚举可与 int 比较"""
+        assert int(QuestionType.SINGLE) == 1
+        assert QuestionType(1) is QuestionType.SINGLE
+        assert QuestionType(3) is QuestionType.FILL
+
+    def test_from_question_type_int(self) -> None:
+        """从 int 构造枚举"""
+        assert QuestionType.from_int(1) is QuestionType.SINGLE
+        assert QuestionType.from_int(2) is QuestionType.MULTI
+        assert QuestionType.from_int(3) is QuestionType.FILL
+        assert QuestionType.from_int(14) is QuestionType.JUDGE
+
+    def test_from_int_unknown_returns_none(self) -> None:
+        """未知题型返回 None"""
+        assert QuestionType.from_int(99) is None
+        assert QuestionType.from_int(0) is None
 
 
 class TestKnowledgePoint:

@@ -215,7 +215,7 @@ class TestProcessQuestions:
                 question_type=1,
                 option_vos=[OptionVo(id=10, content="A"), OptionVo(id=11, content="B")],
             )
-            exam_ctx._process_questions(sheets)
+            exam_ctx._answer_questions(sheets)
             mock_save.assert_called_once()
 
     def test_remaining_saved_after_loop(self, exam_ctx: ExamCtx) -> None:
@@ -238,7 +238,7 @@ class TestProcessQuestions:
                 question_type=1,
                 option_vos=[OptionVo(id=10, content="A"), OptionVo(id=11, content="B")],
             )
-            exam_ctx._process_questions(sheets)
+            exam_ctx._answer_questions(sheets)
             assert mock_save.call_count == 2
 
 
@@ -351,10 +351,10 @@ class TestStartWithSubmit:
         sheets = [QuestionSheet(question_id=1, version=1)]
         with (
             patch.object(exam_ctx_with_ids, "_load_cache"),
-            patch.object(exam_ctx_with_ids, "_open_exam"),
+            patch.object(exam_ctx_with_ids, "_open"),
             patch.object(exam_ctx_with_ids, "_heartbeat"),
             patch.object(exam_ctx_with_ids, "_get_sheet_content", return_value=sheets),
-            patch.object(exam_ctx_with_ids, "_process_questions"),
+            patch.object(exam_ctx_with_ids, "_answer_questions"),
             patch.object(exam_ctx_with_ids, "_submit") as mock_submit,
             patch.object(exam_ctx_with_ids, "_open_exam_detail") as mock_detail,
             patch.object(exam_ctx_with_ids, "_check_results") as mock_check,
@@ -372,10 +372,10 @@ class TestStartWithSubmit:
         sheets = [QuestionSheet(question_id=1, version=1)]
         with (
             patch.object(exam_ctx_with_ids, "_load_cache"),
-            patch.object(exam_ctx_with_ids, "_open_exam"),
+            patch.object(exam_ctx_with_ids, "_open"),
             patch.object(exam_ctx_with_ids, "_heartbeat"),
             patch.object(exam_ctx_with_ids, "_get_sheet_content", return_value=sheets),
-            patch.object(exam_ctx_with_ids, "_process_questions"),
+            patch.object(exam_ctx_with_ids, "_answer_questions"),
             patch.object(exam_ctx_with_ids, "_submit") as mock_submit,
             patch.object(exam_ctx_with_ids, "_open_exam_detail", return_value={"isLookAnswer": 1, "score": 136}),
             patch.object(exam_ctx_with_ids, "_check_results", return_value=(1, 1)) as mock_check,
@@ -393,10 +393,10 @@ class TestStartWithSubmit:
         detail = {"isLookAnswer": 0, "isAllowShowDetail": 0}
         with (
             patch.object(exam_ctx_with_ids, "_load_cache"),
-            patch.object(exam_ctx_with_ids, "_open_exam"),
+            patch.object(exam_ctx_with_ids, "_open"),
             patch.object(exam_ctx_with_ids, "_heartbeat"),
             patch.object(exam_ctx_with_ids, "_get_sheet_content", return_value=sheets),
-            patch.object(exam_ctx_with_ids, "_process_questions"),
+            patch.object(exam_ctx_with_ids, "_answer_questions"),
             patch.object(exam_ctx_with_ids, "_submit"),
             patch.object(exam_ctx_with_ids, "_open_exam_detail", return_value=detail),
             patch.object(exam_ctx_with_ids, "_check_results") as mock_check,
@@ -413,10 +413,10 @@ class TestStartWithSubmit:
         detail = {"isLookAnswer": 0, "isAllowShowDetail": 1}
         with (
             patch.object(exam_ctx_with_ids, "_load_cache"),
-            patch.object(exam_ctx_with_ids, "_open_exam"),
+            patch.object(exam_ctx_with_ids, "_open"),
             patch.object(exam_ctx_with_ids, "_heartbeat"),
             patch.object(exam_ctx_with_ids, "_get_sheet_content", return_value=sheets),
-            patch.object(exam_ctx_with_ids, "_process_questions"),
+            patch.object(exam_ctx_with_ids, "_answer_questions"),
             patch.object(exam_ctx_with_ids, "_submit"),
             patch.object(exam_ctx_with_ids, "_open_exam_detail", return_value=detail),
             patch.object(exam_ctx_with_ids, "_check_results", return_value=(0, 1)) as mock_check,

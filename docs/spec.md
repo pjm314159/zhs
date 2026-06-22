@@ -20,8 +20,14 @@ src/zhs/
 ├── crypto.py            # AES-128-CBC / ev 编码 / Hike 签名 / WatchPoint
 ├── session.py           # HTTP 会话管理（同步 httpx，多种加密查询方法）
 ├── login.py             # 扫码登录
-├── exceptions.py        # 全局异常定义
+├── exceptions.py        # 全局异常定义（含 ApiUnavailableError / RateLimitError）
 ├── logger.py            # loguru 日志配置（filter 脱敏）
+├── reporter.py          # 进度报告器（ConsoleReporter / ProgressReporter）
+├── cache/               # 统一缓存子包
+│   ├── __init__.py
+│   ├── base.py          # BaseQuestionCache[T] 抽象基类（PEP 695 泛型）
+│   ├── zhidao_cache.py  # ZhidaoHomeworkCache（知到作业缓存）
+│   └── ai_cache.py      # AiExamCache（AI 作业/考试缓存）
 ├── zhidao/              # 知到共享课模块
 │   ├── __init__.py
 │   ├── course.py        # 课程列表与上下文
@@ -33,7 +39,7 @@ src/zhs/
 │       ├── scanner.py   # 作业扫描
 │       ├── worker.py    # 作业执行
 │       ├── analyzer.py  # 答案分析
-│       ├── cache.py     # 答案缓存
+│       ├── cache.py     # 兼容入口（PEP 562 懒加载 → zhs.cache.zhidao_cache）
 │       └── models.py    # 作业数据模型
 ├── hike/                # Hike 职教云课程模块
 │   ├── __init__.py
@@ -44,16 +50,27 @@ src/zhs/
 │   ├── __init__.py
 │   ├── course.py        # AI 课程管理（编排视频/作业/考试）
 │   ├── video.py         # AI 视频播放器（AiVideoPlayer）
-│   ├── homework.py      # AI 作业上下文（HomeworkCtx）
-│   ├── exam.py          # AI 考试上下文（ExamCtx）
+│   ├── exam_base.py     # AiExamBase 基类（模板方法模式）
+│   ├── homework.py      # AI 作业上下文（HomeworkCtx，继承 AiExamBase）
+│   ├── exam.py          # AI 考试上下文（ExamCtx，继承 AiExamBase）
 │   ├── ppt.py           # PPT 转文本（PptConverter，python-pptx）
-│   └── models.py        # 数据模型
+│   └── models.py        # 数据模型（含 QuestionType 枚举）
 ├── llm/                 # LLM 答题模块
 │   ├── __init__.py
 │   ├── base.py          # LLMProvider 抽象基类
+│   ├── factory.py       # LLMProviderFactory 工厂
 │   ├── openai.py        # OpenAI 兼容接口
 │   ├── zhidao.py        # 智慧树内置 AI
 │   └── prompts.py       # Prompt 模板与答案解析
+├── cli/                 # CLI 子包
+│   ├── __init__.py
+│   ├── bootstrap.py     # CLI 初始化（配置、日志、session）
+│   ├── course_type.py   # 课程类型检测
+│   └── services/        # 命令服务
+│       ├── play_service.py
+│       ├── homework_service.py
+│       ├── exam_service.py
+│       └── fetch_service.py
 └── utils/               # 工具模块
     ├── __init__.py
     ├── display.py       # 终端显示（进度条、二维码、树形视图、彩色消息）
@@ -244,11 +261,13 @@ src/zhs/
 - AI 生成失败时使用兜底答案
 - 支持题目类型：`1` 单选、`2` 多选、`3` 填空、`14` 判断
 
-**答案缓存**：
-- 按课程 ID 和作业 ID 分别存储
-- `ai_homework_cache/{courseId}/{examTestId}.json`：当前作业答案
-- `ai_homework_cache/{courseId}/data.json`：课程全部答案汇总
+**答案缓存（AiExamCache）**：
+- 统一缓存路径：`~/.zhs/cache/ai/{courseId}/{examTestId}.json`
+- 两级缓存策略：
+  - `_answer_cache`：当前作业/考试的答案
+  - `_all_answer_cache`：课程下所有作业/考试的答案汇总（`load_all_for_course` 加载）
 - 支持版本号（`questionId_version`）
+- 由 `AiExamBase` 基类统一管理，`HomeworkCtx` 与 `ExamCtx` 共用
 
 **掌握度判断**：
 - `masteryScore > ai_homework_threshold`（默认 90）→ 跳过该作业
@@ -270,21 +289,29 @@ src/zhs/
 
 ### 3.6 LLM 答题模块
 
-#### 3.6.1 OpenAI 兼容接口（OpenAIProvider）
+#### 3.6.1 LLMProviderFactory（统一工厂）
+
+- 静态方法 `create(ai_config, session)` 根据 `ai_config.use_zhidao_ai` 返回对应 Provider
+- `use_zhidao_ai=True` → `ZhidaoAIProvider`（无需 API Key）
+- `use_zhidao_ai=False` → `OpenAIProvider`（需 `api_key` + `base_url`）
+- 消除 `HomeworkCtx` / `ExamCtx` 中的重复初始化代码
+- 由 `AiExamBase.__init__` 调用，子类无需自行创建 Provider
+
+#### 3.6.2 OpenAI 兼容接口（OpenAIProvider）
 
 - 使用 `openai` 库调用任意 OpenAI 兼容 API
 - 支持 stream 模式
 - 支持 max_retries 和 retry_delay
 - Token 超长时自动截断（保留最后 `ai.max_token` tokens，默认 27900）
 
-#### 3.6.2 智慧树内置 AI（ZhidaoAIProvider）
+#### 3.6.3 智慧树内置 AI（ZhidaoAIProvider）
 
 - API：`kg-ai-run.zhihuishu.com/run/gateway/t/stu/qa/platform/stream`
 - 模型：`moonshot-v1-32k`
 - 使用 `self._session._get_client().post()` 发送请求（ZhsSession 无 `post` 方法）
 - 支持 stream 模式（SSE 解析）
 
-#### 3.6.3 Prompt 模板
+#### 3.6.4 Prompt 模板
 
 - **单选题**：要求从选项中选择最合适的答案，输出 JSON 格式
 - **多选题**：要求选择所有正确答案，输出 JSON 格式
@@ -293,7 +320,7 @@ src/zhs/
 - 所有模板包含：课程名、主题、知识点、参考资料
 - 答案格式要求：放在 ` ```answer ``` ` 代码块中
 
-#### 3.6.4 答案解析
+#### 3.6.5 答案解析
 
 - 选择题/判断题：从 ` ```answer\n[{"id": ..., "content": ...}]\n``` ` 中提取选项 ID
 - 填空题：从 ` ```answer\n答案1\n答案2\n``` ` 中按行提取
@@ -625,6 +652,8 @@ SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatc
 |------|----------|
 | `ZhsError` | ZHS 基础异常 |
 | `ApiError` | API 返回错误（携带 `code` 和 `message`） |
+| `ApiUnavailableError` | API 不可用（HTTP 5xx / 网络异常 / 服务端错误），可重试 |
+| `RateLimitError` | API 限流（请求过快被服务端拒绝），需退避重试 |
 | `CaptchaRequired` | 服务端要求验证码（API 返回 code -12） |
 | `SliderVerificationRequired` | 作业答题需要滑块验证 |
 | `LoginFailed` | 登录失败 |
@@ -740,3 +769,7 @@ disallow_untyped_defs = false
 14. **作业 API 加密**：知到作业 API（`studentexam-api`）使用 `exam_key` 加密，**不发送 `dateFormate`** 字段
 15. **AI 考试 API 加密**：AI 考试 API（`studentexamtest`）使用 `exam_key` 加密，**发送 `dateFormate`** 字段，检查 `code` 字段
 16. **禁止 asyncio**：项目不使用 `asyncio`，所有代码同步实现
+17. **统一缓存路径**：所有缓存使用 `~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json` 格式，禁止旧版 `ai_homework_cache/` 路径
+18. **PEP 695 泛型语法**：泛型类使用 `class Foo[T](Base):` 语法（ruff UP046），禁止 `TypeVar` + `Generic[T]`
+19. **循环导入解决**：使用 PEP 562 模块级 `__getattr__` 懒加载 + `TYPE_CHECKING` 守卫，避免运行时循环导入
+20. **模板方法模式**：`HomeworkCtx` 与 `ExamCtx` 必须继承 `AiExamBase`，公共逻辑（缓存、心跳、Provider 初始化）在基类实现

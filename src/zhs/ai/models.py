@@ -1,6 +1,27 @@
 """AI 课程数据模型"""
 
+from __future__ import annotations
+
+from enum import IntEnum
+
 from pydantic import BaseModel, Field, field_validator
+
+
+class QuestionType(IntEnum):
+    """AI 模块题型枚举（替代魔法数字）"""
+
+    SINGLE = 1  # 单选题
+    MULTI = 2  # 多选题
+    FILL = 3  # 填空题
+    JUDGE = 14  # 判断题
+
+    @classmethod
+    def from_int(cls, value: int) -> QuestionType | None:
+        """从 int 构造枚举，未知值返回 None"""
+        try:
+            return cls(value)
+        except ValueError:
+            return None
 
 
 class KnowledgePoint(BaseModel):

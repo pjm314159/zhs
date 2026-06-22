@@ -71,6 +71,23 @@ result = (session
 from zhs.crypto import Cipher, WatchPoint  # noqa: F401
 ```
 
+#### F822 — `__all__` 中未定义的名称（PEP 562 懒加载）
+
+当模块使用 PEP 562 `__getattr__` 懒加载导出名称时，`__all__` 中列出的名称在模块顶层并不存在，ruff 会报 `F822 Undefined name in '__all__'`。
+
+```python
+# zhs/zhidao/homework/cache.py — PEP 562 兼容入口
+__all__ = ["HomeworkCache"]  # noqa: F822
+
+def __getattr__(name: str):
+    if name == "HomeworkCache":
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+        return ZhidaoHomeworkCache
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+```
+
+> **项目应用**：`zhs.zhidao.homework.cache` 是兼容入口，通过 PEP 562 懒加载 `ZhidaoHomeworkCache` 并别名为 `HomeworkCache`，避免破坏旧代码导入路径。
+
 #### I001 — 导入排序
 
 按以下顺序分组，组间空一行：
@@ -109,6 +126,25 @@ from typing import List, Dict, Optional
 def foo(items: List[str]) -> Dict[str, int]: ...
 def bar() -> Optional[str]: ...
 ```
+
+#### UP046 / UP047 — PEP 695 泛型语法
+
+Python 3.12+ 支持 PEP 695 类型参数语法，ruff `UP046` 要求泛型类使用新语法：
+
+```python
+# ✅ 正确：PEP 695 类型参数语法
+class BaseQuestionCache[T](ABC):
+    def get(self, key: str) -> T | None: ...
+    def put(self, key: str, value: T) -> None: ...
+
+# ❌ 错误：旧式 TypeVar + Generic
+from typing import Generic, TypeVar
+T = TypeVar("T")
+class BaseQuestionCache(Generic[T], ABC):
+    ...
+```
+
+> **项目应用**：`zhs.cache.base.BaseQuestionCache[T]` 使用此语法，子类 `ZhidaoHomeworkCache[HomeworkCacheEntry]` / `AiExamCache[dict[str, Any]]` 显式指定类型参数。
 
 #### B006 — 可变默认参数
 
@@ -412,6 +448,58 @@ def play(
 parser.add_argument("-c", "--course")
 ```
 
+### 4.10 循环导入解决模式
+
+项目在重构后存在跨包依赖（如 `zhs.cache.zhidao_cache` ↔ `zhs.zhidao.homework.models`），使用以下两种模式解决：
+
+#### 4.10.1 PEP 562 模块级 `__getattr__`（兼容入口）
+
+当旧代码依赖某个导入路径，但实际实现已迁移到其他模块时，使用 PEP 562 懒加载：
+
+```python
+# zhs/zhidao/homework/cache.py — 兼容入口
+"""向后兼容：HomeworkCache 已迁移到 zhs.cache.zhidao_cache.ZhidaoHomeworkCache"""
+__all__ = ["HomeworkCache"]  # noqa: F822
+
+
+def __getattr__(name: str):
+    if name == "HomeworkCache":
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+        return ZhidaoHomeworkCache
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+```
+
+> **注意**：新代码应直接从 `zhs.cache.zhidao_cache` 导入 `ZhidaoHomeworkCache`，避免使用兼容入口。
+
+#### 4.10.2 `TYPE_CHECKING` 守卫（仅类型注解需要）
+
+当模块 A 仅在类型注解中引用模块 B（运行时通过参数注入实例），使用 `TYPE_CHECKING` 守卫避免运行时循环导入：
+
+```python
+# zhs/zhidao/homework/analyzer.py
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from zhs.cache.zhidao_cache import ZhidaoHomeworkCache  # 仅类型检查时导入
+
+
+class HomeworkAnalyzer:
+    def __init__(self, cache: ZhidaoHomeworkCache) -> None:
+        """cache 类型注解，运行时由调用方传入实例"""
+        self._cache = cache
+```
+
+> **关键**：`from __future__ import annotations` 使所有类型注解变为字符串，运行时不求值，配合 `TYPE_CHECKING` 守卫可在不触发循环导入的前提下使用类型注解。
+
+#### 4.10.3 何时使用哪种模式
+
+| 场景 | 模式 | 示例 |
+|------|------|------|
+| 旧导入路径需保留向后兼容 | PEP 562 `__getattr__` | `zhs.zhidao.homework.cache.HomeworkCache` |
+| 仅类型注解需要引用（运行时实例由参数注入） | `TYPE_CHECKING` 守卫 | `analyzer.py` / `worker.py` 中的 `ZhidaoHomeworkCache` |
+| 运行时确实需要调用对方函数 | 重构依赖关系（提取公共模块） | — |
+
 ---
 
 ## 5. Ruff 例外配置
@@ -475,6 +563,53 @@ def get_data() -> dict:
 # 解决：Field 显式标注
 class MyModel(BaseModel):
     items: list[str] = Field(default_factory=list)
+```
+
+### 6.1 PEP 562 `__getattr__` 与 mypy
+
+mypy 无法解析 PEP 562 模块级 `__getattr__` 懒加载的名称作为类型。当兼容入口导出的名称被用作类型注解时，mypy 会报 `Variable "..." is not valid as a type`。
+
+```python
+# ❌ 错误：mypy 无法将 HomeworkCache 识别为类型
+from zhs.zhidao.homework.cache import HomeworkCache
+
+def foo(cache: HomeworkCache) -> None: ...  # mypy 报错
+```
+
+**解决**：直接从实际实现模块导入，不使用兼容入口：
+
+```python
+# ✅ 正确：直接从实现模块导入
+from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+
+def foo(cache: ZhidaoHomeworkCache) -> None: ...
+```
+
+### 6.2 PEP 695 泛型与 mypy
+
+PEP 695 类型参数语法（`class Foo[T]:`）在 mypy 1.13+ 完全支持，无需特殊配置。
+
+```python
+# mypy 正确识别 T 为类型参数
+class BaseQuestionCache[T](ABC):
+    def get(self, key: str) -> T | None: ...
+```
+
+### 6.3 `TYPE_CHECKING` 守卫与 mypy
+
+`TYPE_CHECKING` 在 mypy 检查时为 `True`，运行时为 `False`。配合 `from __future__ import annotations` 可在避免运行时循环导入的同时保持类型安全：
+
+```python
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+
+class Analyzer:
+    def __init__(self, cache: ZhidaoHomeworkCache) -> None:
+        # mypy 知道 cache 是 ZhidaoHomeworkCache，运行时不触发导入
+        self._cache = cache
 ```
 
 ---

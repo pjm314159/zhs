@@ -4,17 +4,23 @@
 lookHomework → getStuAnswerInfo → 保存对错到缓存 → 判断是否重做
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from loguru import logger
 
 from zhs.config import AppConfig
 from zhs.session import ZhsSession
-from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
     HomeworkDetail,
     HomeworkItem,
     HomeworkQuestion,
 )
+
+if TYPE_CHECKING:
+    from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
 
 
 class HomeworkAnalyzer:

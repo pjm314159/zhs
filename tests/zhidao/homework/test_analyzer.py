@@ -3,10 +3,10 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
 from zhs.config import AppConfig, HomeworkConfig
 from zhs.session import ZhsSession
 from zhs.zhidao.homework.analyzer import HomeworkAnalyzer
-from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
     HomeworkItem,
@@ -30,9 +30,9 @@ def _make_config(
     return AppConfig(homework=HomeworkConfig(threshold=homework_threshold, max_submit=max_submit))
 
 
-def _make_cache(tmp_path: Path | None = None) -> HomeworkCache:
+def _make_cache(tmp_path: Path | None = None) -> ZhidaoHomeworkCache:
     """创建测试缓存"""
-    return HomeworkCache(cache_dir=tmp_path) if tmp_path else HomeworkCache(cache_dir=MagicMock())
+    return ZhidaoHomeworkCache(cache_dir=tmp_path) if tmp_path else ZhidaoHomeworkCache(cache_dir=MagicMock())
 
 
 def _make_item(**overrides: object) -> HomeworkItem:

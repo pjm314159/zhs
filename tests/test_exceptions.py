@@ -2,7 +2,16 @@
 
 import pytest
 
-from zhs.exceptions import ApiError, CaptchaRequired, LoginFailed, TimeLimitExceeded, ZhsError
+from zhs.exceptions import (
+    ApiError,
+    ApiUnavailableError,
+    CaptchaRequired,
+    LoginFailed,
+    RateLimitError,
+    SliderVerificationRequired,
+    TimeLimitExceeded,
+    ZhsError,
+)
 
 
 class TestZhsError:
@@ -61,3 +70,34 @@ class TestLoginFailed:
 class TestTimeLimitExceeded:
     def test_inherits_zhs_error(self) -> None:
         assert issubclass(TimeLimitExceeded, ZhsError)
+
+
+class TestSliderVerificationRequired:
+    def test_inherits_zhs_error(self) -> None:
+        assert issubclass(SliderVerificationRequired, ZhsError)
+
+
+class TestApiUnavailableError:
+    def test_inherits_zhs_error(self) -> None:
+        assert issubclass(ApiUnavailableError, ZhsError)
+
+    def test_can_be_caught_as_base(self) -> None:
+        with pytest.raises(ZhsError):
+            raise ApiUnavailableError("服务不可用")
+
+    def test_message(self) -> None:
+        err = ApiUnavailableError("网络错误")
+        assert "网络错误" in str(err)
+
+
+class TestRateLimitError:
+    def test_inherits_zhs_error(self) -> None:
+        assert issubclass(RateLimitError, ZhsError)
+
+    def test_can_be_caught_as_base(self) -> None:
+        with pytest.raises(ZhsError):
+            raise RateLimitError("请求过于频繁")
+
+    def test_message(self) -> None:
+        err = RateLimitError("429 Too Many Requests")
+        assert "429" in str(err)

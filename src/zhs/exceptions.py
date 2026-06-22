@@ -28,3 +28,11 @@ class LoginFailed(ZhsError):
 
 class TimeLimitExceeded(ZhsError):
     """刷课时间超过限制"""
+
+
+class ApiUnavailableError(ZhsError):
+    """API 服务不可用（网络错误、5xx 等）"""
+
+
+class RateLimitError(ZhsError):
+    """API 限流（429 Too Many Requests 等）"""

@@ -5,8 +5,8 @@
 
 from pathlib import Path
 
+from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
 from zhs.llm.prompts import build_choice_prompt, build_fill_blank_prompt
-from zhs.zhidao.homework.cache import HomeworkCache
 from zhs.zhidao.homework.models import HomeworkCacheEntry, HomeworkCacheOption
 
 
@@ -15,7 +15,7 @@ class TestAIAnalysisCache:
 
     def test_save_ai_analysis(self, tmp_path: Path) -> None:
         """测试保存 AI 解析到缓存"""
-        cache = HomeworkCache(cache_dir=tmp_path)
+        cache = ZhidaoHomeworkCache(cache_dir=tmp_path)
         course_id = 123
         exam_id = "exam_001"
         question_key = "test_eid_123"
@@ -30,7 +30,7 @@ class TestAIAnalysisCache:
 
     def test_get_ai_analysis_from_cache(self, tmp_path: Path) -> None:
         """测试从缓存获取 AI 解析"""
-        cache = HomeworkCache(cache_dir=tmp_path)
+        cache = ZhidaoHomeworkCache(cache_dir=tmp_path)
         course_id = 123
         exam_id = "exam_001"
         question_key = "test_eid_123"
@@ -53,7 +53,7 @@ class TestAIAnalysisCache:
 
     def test_ai_analysis_persisted(self, tmp_path: Path) -> None:
         """测试 AI 解析持久化到文件"""
-        cache = HomeworkCache(cache_dir=tmp_path)
+        cache = ZhidaoHomeworkCache(cache_dir=tmp_path)
         course_id = 123
         exam_id = "exam_001"
         question_key = "test_eid_123"
@@ -62,7 +62,7 @@ class TestAIAnalysisCache:
         cache.save_ai_analysis(course_id, exam_id, question_key, ai_analysis)
 
         # 重新加载缓存
-        cache2 = HomeworkCache(cache_dir=tmp_path)
+        cache2 = ZhidaoHomeworkCache(cache_dir=tmp_path)
         entry = cache2.get(course_id, exam_id, question_key)
         assert entry is not None
         assert entry.ai_analysis == ai_analysis
@@ -123,7 +123,7 @@ class TestAIAnalysisFlow:
 
     def test_full_flow_simulation(self, tmp_path: Path) -> None:
         """模拟完整流程：保存 AI 解析 → 获取 → 传递给 prompt"""
-        cache = HomeworkCache(cache_dir=tmp_path)
+        cache = ZhidaoHomeworkCache(cache_dir=tmp_path)
         course_id = 123
         exam_id = "exam_001"
         question_key = "test_eid_123"
