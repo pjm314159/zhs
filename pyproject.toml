@@ -34,7 +34,7 @@ build-backend = "hatchling.build"
 packages = ["src/zhs"]
 
 # 开发依赖（pip install -e ".[dev]"）
-[project.optional-dependencies]
+[dependency-group]
 dev = [
     "pytest>=8.0",           # 测试框架，TDD 开发
     "pytest-cov>=6.0",       # 覆盖率报告
