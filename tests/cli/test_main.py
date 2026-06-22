@@ -104,31 +104,35 @@ class TestDetectCourseType:
 class TestNoLogin:
     """未登录时提示"""
 
+    @patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False)
     @patch("zhs.__main__.ZhsSession")
     @patch("zhs.__main__.ConfigManager")
-    def test_play_no_cookies_prompts_login(self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock) -> None:
+    def test_play_no_cookies_prompts_login(
+        self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock, mock_restore: MagicMock
+    ) -> None:
         """zhs play 未登录时提示运行 zhs login"""
         mock_config = _make_mock_config()
         mock_config_mgr.return_value.load.return_value = mock_config
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
 
-        with patch("zhs.__main__._try_restore_cookies", return_value=False):
-            result = runner.invoke(app, ["play"])
+        result = runner.invoke(app, ["play"])
         assert result.exit_code == 1
         assert "zhs login" in result.output
 
+    @patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False)
     @patch("zhs.__main__.ZhsSession")
     @patch("zhs.__main__.ConfigManager")
-    def test_homework_no_cookies_prompts_login(self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock) -> None:
+    def test_homework_no_cookies_prompts_login(
+        self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock, mock_restore: MagicMock
+    ) -> None:
         """zhs homework 未登录时提示运行 zhs login"""
         mock_config = _make_mock_config()
         mock_config_mgr.return_value.load.return_value = mock_config
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
 
-        with patch("zhs.__main__._try_restore_cookies", return_value=False):
-            result = runner.invoke(app, ["homework"])
+        result = runner.invoke(app, ["homework"])
         assert result.exit_code == 1
         assert "zhs login" in result.output
 
