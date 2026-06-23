@@ -7,6 +7,7 @@ ANSI 颜色定义：
 """
 
 import os
+import sys
 
 from PIL import Image, ImageOps
 
@@ -42,7 +43,7 @@ class _C:
 
 def _supports_color() -> bool:
     """检测终端是否支持 ANSI 颜色"""
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
 
