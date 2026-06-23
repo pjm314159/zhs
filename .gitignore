@@ -23,6 +23,8 @@ env/
 
 # 环境变量
 .env
+.env.dev
+.secrets
 
 # 测试
 .pytest_cache/
