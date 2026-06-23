@@ -1,0 +1,93 @@
+# ============================================================================
+# ZHS - 智慧树自动刷课工具
+# ============================================================================
+
+# 项目元数据
+[project]
+name = "zhs"
+authors = [{name="pjm314159"}]
+license = "GPL-3.0-only"
+version = "0.1.0"
+description = "智慧树刷课脚本"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28",           # HTTP 客户端，同步+异步双支持
+    "pydantic>=2.10",        # 数据模型与验证
+    "typer>=0.15",           # CLI 框架，类型注解自动生成参数
+    "loguru>=0.7",           # 日志库
+    "pycryptodome>=3.21",    # AES-128-CBC 加密，与智慧树 API 通信
+    "openai>=2.41.1",        # LLM API 调用（OpenAI 兼容接口）
+    "tiktoken>=0.9",         # Token 计数，Prompt 长度截断
+    "Pillow>=11.0",          # 二维码图片渲染与显示
+    "qrcode>=8.2",           # 编码二维码
+    "tomli-w>=1.2.0",        # config的toml
+    "python-pptx>=1.0",      # PPT 本地文本提取（python-pptx）
+]
+
+# 构建系统（src layout 需要）
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zhs"]
+
+# 开发依赖（pip install -e ".[dev]"）
+[dependency-groups]
+dev = [
+    "pytest>=8.0",           # 测试框架，TDD 开发
+    "pytest-cov>=6.0",       # 覆盖率报告
+    "respx>=0.22",           # httpx Mock 库，集成/端到端测试
+    "freezegun>=1.5",        # 时间 Mock，测试 dateFormate 时间戳
+    "ruff>=0.8",             # Linter + Formatter，集成 flake8/isort/pyupgrade
+    "mypy>=1.13",            # 静态类型检查，strict 模式
+]
+
+# CLI 入口点：安装后可直接运行 `zhs` 命令
+[project.scripts]
+zhs = "zhs.__main__:app"
+
+# ============================================================================
+# Ruff 配置（Linter + Formatter）
+# ============================================================================
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# E: pycodestyle 错误
+# F: pyflakes
+# I: isort（导入排序）
+# UP: pyupgrade（现代化语法）
+# B: flake8-bugbear（常见陷阱，含 B904 raise-without-from）
+# SIM: flake8-simplify（简化建议）
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]          # 允许未使用的导入（重新导出）
+"tests/**/*.py" = ["B011"]        # 测试中允许 assert False
+
+# ============================================================================
+# Pytest 配置
+# ============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]       # 测试目录
+addopts = "-m 'not integration'"  # 默认跳过集成测试（需真实 API）
+markers = [
+    "unit: 单元测试（无外部依赖）",
+    "integration: 集成测试（需真实 API，需扫码登录）",
+    "e2e: 端到端测试（Mock 全部 API）",
+]
+
+# ============================================================================
+# Mypy 配置（静态类型检查）
+# ============================================================================
+[tool.mypy]
+python_version = "3.13"
+strict = true               # 启用所有严格检查选项
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false  # 测试代码允许省略返回类型
