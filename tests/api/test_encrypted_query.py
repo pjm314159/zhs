@@ -149,7 +149,7 @@ class TestHikeQuery:
         """hike 自动添加 _ 时间戳"""
         with respx.mock:
             route = respx.get("https://hike.example.com/api").mock(
-                return_value=httpx.Response(200, json={"status": 200, "data": {}})
+                return_value=httpx.Response(200, json={"code": 200, "data": {}})
             )
             query.query("hike", "https://hike.example.com/api", data={})
             assert route.called
@@ -160,7 +160,7 @@ class TestHikeQuery:
         """sig=True 时自动签名"""
         with respx.mock:
             route = respx.get("https://hike.example.com/api").mock(
-                return_value=httpx.Response(200, json={"status": 200, "data": {}})
+                return_value=httpx.Response(200, json={"code": 200, "data": {}})
             )
             query.query(
                 "hike",
@@ -173,10 +173,10 @@ class TestHikeQuery:
             assert "signature=" in str(request.url)
 
     def test_non_200_status_raises_api_error(self, query: EncryptedQuery) -> None:
-        """非 200 status 抛 ApiError"""
+        """非 200 code 抛 ApiError"""
         with respx.mock:
             respx.get("https://hike.example.com/api").mock(
-                return_value=httpx.Response(200, json={"status": 403, "message": "forbidden"})
+                return_value=httpx.Response(200, json={"code": 403, "message": "forbidden"})
             )
             with pytest.raises(ApiError) as exc_info:
                 query.query("hike", "https://hike.example.com/api", data={})
