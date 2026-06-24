@@ -97,6 +97,7 @@ def run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, recrui
         print(f"未找到课程 {recruit_and_course_id} 的 recruitId")
         return
 
+    logger.info(f"匹配到课程: {matched.course_name} (courseId={matched.course_id}, recruitId={matched.recruit_id})")
     run_zhidao_homework(session, config, str(matched.recruit_id), matched.course_id)
 
 
