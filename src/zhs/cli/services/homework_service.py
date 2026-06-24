@@ -72,9 +72,7 @@ def run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> N
         tree_print(msg_warn(f"未达标: {target.exam_name} {score_rate:.1f}%"), depth=1, enabled=True)
 
 
-def run_zhidao_homework_by_course(
-    session: ZhsSession, config: AppConfig, recruit_and_course_id: str
-) -> None:
+def run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, recruit_and_course_id: str) -> None:
     """按 recruitAndCourseId 运行知到作业
 
     Args:
