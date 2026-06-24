@@ -144,7 +144,7 @@ class TestHikeQuery:
     def test_adds_timestamp(self, session: ZhsSession, mock_http: Any) -> None:
         """hike_query 自动添加 _ 时间戳"""
         route = respx.get("https://hike.example.com/api").mock(
-            return_value=httpx.Response(200, json={"status": 200, "data": {}})
+            return_value=httpx.Response(200, json={"code": 200, "data": {}})
         )
         session.hike_query("https://hike.example.com/api", data={})
         assert route.called
@@ -154,7 +154,7 @@ class TestHikeQuery:
     def test_sig_true_adds_signature(self, session: ZhsSession, mock_http: Any) -> None:
         """sig=True 时自动签名"""
         route = respx.get("https://hike.example.com/api").mock(
-            return_value=httpx.Response(200, json={"status": 200, "data": {}})
+            return_value=httpx.Response(200, json={"code": 200, "data": {}})
         )
         session.hike_query("https://hike.example.com/api", data={"uuid": "test"}, sig=True)
         assert route.called
@@ -162,9 +162,9 @@ class TestHikeQuery:
         assert "signature=" in str(request.url)
 
     def test_non_200_status_raises_api_error(self, session: ZhsSession, mock_http: Any) -> None:
-        """非 200 status 抛 ApiError"""
+        """非 200 code 抛 ApiError"""
         respx.get("https://hike.example.com/api").mock(
-            return_value=httpx.Response(200, json={"status": 403, "message": "forbidden"})
+            return_value=httpx.Response(200, json={"code": 403, "message": "forbidden"})
         )
         with pytest.raises(ApiError) as exc_info:
             session.hike_query("https://hike.example.com/api", data={})
