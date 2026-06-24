@@ -151,6 +151,48 @@ def _make_look_response(questions: list[dict[str, object]]) -> dict[str, object]
     }
 
 
+def _setup_check_result_mocks(
+    session: MagicMock,
+    *,
+    is_correct: bool = True,
+    answer_option_id: int = 102,
+) -> None:
+    """设置 lookHomework + getStuAnswerInfo 的 mock 返回值
+
+    Args:
+        is_correct: 答案是否正确（isCurrent="1" 为正确）
+        answer_option_id: 学生选择的选项 ID
+    """
+    session.homework_look.return_value = _make_look_response(
+        [
+            {
+                "id": 1001,
+                "eid": "abc123==",
+                "name": "题目1",
+                "questionType": {"id": 1, "name": "单选题"},
+                "questionOptions": [
+                    {"id": 101, "content": "A"},
+                    {"id": 102, "content": "B"},
+                ],
+                "questionScore": "5",
+                "result": None,
+            },
+        ]
+    )
+    session.homework_get_answer.return_value = {
+        "rt": {
+            "1001": {
+                "questionId": "1001",
+                "answer": str(answer_option_id),
+                "isCurrent": "1" if is_correct else "0",
+                "score": "5" if is_correct else "0",
+                "stuExamId": "hw1",
+            },
+        },
+        "status": "200",
+    }
+
+
 class TestStripHtml:
     """HTML 标签移除测试"""
 
@@ -442,7 +484,7 @@ class TestHomeworkWorkerRunHomework:
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
     def test_run_homework_achieved_first_try(self, mock_sleep: MagicMock) -> None:
-        """首次做即达标，无需重做"""
+        """首次做即达标，无需重做，但仍检查对错写入缓存"""
         session = _make_mock_session()
         config = _make_config(homework_threshold=80)
         cache = _make_cache()
@@ -452,13 +494,16 @@ class TestHomeworkWorkerRunHomework:
         session.homework_save_answer.return_value = {"status": "200"}
         session.homework_submit.return_value = _make_submit_response("9")  # 90%
 
+        # 提交后检查对错（首次做也检查）
+        _setup_check_result_mocks(session, is_correct=True)
+
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=2, isMarking=0)
         rate = worker.run_homework(item, "414804", "625")
 
         assert rate == 90.0
-        # 不应调用 lookHomework（达标了不需要检查）
-        session.homework_look.assert_not_called()
+        # 提交后应调用 lookHomework 检查对错并写入缓存
+        session.homework_look.assert_called_once()
         # 不应调用 homework_redo（达标了不需要重做）
         session.homework_redo.assert_not_called()
 
@@ -478,45 +523,16 @@ class TestHomeworkWorkerRunHomework:
             _make_submit_response("9"),
         ]
 
-        # lookHomework 返回
-        session.homework_look.return_value = _make_look_response(
-            [
-                {
-                    "id": 1001,
-                    "eid": "abc123==",
-                    "name": "题目1",
-                    "questionType": {"id": 1, "name": "单选题"},
-                    "questionOptions": [
-                        {"id": 101, "content": "A"},
-                        {"id": 102, "content": "B"},
-                    ],
-                    "questionScore": "5",
-                    "result": None,
-                },
-            ]
-        )
-
-        # getStuAnswerInfo 返回（答错了）
-        session.homework_get_answer.return_value = {
-            "rt": {
-                "1001": {
-                    "questionId": "1001",
-                    "answer": "101",
-                    "isCurrent": "0",
-                    "score": "0",
-                    "stuExamId": "hw1",
-                },
-            },
-            "status": "200",
-        }
+        # lookHomework + getStuAnswerInfo 返回（两次提交都检查，答错了）
+        _setup_check_result_mocks(session, is_correct=False, answer_option_id=101)
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=2, isMarking=0)
         rate = worker.run_homework(item, "414804", "625")
 
         assert rate == 90.0
-        # 应调用了一次 lookHomework
-        session.homework_look.assert_called_once()
+        # 应调用了两次 lookHomework（首次 + 重做后各检查一次）
+        assert session.homework_look.call_count == 2
         # 应调用了两次 submit
         assert session.homework_submit.call_count == 2
         # 重做时应调用 homework_redo
@@ -524,7 +540,7 @@ class TestHomeworkWorkerRunHomework:
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
     def test_run_homework_no_redo_no_backnum(self, mock_sleep: MagicMock) -> None:
-        """无剩余重做次数，不重做"""
+        """无剩余重做次数，不重做，但仍检查对错写入缓存"""
         session = _make_mock_session()
         config = _make_config(homework_threshold=80)
         cache = _make_cache()
@@ -534,17 +550,21 @@ class TestHomeworkWorkerRunHomework:
         session.homework_save_answer.return_value = {"status": "200"}
         session.homework_submit.return_value = _make_submit_response("5")  # 50%
 
+        # 提交后检查对错
+        _setup_check_result_mocks(session, is_correct=False, answer_option_id=101)
+
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=0, isMarking=1)
         rate = worker.run_homework(item, "414804", "625")
 
         assert rate == 50.0
-        session.homework_look.assert_not_called()
+        # 提交后应调用 lookHomework 检查对错
+        session.homework_look.assert_called_once()
         session.homework_redo.assert_not_called()
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
     def test_run_homework_no_redo_max_submit(self, mock_sleep: MagicMock) -> None:
-        """已达最大重做次数，不重做"""
+        """已达最大重做次数，不重做，但仍检查对错写入缓存"""
         session = _make_mock_session()
         config = _make_config(homework_threshold=80, max_submit=1)
         cache = _make_cache()
@@ -554,12 +574,16 @@ class TestHomeworkWorkerRunHomework:
         session.homework_save_answer.return_value = {"status": "200"}
         session.homework_submit.return_value = _make_submit_response("5")
 
+        # 提交后检查对错
+        _setup_check_result_mocks(session, is_correct=False, answer_option_id=101)
+
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=2, isMarking=1)
         rate = worker.run_homework(item, "414804", "625")
 
         assert rate == 50.0
-        session.homework_look.assert_not_called()
+        # 提交后应调用 lookHomework 检查对错
+        session.homework_look.assert_called_once()
         session.homework_redo.assert_not_called()
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
@@ -574,6 +598,9 @@ class TestHomeworkWorkerRunHomework:
         session.homework_save_answer.return_value = {"status": "200"}
         session.homework_submit.return_value = _make_submit_response("9")  # 90%
 
+        # 提交后检查对错
+        _setup_check_result_mocks(session, is_correct=True)
+
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(state=4, backNum=3, isMarking=0)
         rate = worker.run_homework(item, "414804", "625")
@@ -581,3 +608,5 @@ class TestHomeworkWorkerRunHomework:
         assert rate == 90.0
         # state=4 时应先调用 homework_redo
         session.homework_redo.assert_called_once()
+        # 提交后应调用 lookHomework 检查对错
+        session.homework_look.assert_called_once()

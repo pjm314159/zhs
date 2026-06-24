@@ -246,10 +246,8 @@ class TestHomeworkAnalyzerSaveToCache:
 
         analyzer.save_to_cache(item, questions, answers)
 
-        # 验证缓存中标记了正确选项
-        correct_eid = cache.get_correct_options(100, "exam1", "eid1==")
+        # 验证缓存中标记了正确选项（只保存到 id key）
         correct_id = cache.get_correct_options(100, "exam1", "1001")
-        assert 101 in correct_eid
         assert 101 in correct_id
 
     def test_save_wrong_to_cache(self) -> None:
@@ -285,11 +283,9 @@ class TestHomeworkAnalyzerSaveToCache:
 
         analyzer.save_to_cache(item, questions, answers)
 
-        # 验证缓存中标记了错误选项
-        wrong_eid = cache.get_wrong_options(100, "exam1", "eid1==")
+        # 验证缓存中标记了错误选择方式（只保存到 id key）
         wrong_id = cache.get_wrong_options(100, "exam1", "1001")
-        assert 101 in wrong_eid
-        assert 101 in wrong_id
+        assert [101] in wrong_id
 
     def test_save_unanswered_skipped(self) -> None:
         """未答题目不处理"""
@@ -361,9 +357,9 @@ class TestHomeworkAnalyzerSaveToCache:
 
         analyzer.save_to_cache(item, questions, answers)
 
-        wrong = cache.get_wrong_options(100, "exam1", "eid1==")
-        assert 101 in wrong
-        assert 102 in wrong
+        # 验证缓存中标记了错误选择方式（只保存到 id key）
+        wrong = cache.get_wrong_options(100, "exam1", "1001")
+        assert [101, 102] in wrong
 
 
 class TestHomeworkAnalyzerShouldRedo:

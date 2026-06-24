@@ -202,7 +202,7 @@ class EncryptedQuery:
             data["signature"] = sign
 
         result = self._http.api_query(url, data=data, method=method)
-        status = result.get("status", 0)
+        status = result.get("code", 0)
         if status != 200:
             raise ApiError(code=status, message=result.get("message", ""))
         return result

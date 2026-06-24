@@ -18,6 +18,7 @@ from zhs.utils.display import (
     msg_error,
     msg_info,
     msg_skip,
+    progress_bar,
     styled,
 )
 
@@ -308,13 +309,20 @@ class AiCourseManager:
             logger.error(f"获取资源列表失败: {e}")
             return
 
-        for resource in resources:
+        total = len(resources)
+        for idx, resource in enumerate(resources, 1):
+            bar_str = progress_bar(idx - 1, total, width=30)
+            self._reporter.progress(f"    {bar_str} 处理资源 {idx}/{total}... ")
             try:
                 self._process_resource(
                     course_id, class_id, knowledge.knowledge_id, resource, video_player, ppts, learn_optional, threshold
                 )
             except Exception as e:
                 logger.error(f"处理资源失败: {e}")
+            # 显示当前资源完成后的进度
+            bar_str = progress_bar(idx, total, width=30)
+            self._reporter.progress(f"    {bar_str} 处理资源 {idx}/{total}... ")
+        self._reporter.wipe_line()
 
         logger.info(f"知识点完成: {knowledge.knowledge_name}")
         self._reporter.tree_print(msg_done(f"知识点完成: {knowledge.knowledge_name}"), depth=3, enabled=True)
@@ -351,6 +359,19 @@ class AiCourseManager:
         ppts: list[dict[str, str]] = []
         self._collect_completed_ppts(course_id, class_id, knowledge.knowledge_id, ppts)
 
+        # PPT 预转换：每个知识点只转换一次，缓存在内存，达标后释放
+        reference_materials: list[dict[str, str]] = []
+        if ppts:
+            self._reporter.tree_print(msg_info(f"转换 {len(ppts)} 个PPT为参考资料..."), depth=3, enabled=True)
+            converter = PptConverter()
+            for ppt in ppts:
+                try:
+                    content = converter.convert(ppt["url"])
+                    if content:
+                        reference_materials.append({"name": ppt["name"], "url": ppt["url"], "content": content})
+                except Exception as e:
+                    logger.error(f"PPT 转换失败: {e}")
+
         # 作业循环
         tried = 0
         while True:
@@ -378,21 +399,7 @@ class AiCourseManager:
                 enabled=True,
             )
 
-            # PPT 转文本
-            reference_materials: list[dict[str, str]] = []
-            if ppts:
-                self._reporter.tree_print(msg_info(f"转换 {len(ppts)} 个PPT为参考资料..."), depth=4, enabled=True)
-                converter = PptConverter()
-                for ppt in ppts:
-                    try:
-                        content = converter.convert(ppt["url"])
-                        if content:
-                            ppt["content"] = content
-                            reference_materials.append({"name": ppt["name"], "url": ppt["url"], "content": content})
-                    except Exception as e:
-                        logger.error(f"PPT 转换失败: {e}")
-
-            # 执行作业
+            # 执行作业（使用缓存的 PPT 参考资料）
             homework_ctx = HomeworkCtx(
                 session=self._session,
                 course_id=course_id,
@@ -423,3 +430,6 @@ class AiCourseManager:
                 logger.error(f"作业失败: {e}")
 
             time.sleep(2)
+
+        # 知识点作业结束，释放 PPT 内存缓存
+        reference_materials.clear()

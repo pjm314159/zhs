@@ -41,7 +41,7 @@ class TestLLMProvider:
         """parse_fill_blank_answer 委托给 prompts 模块"""
         provider = ConcreteLLMProvider()
         result = provider.parse_fill_blank_answer("```answer\n答案1\n答案2\n```")
-        assert result == ["答案1/答案2"]
+        assert result == ["答案1", "答案2"]
 
     def test_single_choice_convenience(self) -> None:
         """single_choice 便捷方法构建 prompt 并解析"""
