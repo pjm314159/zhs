@@ -4,6 +4,7 @@
 
 与 HomeworkCtx 的区别：
 - taskList 使用 ai_key 加密（ai_task_query）
+- startPullPaper 使用 ai_key（ai_task_query），openExam 前调用
 - openExam / getAnswerSheetInformation / getExamQuestionInfo / saveBatchAnswer /
   updateUserUsedTime / submit 使用 exam_key（ai_exam_query / ai_exam_submit）
 - openExamDetail 使用 ai_key（ai_task_query），用于提交后判断是否可查看答案
@@ -68,8 +69,30 @@ class ExamCtx(AiExamBase):
         """同步考试 API 查询（exam_key 加密）"""
         return self._session.ai_exam_query(url, data, method=method)
 
+    def _start_pull_paper(self, _retries: int = 0) -> None:
+        """拉取试卷（startPullPaper，ai_key 加密，openExam 前调用）"""
+        url = f"{self._session.urls.ai}/run/gateway/t/task/exam/start-pull-paper"
+        data = {
+            "courseId": self._course_id,
+            "classId": self._class_id,
+            "examTestId": self._exam_test_id,
+            "pageNumber": 1,
+            "pageSize": 10,
+        }
+        try:
+            self._session.ai_task_query(url, data)
+        except Exception as e:
+            if _retries < 2:
+                logger.error(f"startPullPaper 失败，重试 {_retries + 1}/3")
+                self._start_pull_paper(_retries + 1)
+            else:
+                raise ZhsError("startPullPaper 失败，已重试 3 次") from e
+
     def _open(self, _retries: int = 0) -> None:
-        """打开考试（openExam，不含 examPaperId）"""
+        """打开考试（startPullPaper + openExam）"""
+        # 首次调用时先拉取试卷（重试时不重复拉取）
+        if _retries == 0:
+            self._start_pull_paper()
         url = f"{self._exam_base_url}/gateway/t/v1/exam/user/openExam"
         data = {
             "examTestId": self._exam_test_id,

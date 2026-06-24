@@ -90,32 +90,32 @@ class TestMarkCorrectWrong:
         assert 2 in result.correct_options
 
     def test_mark_wrong(self, cache: ZhidaoHomeworkCache) -> None:
-        """标记错误选项"""
+        """标记错误选择方式（追加组合，不合并）"""
         cache.mark_wrong(100, "exam1", "eid1", [3, 4])
         result = cache.get(100, "exam1", "eid1")
         assert result is not None
-        assert 3 in result.wrong_options
-        assert 4 in result.wrong_options
+        assert [3, 4] in result.wrong_options
 
-    def test_mark_correct_removes_from_wrong(self, cache: ZhidaoHomeworkCache) -> None:
-        """标记正确后从错误列表移除"""
+    def test_mark_correct_removes_matching_wrong(self, cache: ZhidaoHomeworkCache) -> None:
+        """标记正确后移除完全匹配的错误组合"""
         cache.mark_wrong(100, "exam1", "eid1", [1, 2])
-        cache.mark_correct(100, "exam1", "eid1", [1])
+        cache.mark_correct(100, "exam1", "eid1", [1, 2])
         result = cache.get(100, "exam1", "eid1")
         assert result is not None
         assert 1 in result.correct_options
-        assert 1 not in result.wrong_options
-        assert 2 in result.wrong_options
+        assert 2 in result.correct_options
+        assert [1, 2] not in result.wrong_options
 
-    def test_mark_wrong_removes_from_correct(self, cache: ZhidaoHomeworkCache) -> None:
-        """标记错误后从正确列表移除"""
+    def test_mark_wrong_does_not_remove_from_correct(self, cache: ZhidaoHomeworkCache) -> None:
+        """标记错误组合不从正确列表移除（多选题可能部分正确）"""
         cache.mark_correct(100, "exam1", "eid1", [1, 2])
         cache.mark_wrong(100, "exam1", "eid1", [1])
         result = cache.get(100, "exam1", "eid1")
         assert result is not None
-        assert 1 not in result.correct_options
-        assert 1 in result.wrong_options
+        # correct_options 不变（多选场景下 1 可能仍正确）
+        assert 1 in result.correct_options
         assert 2 in result.correct_options
+        assert [1] in result.wrong_options
 
 
 class TestGetOptions:
@@ -127,9 +127,9 @@ class TestGetOptions:
         assert cache.get_correct_options(100, "exam1", "eid1") == [1, 2]
 
     def test_get_wrong_options(self, cache: ZhidaoHomeworkCache) -> None:
-        """获取错误选项"""
+        """获取错误选择方式列表"""
         cache.mark_wrong(100, "exam1", "eid1", [3])
-        assert cache.get_wrong_options(100, "exam1", "eid1") == [3]
+        assert cache.get_wrong_options(100, "exam1", "eid1") == [[3]]
 
     def test_get_correct_options_empty(self, cache: ZhidaoHomeworkCache) -> None:
         """无缓存时返回空列表"""

@@ -7,6 +7,7 @@ from loguru import logger
 
 from zhs.cli.course_type import parse_ai_course_str, parse_homework_url
 from zhs.config import AppConfig
+from zhs.exceptions import SliderVerificationRequired
 from zhs.session import ZhsSession
 
 
@@ -71,28 +72,38 @@ def run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> N
         tree_print(msg_warn(f"未达标: {target.exam_name} {score_rate:.1f}%"), depth=1, enabled=True)
 
 
-def run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, course_id: str) -> None:
-    """按课程 ID 运行知到作业"""
+def run_zhidao_homework_by_course(
+    session: ZhsSession, config: AppConfig, recruit_and_course_id: str
+) -> None:
+    """按 recruitAndCourseId 运行知到作业
+
+    Args:
+        recruit_and_course_id: 课程的 recruitAndCourseId（secret 字符串）
+    """
     from zhs.zhidao.course import ZhidaoCourseManager
 
     # CAS SSO
     session.exam_sso_login()
 
-    # 获取 recruit_id
+    # 通过 secret（recruitAndCourseId）匹配课程，获取 recruit_id 和数字 courseId
     mgr = ZhidaoCourseManager(session)
     courses = mgr.get_course_list()
-    recruit_id = None
+    matched = None
     for c in courses:
-        if c.secret == course_id and c.recruit_id:
-            recruit_id = str(c.recruit_id)
+        if c.secret == recruit_and_course_id and c.recruit_id:
+            matched = c
             break
 
-    if not recruit_id:
-        logger.error(f"未找到课程 {course_id} 的 recruitId")
-        print(f"未找到课程 {course_id} 的 recruitId")
+    if matched is None:
+        logger.error(f"未找到课程 {recruit_and_course_id}（recruitAndCourseId 未匹配到任何课程）")
+        print(f"未找到课程 {recruit_and_course_id} 的 recruitId")
         return
 
-    run_zhidao_homework(session, config, recruit_id, int(course_id) if course_id.isdigit() else 0)
+    logger.info(
+        f"匹配到课程: {matched.course_name} "
+        f"(courseId={matched.course_id}, recruitId={matched.recruit_id})"
+    )
+    run_zhidao_homework(session, config, str(matched.recruit_id), matched.course_id)
 
 
 def run_zhidao_homework(
@@ -154,6 +165,9 @@ def run_zhidao_homework(
                     depth=depth + 2,
                     enabled=True,
                 )
+        except SliderVerificationRequired:
+            # 滑块验证：服务端状态，后续作业也会失败，立即停止
+            raise
         except Exception as e:
             logger.error(f"作业 {item.exam_name} 处理失败: {e}")
             tree_print(msg_error(f"失败: {item.exam_name} {e}"), depth=depth + 2, enabled=True)
@@ -182,6 +196,9 @@ def run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
                 tree_print(msg_skip(f"跳过(无课程ID): {c.course_name}"), depth=1, enabled=True)
                 continue
             run_zhidao_homework(session, config, recruit_id, course_id, depth=1)
+        except SliderVerificationRequired:
+            # 滑块验证：服务端状态，后续课程也会失败，立即停止
+            raise
         except Exception as e:
             logger.error(f"知到课程 {c.course_name} 作业处理失败: {e}")
             tree_print(msg_error(f"课程失败: {c.course_name} {e}"), depth=1, enabled=True)
@@ -213,6 +230,9 @@ def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | 
     if course_type in (None, "auto", "zhidao"):
         try:
             run_all_zhidao_homework(session, config)
+        except SliderVerificationRequired:
+            # 滑块验证：立即停止，不继续 AI 课程作业
+            raise
         except Exception as e:
             logger.error(f"知到课程作业处理失败: {e}")
             print(f"知到课程作业处理失败: {e}")

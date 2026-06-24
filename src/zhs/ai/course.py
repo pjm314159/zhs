@@ -18,6 +18,7 @@ from zhs.utils.display import (
     msg_error,
     msg_info,
     msg_skip,
+    progress_bar,
     styled,
 )
 
@@ -308,13 +309,20 @@ class AiCourseManager:
             logger.error(f"获取资源列表失败: {e}")
             return
 
-        for resource in resources:
+        total = len(resources)
+        for idx, resource in enumerate(resources, 1):
+            bar_str = progress_bar(idx - 1, total, width=30)
+            self._reporter.progress(f"    {bar_str} 处理资源 {idx}/{total}... ")
             try:
                 self._process_resource(
                     course_id, class_id, knowledge.knowledge_id, resource, video_player, ppts, learn_optional, threshold
                 )
             except Exception as e:
                 logger.error(f"处理资源失败: {e}")
+            # 显示当前资源完成后的进度
+            bar_str = progress_bar(idx, total, width=30)
+            self._reporter.progress(f"    {bar_str} 处理资源 {idx}/{total}... ")
+        self._reporter.wipe_line()
 
         logger.info(f"知识点完成: {knowledge.knowledge_name}")
         self._reporter.tree_print(msg_done(f"知识点完成: {knowledge.knowledge_name}"), depth=3, enabled=True)

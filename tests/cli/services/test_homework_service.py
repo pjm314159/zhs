@@ -83,15 +83,15 @@ class TestRunZhidaoHomeworkByCourse:
     ) -> None:
         """找到 recruit_id 后调用 run_zhidao_homework
 
-        注意：run_zhidao_homework_by_course 的 course_id 参数是字符串，
-        内部用 int(course_id) if course_id.isdigit() else 0 转换。
-        传入 "12345" → 12345；传入 "ABC123" → 0。
+        通过 secret 匹配课程，使用课程模型的 course_id（int）。
         """
         session = MagicMock()
         config = _make_config()
         mock_course = MagicMock()
         mock_course.secret = "12345"  # 必须与传入的 course_id 一致
         mock_course.recruit_id = 67890
+        mock_course.course_id = 12345
+        mock_course.course_name = "测试课程"
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
         mock_mgr.get_course_list.return_value = [mock_course]
@@ -102,7 +102,7 @@ class TestRunZhidaoHomeworkByCourse:
         call_args = mock_run_zhidao.call_args
         # call_args[0] 是位置参数: (session, config, recruit_id, course_id, depth)
         assert call_args[0][2] == "67890"  # recruit_id 转为 str
-        assert call_args[0][3] == 12345  # course_id 为 int("12345")
+        assert call_args[0][3] == 12345  # course_id 来自课程模型
 
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
     def test_no_recruit_id_prints_error(
@@ -127,17 +127,19 @@ class TestRunZhidaoHomeworkByCourse:
 
     @patch("zhs.cli.services.homework_service.run_zhidao_homework")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_non_digit_course_id_passes_zero(
+    def test_non_digit_course_id_uses_model_course_id(
         self,
         mock_mgr_cls: MagicMock,
         mock_run_zhidao: MagicMock,
     ) -> None:
-        """非数字 course_id 传 0"""
+        """非数字 course_id（secret 字符串）使用课程模型的 course_id，不再静默传 0"""
         session = MagicMock()
         config = _make_config()
         mock_course = MagicMock()
         mock_course.secret = "ABC123"
         mock_course.recruit_id = 12345
+        mock_course.course_id = 99999
+        mock_course.course_name = "测试课程"
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
         mock_mgr.get_course_list.return_value = [mock_course]
@@ -145,7 +147,7 @@ class TestRunZhidaoHomeworkByCourse:
         run_zhidao_homework_by_course(session, config, "ABC123")
 
         call_args = mock_run_zhidao.call_args
-        assert call_args[0][3] == 0  # course_id=0 因为 "ABC123" 非 digit
+        assert call_args[0][3] == 99999  # course_id 来自课程模型，不再传 0
 
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
     def test_calls_exam_sso_login(self, mock_mgr_cls: MagicMock) -> None:

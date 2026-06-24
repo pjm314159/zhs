@@ -17,6 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+# 错误选项类型：选择题为 list[int]（一次完整选择），填空题为 list[str]（每空一个元素）
+WrongOption = list[int] | list[str]
+
 
 class HomeworkQuestionType(IntEnum):
     """题型枚举"""
@@ -173,10 +176,33 @@ class HomeworkCacheEntry(BaseModel):
     """本地缓存条目"""
 
     question_type: int = Field(default=0, alias="questionType", description="题型 ID")
+    content: str = Field(default="", description="题目纯文本内容（用于无选项题目的 key 桥接）")
     options: list[HomeworkCacheOption] = Field(default=[], description="选项列表")
     correct_options: list[int] = Field(default=[], alias="correctOptions", description="确认正确的选项 ID 列表")
-    wrong_options: list[int] = Field(default=[], alias="wrongOptions", description="确认错误的选项 ID 列表")
+    wrong_options: list[WrongOption] = Field(
+        default=[], alias="wrongOptions", description="错误选择方式列表：选择题为 list[int]，填空题为 list[str]"
+    )
     ai_analysis: str | None = Field(default=None, alias="aiAnalysis", description="AI 解析内容")
     last_updated: str = Field(default="", alias="lastUpdated", description="最后更新时间")
 
     model_config = {"populate_by_name": True}
+
+    @field_validator("wrong_options", mode="before")
+    @classmethod
+    def _migrate_wrong_options(cls, v: Any) -> Any:
+        """迁移旧格式到 list[list[int] | list[str]]
+
+        - 旧扁平 list[int] → list[list[int]]（每个 int 包裹为 [int]）
+        - 旧 list[str]（填空题用 / 分隔） → list[list[str]]（按 / 拆分）
+        """
+        if isinstance(v, list):
+            migrated: list[Any] = []
+            for item in v:
+                if isinstance(item, int):
+                    migrated.append([item])
+                elif isinstance(item, str):
+                    migrated.append(item.split("/"))
+                else:
+                    migrated.append(item)
+            return migrated
+        return v
