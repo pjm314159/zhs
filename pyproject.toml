@@ -7,7 +7,7 @@
 name = "zhs"
 authors = [{name="pjm314159"}]
 license = "GPL-3.0-only"
-version = "0.1.2"
+version = "0.1.2.1"
 description = "智慧树刷课脚本"
 readme = "README.md"
 requires-python = ">=3.13"
