@@ -135,7 +135,7 @@ class HikeVideoPlayer:
                     logger.warning(f"Failed to save study record for {file_id}: {exc}")
 
             # 显示进度条
-            bar_str = progress_bar(int(played_time), int(end_time))
+            bar_str = progress_bar(played_time, end_time)
             print(f"\rplaying {file_id} {bar_str}", end="", flush=True)
 
         wipe_line()

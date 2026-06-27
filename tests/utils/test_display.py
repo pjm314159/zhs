@@ -34,6 +34,26 @@ class TestProgressBar:
         result = progress_bar(0, 100)
         assert isinstance(result, str)
 
+    def test_progress_bar_accepts_float(self) -> None:
+        """progress_bar 接受 float 参数"""
+        result = progress_bar(50.5, 100.0)
+        assert isinstance(result, str)
+
+    def test_progress_bar_one_decimal_place(self) -> None:
+        """进度条百分比显示到小数点后一位"""
+        result = progress_bar(50.5, 100.0)
+        assert "50.5%" in result
+
+    def test_progress_bar_complete_float(self) -> None:
+        """完成时显示 100.0%"""
+        result = progress_bar(100.0, 100.0)
+        assert "100.0%" in result
+
+    def test_progress_bar_partial_decimal(self) -> None:
+        """部分进度显示小数（如 33.3%）"""
+        result = progress_bar(1.0, 3.0)
+        assert "33.3%" in result
+
 
 class TestTreePrint:
     def test_tree_print_no_raise(self, capsys: object) -> None:
