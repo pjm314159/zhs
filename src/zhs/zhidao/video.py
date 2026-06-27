@@ -359,11 +359,17 @@ class ZhidaoVideoPlayer:
                         "_": int(time.time() * 1000),
                     },
                     headers={
+                        "Accept": "*/*",
+                        "sec-ch-ua": '" Not A;Brand";v="99", "Chromium";v="149", "Google Chrome";v="149"',
+                        "sec-ch-ua-mobile": "?0",
                         "User-Agent": (
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                             " AppleWebKit/537.36 (KHTML, like Gecko)"
-                            " Chrome/101.0.4951.64 Safari/537.36"
+                            " Chrome/149.0.0.0 Safari/537.36"
                         ),
+                        "sec-ch-ua-platform": '"Windows"',
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                         "Referer": "https://studyh5.zhihuishu.com/",
                     },
                 )
@@ -383,6 +389,26 @@ class ZhidaoVideoPlayer:
         url = f"{self._session.urls.study}/gateway/t/v1/course/threeDimensionalCourseWare"
         with contextlib.suppress(Exception):
             self._session.zhidao_query(url, {"videoId": video_id}, method="GET")
+
+    def _report_cache_progress(
+        self,
+        watch_point: str,
+        sdsew: str,
+        token_id: str,
+    ) -> None:
+        """上报缓存进度（saveCacheIntervalTimeV2）
+
+        与 saveDatabaseIntervalTimeV2 共用 ewssw/sdsew/zwsds，
+        但不含 courseId。cache 上报失败不影响主流程。
+        """
+        url = f"{self._session.urls.study}/gateway/t/v1/learning/saveCacheIntervalTimeV2"
+        data: dict[str, Any] = {
+            "ewssw": watch_point,
+            "sdsew": sdsew,
+            "zwsds": token_id,
+        }
+        with contextlib.suppress(Exception):
+            self._session.zhidao_query(url, data)
 
     def _report_progress_v2(
         self,
@@ -438,9 +464,13 @@ class ZhidaoVideoPlayer:
                 session_uuid + "zhs",
             ]
 
+        sdsew = encode_ev(raw_ev, self._session.crypto.ev_key)
+        # 先上报缓存进度（与 database 共用 sdsew，不含 courseId，失败不影响主流程）
+        self._report_cache_progress(watch_point, sdsew, token_id)
+
         data: dict[str, Any] = {
             "ewssw": watch_point,
-            "sdsew": encode_ev(raw_ev, self._session.crypto.ev_key),
+            "sdsew": sdsew,
             "zwsds": token_id,
         }
         if not initial:

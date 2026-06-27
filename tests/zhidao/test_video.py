@@ -490,12 +490,15 @@ class TestReportProgressV2Return:
         """-8 错误同步成功时返回 (server_time, True)"""
         ctx = _make_context()
         player = ZhidaoVideoPlayer(mock_session)
-        call_count = 0
+        db_call_count = 0
 
-        def _query_side_effect(*args: object, **kwargs: object) -> object:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+        def _query_side_effect(url: str, *args: object, **kwargs: object) -> object:
+            # cache 调用始终成功
+            if "saveCacheIntervalTimeV2" in url:
+                return {}
+            nonlocal db_call_count
+            db_call_count += 1
+            if db_call_count == 1:
                 raise Exception("code: -8 msg: study time decreased")
             return {}  # 第二次调用成功
 
@@ -520,12 +523,15 @@ class TestReportProgressV2Return:
         """-10 错误重试成功时返回 (played_time, True)"""
         ctx = _make_context()
         player = ZhidaoVideoPlayer(mock_session)
-        call_count = 0
+        db_call_count = 0
 
-        def _query_side_effect(*args: object, **kwargs: object) -> object:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+        def _query_side_effect(url: str, *args: object, **kwargs: object) -> object:
+            # cache 调用始终成功
+            if "saveCacheIntervalTimeV2" in url:
+                return {}
+            nonlocal db_call_count
+            db_call_count += 1
+            if db_call_count == 1:
                 raise Exception("code: -10 msg: multi-window")
             return {}  # 第二次调用成功
 
