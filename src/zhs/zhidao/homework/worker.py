@@ -8,7 +8,6 @@ doHomework → 生成答案（缓存/LLM）→ saveStudentAnswer → submit
 from __future__ import annotations
 
 import random
-import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +19,7 @@ from zhs.llm.base import LLMProvider
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import _C, msg_done, msg_error, msg_info, msg_warn, progress_bar, styled
+from zhs.utils.html import extract_text
 from zhs.zhidao.homework.analyzer import HomeworkAnalyzer
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
@@ -34,11 +34,6 @@ from zhs.zhidao.homework.models import (
 
 if TYPE_CHECKING:
     from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
-
-
-def _strip_html(text: str) -> str:
-    """移除 HTML 标签，保留纯文本"""
-    return re.sub(r"<[^>]+>", "", text).strip()
 
 
 class HomeworkWorker:
@@ -186,7 +181,7 @@ class HomeworkWorker:
 
             # 显示固定进度条
             qt_name = self._get_question_type_name(question.question_type_id)
-            question_text = _strip_html(question.name)[:30]
+            question_text = extract_text(question.name)[:30]
             bar_str = progress_bar(i - 1, len(questions), width=30)
             self._reporter.progress(f"  {bar_str} [{styled(qt_name, _C.CYAN)}] {question_text}... ")
 
@@ -290,7 +285,7 @@ class HomeworkWorker:
             ai_analysis: 缓存中的 AI 解析内容
         """
         qt = question.question_type
-        question_text = _strip_html(question.name)
+        question_text = extract_text(question.name)
         all_options = question.question_options
 
         # 展平错误选项 ID（用于单选/判断题排除）
@@ -323,7 +318,7 @@ class HomeworkWorker:
                 logger.warning(f"所有选项都被标记为错误，无法生成答案: {question_text[:30]}")
                 return None
 
-        choices = [{"id": opt.id, "content": _strip_html(opt.content)} for opt in available_options]
+        choices = [{"id": opt.id, "content": extract_text(opt.content)} for opt in available_options]
 
         # 构建额外信息（根据题型传递不同的错误提示）
         extra: dict[str, str] = {"courseName": item.course_name}
@@ -550,7 +545,7 @@ class HomeworkWorker:
     ) -> None:
         """保存单题答案（saveStudentAnswer）"""
         if not question.eid:
-            raise ZhsError(f"题目无 eid，无法保存答案: {question.name[:30]}")
+            raise ZhsError(f"题目无 eid，无法保存答案: {extract_text(question.name)[:30]}")
 
         answer_item: dict[str, Any] = {
             "examId": item.exam_id,
@@ -615,7 +610,7 @@ class HomeworkWorker:
             return
 
         options = [
-            HomeworkCacheOption(id=opt.id, content=_strip_html(opt.content)) for opt in question.question_options
+            HomeworkCacheOption(id=opt.id, content=extract_text(opt.content)) for opt in question.question_options
         ]
         self._cache.save_options(
             course_id=item.course_id,
@@ -623,7 +618,8 @@ class HomeworkWorker:
             question_key=question_key,
             question_type=question.question_type_id,
             options=options,
-            content=_strip_html(question.name),
+            content=extract_text(question.name),
+            course_name=item.course_name,
         )
 
     def _get_question_type_name(self, qt_id: int) -> str:
@@ -811,7 +807,7 @@ class HomeworkWorker:
                 return bridged
 
         # 5. 无选项题目（填空题）：通过内容桥接
-        content = _strip_html(question.name)
+        content = extract_text(question.name)
         if content:
             bridged = self._cache.find_key_by_content(item.course_id, item.exam_id, content)
             if bridged and bridged != eid:

@@ -403,6 +403,142 @@ class TestRunCourse:
                 no_homework=True,
             )
 
+    def test_node_uid_direct_mode_play(self, manager: AiCourseManager) -> None:
+        """node_uid 直接模式（play）：只处理匹配的知识点，跳过其他"""
+        course_info = AiCourseInfo(
+            course_name="测试课程",
+            cake_theme_list=[
+                Theme(
+                    theme_name="主题1",
+                    knowledge_list=[
+                        KnowledgePoint(knowledge_id=10, knowledge_name="知识点A", study_progress=0),
+                        KnowledgePoint(knowledge_id=20, knowledge_name="知识点B", study_progress=0),
+                    ],
+                )
+            ],
+        )
+        with (
+            patch.object(manager, "get_knowledge_points", return_value=course_info),
+            patch.object(manager, "_run_play_only") as mock_play,
+            patch("zhs.ai.course.time.sleep"),
+            patch("zhs.ai.course.AiVideoPlayer"),
+        ):
+            manager.run_course(
+                100,
+                200,
+                AIConfig(api_key="k"),
+                HomeworkConfig(),
+                video_config=VideoConfig(),
+                no_homework=True,
+                node_uid=20,
+            )
+
+        # 只调用了 1 次（知识点B），知识点A 被跳过
+        mock_play.assert_called_once()
+        # 验证传入的是知识点B（第 3 个位置参数）
+        args = mock_play.call_args
+        assert args[0][2].knowledge_id == 20
+
+    def test_node_uid_direct_mode_homework(self, manager: AiCourseManager) -> None:
+        """node_uid 直接模式（homework）：只处理匹配的知识点"""
+        course_info = AiCourseInfo(
+            course_name="测试课程",
+            cake_theme_list=[
+                Theme(
+                    theme_name="主题1",
+                    knowledge_list=[
+                        KnowledgePoint(knowledge_id=10, knowledge_name="知识点A", study_progress=0),
+                        KnowledgePoint(knowledge_id=20, knowledge_name="知识点B", study_progress=0),
+                    ],
+                )
+            ],
+        )
+        with (
+            patch.object(manager, "get_knowledge_points", return_value=course_info),
+            patch.object(manager, "_run_homework_only") as mock_hw,
+            patch("zhs.ai.course.time.sleep"),
+            patch("zhs.ai.course.AiVideoPlayer"),
+        ):
+            manager.run_course(
+                100,
+                200,
+                AIConfig(api_key="k"),
+                HomeworkConfig(),
+                video_config=VideoConfig(),
+                no_homework=False,
+                node_uid=10,
+            )
+
+        mock_hw.assert_called_once()
+        args = mock_hw.call_args
+        assert args[0][2].knowledge_id == 10
+
+    def test_node_uid_not_found_fallback_scan(self, manager: AiCourseManager) -> None:
+        """node_uid 不匹配任何知识点时回退扫描模式（全刷）"""
+        course_info = AiCourseInfo(
+            course_name="测试课程",
+            cake_theme_list=[
+                Theme(
+                    theme_name="主题1",
+                    knowledge_list=[
+                        KnowledgePoint(knowledge_id=10, knowledge_name="知识点A", study_progress=0),
+                        KnowledgePoint(knowledge_id=20, knowledge_name="知识点B", study_progress=0),
+                    ],
+                )
+            ],
+        )
+        with (
+            patch.object(manager, "get_knowledge_points", return_value=course_info),
+            patch.object(manager, "_run_play_only") as mock_play,
+            patch("zhs.ai.course.time.sleep"),
+            patch("zhs.ai.course.AiVideoPlayer"),
+        ):
+            manager.run_course(
+                100,
+                200,
+                AIConfig(api_key="k"),
+                HomeworkConfig(),
+                video_config=VideoConfig(),
+                no_homework=True,
+                node_uid=999,  # 不存在的知识点
+            )
+
+        # 回退扫描：处理所有 2 个知识点
+        assert mock_play.call_count == 2
+
+    def test_node_uid_none_scans_all(self, manager: AiCourseManager) -> None:
+        """node_uid=None 时扫描所有知识点"""
+        course_info = AiCourseInfo(
+            course_name="测试课程",
+            cake_theme_list=[
+                Theme(
+                    theme_name="主题1",
+                    knowledge_list=[
+                        KnowledgePoint(knowledge_id=10, knowledge_name="知识点A", study_progress=0),
+                        KnowledgePoint(knowledge_id=20, knowledge_name="知识点B", study_progress=0),
+                        KnowledgePoint(knowledge_id=30, knowledge_name="知识点C", study_progress=0),
+                    ],
+                )
+            ],
+        )
+        with (
+            patch.object(manager, "get_knowledge_points", return_value=course_info),
+            patch.object(manager, "_run_play_only") as mock_play,
+            patch("zhs.ai.course.time.sleep"),
+            patch("zhs.ai.course.AiVideoPlayer"),
+        ):
+            manager.run_course(
+                100,
+                200,
+                AIConfig(api_key="k"),
+                HomeworkConfig(),
+                video_config=VideoConfig(),
+                no_homework=True,
+                node_uid=None,
+            )
+
+        assert mock_play.call_count == 3
+
 
 class TestOptionalResourceFiltering:
     """选学资源过滤"""

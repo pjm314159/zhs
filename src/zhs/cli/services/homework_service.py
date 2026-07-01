@@ -11,6 +11,35 @@ from zhs.exceptions import SliderVerificationRequired
 from zhs.session import ZhsSession
 
 
+def dispatch_homework_url(session: ZhsSession, config: AppConfig, url: str) -> None:
+    """解析 homework URL 并分发到对应流程
+
+    支持的 URL 类型:
+    - zhidao_direct: dohomework URL → run_homework_from_url（原逻辑）
+    - ai_direct: learnPage URL → run_ai_homework（直接模式，有 node_uid）
+    - ai_scan: knowledgeStudy URL → run_ai_homework（扫描模式）
+    """
+    from zhs.cli.url_parser import parse_homework_url_v2
+
+    parsed = parse_homework_url_v2(url)
+    if parsed.type == "zhidao_direct":
+        run_homework_from_url(session, config, url)
+    elif parsed.type == "ai_direct":
+        assert parsed.course_id is not None
+        assert parsed.class_id is not None
+        run_ai_homework(
+            session,
+            config,
+            int(parsed.course_id),
+            parsed.class_id,
+            node_uid=parsed.node_uid,
+        )
+    elif parsed.type == "ai_scan":
+        assert parsed.course_id is not None
+        assert parsed.class_id is not None
+        run_ai_homework(session, config, int(parsed.course_id), parsed.class_id)
+
+
 def run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> None:
     """从 URL 运行作业"""
     from zhs.utils.display import course_tag, msg_done, msg_warn, tree_print
@@ -199,12 +228,29 @@ def run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
             tree_print(msg_error(f"课程失败: {c.course_name} {e}"), depth=1, enabled=True)
 
 
-def run_ai_homework(session: ZhsSession, config: AppConfig, course_id: int, class_id: int) -> None:
-    """AI 课程作业（仅做作业，不刷视频）"""
+def run_ai_homework(
+    session: ZhsSession,
+    config: AppConfig,
+    course_id: int,
+    class_id: int,
+    node_uid: int | None = None,
+) -> None:
+    """AI 课程作业（仅做作业，不刷视频）
+
+    Args:
+        node_uid: 知识点 ID。非 None 时走直接模式（只做该知识点作业），None 时全刷
+    """
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
-    mgr.run_course(course_id, class_id, config.ai, config.homework, speed=config.video.ai_speed)
+    mgr.run_course(
+        course_id,
+        class_id,
+        config.ai,
+        config.homework,
+        speed=config.video.ai_speed,
+        node_uid=node_uid,
+    )
 
 
 def run_ai_homework_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) -> None:
@@ -260,6 +306,7 @@ def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | 
 
 
 __all__ = [
+    "dispatch_homework_url",
     "run_ai_homework",
     "run_ai_homework_by_str",
     "run_all_homework",

@@ -11,7 +11,7 @@ from zhs.zhidao.homework.models import (
     HomeworkQuestion,
     HomeworkQuestionOption,
 )
-from zhs.zhidao.homework.worker import HomeworkWorker, _strip_html
+from zhs.zhidao.homework.worker import HomeworkWorker
 
 
 def _make_mock_session() -> MagicMock:
@@ -32,7 +32,11 @@ def _make_config(
 
 def _make_cache(tmp_path: Path | None = None) -> ZhidaoHomeworkCache:
     """创建测试缓存"""
-    return ZhidaoHomeworkCache(cache_dir=tmp_path) if tmp_path else ZhidaoHomeworkCache(cache_dir=MagicMock())
+    # SQLite 版需要真实路径，无 tmp_path 时用 tempfile 创建
+    import tempfile
+
+    cache_dir = tmp_path if tmp_path else Path(tempfile.mkdtemp(prefix="zhs_test_"))
+    return ZhidaoHomeworkCache(cache_dir=cache_dir)
 
 
 def _make_item(**overrides: object) -> HomeworkItem:
@@ -193,18 +197,49 @@ def _setup_check_result_mocks(
     }
 
 
-class TestStripHtml:
-    """HTML 标签移除测试"""
+class TestSaveOptionsToCache:
+    """_save_options_to_cache 测试（含 course_name 传递）"""
 
-    def test_plain_text(self) -> None:
-        assert _strip_html("hello") == "hello"
+    def test_save_options_passes_course_name(self) -> None:
+        """_save_options_to_cache 传 item.course_name 到 cache.save_options"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        worker = HomeworkWorker(session, config, cache)
 
-    def test_html_tags(self) -> None:
-        assert _strip_html("<p>hello</p>") == "hello"
+        item = _make_item(courseName="计算机网络")
+        question = _make_question(eid="eid1==", qid=42)
 
-    def test_html_with_entities(self) -> None:
-        # _strip_html 只移除标签，不处理 HTML entities
-        assert _strip_html("<p>2026年&nbsp;&nbsp;毕业生</p>") == "2026年&nbsp;&nbsp;毕业生"
+        with patch.object(cache, "save_options") as mock_save:
+            worker._save_options_to_cache(question, item)
+
+        mock_save.assert_called_once()
+        assert mock_save.call_args.kwargs["course_name"] == "计算机网络"
+
+    def test_save_options_persists_course_name_to_db(self) -> None:
+        """_save_options_to_cache 实际写入 DB 后 course_name 非空"""
+        import sqlite3
+
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        worker = HomeworkWorker(session, config, cache)
+
+        item = _make_item(courseName="数据结构")
+        question = _make_question(eid="eid2==", qid=99)
+
+        worker._save_options_to_cache(question, item)
+
+        # 直接查 DB 验证 course_name
+        conn = sqlite3.connect(cache._cache_dir / "questions_bank.db")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT course_name FROM zhidao_questions WHERE course_id=? AND eid=?",
+            (item.course_id, "eid2=="),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["course_name"] == "数据结构"
 
 
 class TestHomeworkWorkerSaveAnswer:

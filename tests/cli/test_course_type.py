@@ -3,6 +3,9 @@
 覆盖 detect_course_type / validate_course_type / parse_ai_course_str / parse_homework_url。
 """
 
+from collections.abc import Iterator
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from zhs.cli.course_type import (
@@ -12,6 +15,26 @@ from zhs.cli.course_type import (
     parse_homework_url,
     validate_course_type,
 )
+
+
+@pytest.fixture
+def mock_zhidao_session() -> Iterator[MagicMock]:
+    """session 中 zhidao 列表包含 courseId=1000008156"""
+    mock_course = MagicMock()
+    mock_course.course_id = 1000008156
+    mock_mgr = MagicMock()
+    mock_mgr.get_course_list.return_value = [mock_course]
+    with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
+        yield mock_mgr
+
+
+@pytest.fixture
+def mock_zhidao_session_empty() -> Iterator[MagicMock]:
+    """session 中 zhidao 列表为空"""
+    mock_mgr = MagicMock()
+    mock_mgr.get_course_list.return_value = []
+    with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
+        yield mock_mgr
 
 
 class TestValidCourseTypes:
@@ -30,7 +53,7 @@ class TestDetectCourseType:
         assert detect_course_type("ABC123") == "zhidao"
 
     def test_pure_digits_route_hike(self) -> None:
-        """纯数字 → hike"""
+        """纯数字（无 session）→ hike"""
         assert detect_course_type("12345") == "hike"
 
     def test_explicit_type_overrides_detection(self) -> None:
@@ -46,6 +69,26 @@ class TestDetectCourseType:
     def test_mixed_case_letters_route_zhidao(self) -> None:
         """大小写混合字母 → zhidao"""
         assert detect_course_type("AbC123") == "zhidao"
+
+    def test_colon_routes_ai(self) -> None:
+        """含冒号 → ai（courseId:classId）"""
+        assert detect_course_type("100:200") == "ai"
+
+    def test_colon_overrides_letters(self) -> None:
+        """含冒号优先于字母判断 → ai"""
+        assert detect_course_type("ABC:123") == "ai"
+
+    def test_pure_digits_with_session_zhidao_match(self, mock_zhidao_session: MagicMock) -> None:
+        """纯数字 + session 且匹配 zhidao 列表 → zhidao"""
+        assert detect_course_type("1000008156", session=mock_zhidao_session) == "zhidao"
+
+    def test_pure_digits_with_session_no_match(self, mock_zhidao_session_empty: MagicMock) -> None:
+        """纯数字 + session 但不匹配 zhidao 列表 → hike"""
+        assert detect_course_type("9999999999", session=mock_zhidao_session_empty) == "hike"
+
+    def test_pure_digits_no_session_routes_hike(self) -> None:
+        """纯数字 + 无 session → hike（不查列表）"""
+        assert detect_course_type("12345") == "hike"
 
 
 class TestValidateCourseType:

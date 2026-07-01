@@ -2,13 +2,19 @@
 
 封装 HomeworkCtx 与 ExamCtx 的公共流程与状态：
 - LLM 提供者初始化（通过 LLMProviderFactory）
-- 两级缓存（_answer_cache / _all_answer_cache），持久化通过 AiExamCache
+- 单级内存缓存（_answer_cache，当前 exam），持久化通过 AiExamCache
 - 三级答案策略（缓存 → AI → 随机）
 - 心跳（daemon 线程）
 - 进度条更新
 - 结果检查与缓存更新
 
-子类只需实现差异化的抽象方法（_open / _get_sheet_content / _save_answer 等）。
+缓存查询顺序（_get_cached_answer）：
+1. _answer_cache（当前 exam 内存缓存）
+2. cache.get（当前 exam SQLite 查询）
+3. cache.search_in_course（跨 exam 课程级查询，仅 ExamCtx 启用）
+
+子类只需实现差异化的抽象方法（_open / _get_sheet_content / _save_answer 等），
+并通过 _cross_exam_search 属性控制是否启用跨 exam 查询。
 """
 
 import contextlib
@@ -29,6 +35,7 @@ from zhs.llm.factory import LLMProviderFactory
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import _C, progress_bar, styled
+from zhs.utils.html import extract_text
 
 
 class AiExamBase(ABC):
@@ -59,9 +66,8 @@ class AiExamBase(ABC):
         self._reporter = reporter or ConsoleReporter()
         self._cache = cache or AiExamCache()
 
-        # 缓存（内存中的两级缓存，持久化通过 self._cache）
+        # 缓存（当前 exam 内存缓存，持久化通过 self._cache）
         self._answer_cache: dict[str, dict[str, Any]] = {}
-        self._all_answer_cache: dict[str, dict[str, Any]] = {}
 
         # 状态
         self._sheet_content: list[QuestionSheet] | None = None
@@ -181,15 +187,51 @@ class AiExamBase(ABC):
         """生成缓存键（仅用 question_id，不含 version）"""
         return str(question_id)
 
+    # --- 跨 exam 查询开关 ---
+
+    @property
+    def _cross_exam_search(self) -> bool:
+        """是否启用跨 exam 课程级查询（ExamCtx 重写为 True，HomeworkCtx 默认 False）
+
+        - homework 仅查当前 exam（作业针对单个考试，题目已知）
+        - exam 可跨 exam 搜索课程题库（考试考察课程全部知识，需复用其他 exam 的答案）
+        """
+        return False
+
     # --- 缓存查询 ---
 
-    def _get_cached_answer(self, question_id: int) -> list[str] | None:
-        """从两级缓存获取答案（all_answer_cache 优先）"""
+    def _get_cached_answer(self, question_id: int, question_text: str = "") -> list[str] | None:
+        """从缓存获取答案（三级查询）
+
+        查询顺序：
+        1. _answer_cache（当前 exam 内存缓存）
+        2. cache.get（当前 exam SQLite 查询，内存未命中时的安全兜底）
+        3. cache.search_in_course（跨 exam 课程级查询，仅当 question_text 非空）
+
+        Args:
+            question_id: 题目 ID
+            question_text: 题目文本（清洗后），用于跨 exam 搜索。为空则不跨 exam 搜索。
+        """
         key = self._cache_key(question_id)
-        for cache in (self._all_answer_cache, self._answer_cache):
-            entry = cache.get(key)
+
+        # 1. 当前 exam 内存缓存
+        entry = self._answer_cache.get(key)
+        if entry is not None:
+            return self._parse_cached_answer(entry.get("answer", ""))
+
+        # 2. 当前 exam SQLite 查询（内存未命中时的安全兜底，回填内存缓存）
+        entry = self._cache.get(self._course_id, self._exam_test_id, question_id)
+        if entry is not None:
+            self._answer_cache[key] = entry
+            return self._parse_cached_answer(entry.get("answer", ""))
+
+        # 3. 跨 exam 课程级查询（仅 exam 模块，question_text 非空时触发）
+        if question_text:
+            entry = self._cache.search_in_course(self._course_id, question_text)
             if entry is not None:
+                self._answer_cache[key] = entry
                 return self._parse_cached_answer(entry.get("answer", ""))
+
         return None
 
     @staticmethod
@@ -203,7 +245,7 @@ class AiExamBase(ABC):
         return AiExamCache.parse_answer(answer_str)
 
     def _set_cached_answer(self, question_id: int, data: dict[str, Any]) -> None:
-        """设置缓存（同时写入两级缓存）"""
+        """设置缓存（写入当前 exam 内存缓存，_save_cache 时持久化到 SQLite）"""
         key = self._cache_key(question_id)
         cache_entry = {
             "question": data.get("question", ""),
@@ -212,7 +254,6 @@ class AiExamBase(ABC):
             "questionDict": data.get("questionDict", {}),
         }
         self._answer_cache[key] = cache_entry
-        self._all_answer_cache[key] = cache_entry
 
     # --- 三级答案策略 ---
 
@@ -224,8 +265,9 @@ class AiExamBase(ABC):
         question_id = question.id
         question_type = question.question_type
 
-        # 1. 查缓存
-        cached = self._get_cached_answer(question_id)
+        # 1. 查缓存（exam 模块启用跨 exam 搜索，传清洗后的题目文本）
+        question_text = extract_text(question.content) if self._cross_exam_search else ""
+        cached = self._get_cached_answer(question_id, question_text)
         if cached is not None:
             return cached, "cached"
 
@@ -364,27 +406,28 @@ class AiExamBase(ABC):
             # 获取正确选项（用于缓存更新）
             correct_opts = [opt for opt in question.option_vos if opt.is_correct == 1]
 
-            # 更新缓存
+            # 更新缓存（question / answer_content 用 extract_text 清洗 HTML）
             if question.question_type == 3:
                 # 填空题：多个空用 / 合并存储
                 if correct_opts:
-                    answer_str = "/".join(opt.content for opt in correct_opts)
-                    answer_content_str = "\n".join(opt.content for opt in correct_opts)
+                    cleaned = [extract_text(opt.content) for opt in correct_opts]
+                    answer_str = "/".join(cleaned)
+                    answer_content_str = "\n".join(cleaned)
                 elif user_answers:
-                    correct_answers = [a.answer for a in user_answers if a.is_correct == 1]
-                    answer_str = "/".join(correct_answers)
-                    answer_content_str = "\n".join(correct_answers)
+                    cleaned = [extract_text(a.answer) for a in user_answers if a.is_correct == 1]
+                    answer_str = "/".join(cleaned)
+                    answer_content_str = "\n".join(cleaned)
                 else:
                     answer_str = ""
                     answer_content_str = ""
             else:
                 answer_str = "#@#".join(str(opt.id) for opt in correct_opts)
-                answer_content_str = "\n".join(opt.content for opt in correct_opts)
+                answer_content_str = "\n".join(extract_text(opt.content) for opt in correct_opts)
 
             self._set_cached_answer(
                 sheet.question_id,
                 {
-                    "question": question.content,
+                    "question": extract_text(question.content),
                     "answer": answer_str,
                     "answer_content": answer_content_str,
                     "questionDict": question.model_dump(),
@@ -397,30 +440,37 @@ class AiExamBase(ABC):
     # --- 缓存持久化（通过 AiExamCache）---
 
     def _load_cache(self) -> None:
-        """加载缓存（通过 AiExamCache 读取新格式）
+        """加载当前 exam 的缓存到内存（通过 AiExamCache 读取 SQLite）
 
-        - _all_answer_cache: 合并课程下所有 exam 的缓存
-        - _answer_cache: 当前 exam 的缓存
+        仅加载当前 exam，跨 exam 查询通过 search_in_course 按需触发，
+        不再预加载课程下所有 exam（去掉 _all_answer_cache 内存合并）。
         """
-        # 加载课程下所有 exam 的缓存（合并）
-        self._all_answer_cache = dict(self._cache.load_all_for_course(self._course_id))
-
-        # 加载当前 exam 的缓存
         self._answer_cache = {}
-        exam_entries = self._cache._load_exam(self._course_id, self._exam_test_id)
+        exam_entries = self._cache.load_exam(self._course_id, self._exam_test_id)
         for key, value in exam_entries.items():
             if isinstance(value, dict):
                 self._answer_cache[key] = value
 
     def _save_cache(self) -> None:
-        """保存缓存（通过 AiExamCache 写入新格式）
+        """保存当前 exam 内存缓存到 SQLite（通过 AiExamCache.put）
 
-        仅保存当前 exam 的缓存到 {course_id}/{exam_id}.json。
-        _all_answer_cache 在 _set_cached_answer 时同步更新，无需单独持久化。
+        course_name 从 _op_extra["courseName"] 取，传入 cache.put 以持久化。
+        UPSERT 的 CASE WHEN 逻辑会在已有空值时回填，不会覆盖已有非空值。
         """
+        course_name = str(self._op_extra.get("courseName", "")) if self._op_extra else ""
+        logger.debug(
+            f"保存缓存: course_id={self._course_id}, exam_id={self._exam_test_id}, "
+            f"course_name={course_name!r}, 条目数={len(self._answer_cache)}"
+        )
         for question_id_str, entry in self._answer_cache.items():
             try:
                 question_id = int(question_id_str)
-                self._cache.put(self._course_id, self._exam_test_id, question_id, entry)
+                self._cache.put(
+                    self._course_id,
+                    self._exam_test_id,
+                    question_id,
+                    entry,
+                    course_name=course_name,
+                )
             except (ValueError, TypeError) as e:
                 logger.error(f"保存缓存失败 question_id={question_id_str}: {e}")

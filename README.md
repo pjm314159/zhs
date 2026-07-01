@@ -9,7 +9,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 ## 功能特性
 
 - **三类课程全覆盖**：知到（Zhidao）/ Hike 职教云 / AI 智慧课程
-- **命令式 CLI**：`zhs init / login / play / homework / exam / fetch` 子命令清晰分离
+- **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离
 - **扫码登录**：自动保存 Cookie，避免重复登录
 - **视频自动刷课**：模拟真人观看（随机暂停、随机延迟、进度条显示）
 - **弹窗答题**：视频内弹窗题目自动选择正确答案
@@ -35,6 +35,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 | Token 计数 | tiktoken                   |
 | 二维码 | qrcode + Pillow            |
 | PPT 解析 | python-pptx                |
+| HTML 文本提取 | beautifulsoup4             |
 | 测试 | pytest + respx + freezegun |
 | Lint / Format | ruff                       |
 | 类型检查 | mypy strict                |
@@ -99,13 +100,13 @@ zhs login --show-in-terminal
 zhs fetch
 ```
 
-打印所有课程列表并保存到 `~/.zhs/execution.json`。
+打印所有课程列表并保存到 `~/.zhs/execution.json`（输出 `courseId`，可用作 `-c` 参数）。
 
 ### 4. 刷视频
 
 ```bash
-# 刷单个知到课程
-zhs play -c ABC123
+# 刷单个知到课程（courseId）
+zhs play -c 1000008156 --type zhidao
 
 # 刷单个 Hike 课程
 zhs play -c 12345
@@ -116,28 +117,42 @@ zhs play -c 1001:2001 --type ai
 # 或使用 --ai-course / --ai-class 显式指定
 zhs play --ai-course 1001 --ai-class 2001
 
+# 通过 URL 自动解析（知到视频页 / AI 学习页 / AI 课程页）
+zhs play --url "https://studyvideoh5.zhihuishu.com/stuStudy?recruitAndCourseId=xxx"
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/ courseId/nodeUid/classId"
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/courseId/classId"
+
 # 全刷所有课程
 zhs play
 
 # 指定速度与时间限制
-zhs play -c ABC123 -s 1.5 -l 30
+zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 ```
+
+> **--url 与 -c 互斥**。`--url` 自动从浏览器复制的 URL 中解析课程参数：
+> - 知到视频页（`recruitAndCourseId=`）→ 扫描模式全刷
+> - AI 学习页（`learnPage/{courseId}/{nodeUid}/{classId}`）→ 直接模式，只刷该知识点
+> - AI 课程页（`knowledgeStudy/{courseId}/{classId}`）→ 扫描模式全刷
 
 ### 5. 写章节测试
 
 ```bash
-# 知到课程作业（按课程 ID）
-zhs homework -c ABC123
+# 知到课程作业（按 courseId）
+zhs homework -c 1000008156 --type zhidao
 
 # AI 课程作业
 zhs homework --ai-course 1001 --ai-class 2001
 
-# 通过浏览器复制的作业 URL 直接做题
+# 通过浏览器复制的 URL 直接做题（知到作业 / AI 学习页 / AI 课程页）
 zhs homework --url "https://onlineexamh5new.zhihuishu.com/stuExamWeb.html#/webExamList/dohomework/..."
+zhs homework --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/courseId/nodeUid/classId"
+zhs homework --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/courseId/classId"
 
 # 全刷作业
 zhs homework
 ```
+
+> AI 课程 `learnPage` URL 含 `nodeUid`（知识点 ID）时走**直接模式**，只做该知识点作业；`knowledgeStudy` URL 走**扫描模式**全刷。
 
 ### 6. AI 课程考试
 
@@ -147,6 +162,9 @@ zhs exam --ai-course 1001 --ai-class 2001
 
 # 答题并提交
 zhs exam --ai-course 1001 --ai-class 2001 --submit
+
+# 通过 testDetail URL 直接做某个特定考试
+zhs exam --url "https://ai-smart-course-student-pro.zhihuishu.com/testDetail/courseId/classId/examTestId/examPaperId/..."
 
 # 自动遍历所有 AI 课程的未完成考试
 zhs exam --type ai
@@ -158,12 +176,13 @@ zhs exam --type ai
 |------|------|
 | `zhs init` | 初始化 `~/.zhs/` 目录与默认配置 |
 | `zhs login` | 扫码登录并保存 Cookie |
-| `zhs play` | 刷视频（支持知到 / Hike / AI） |
-| `zhs homework` | 写作业（知到作业 + AI 课程作业） |
-| `zhs exam` | AI 课程考试 |
-| `zhs fetch` | 获取并保存课程列表 |
+| `zhs play` | 刷视频（支持知到 / Hike / AI，支持 `--url`） |
+| `zhs homework` | 写作业（知到作业 + AI 课程作业，支持 `--url`） |
+| `zhs exam` | AI 课程考试（支持 `--url` 直接做某个考试） |
+| `zhs fetch` | 获取并保存课程列表（输出 `courseId`） |
+| `zhs cache` | 题库缓存管理（`export` 导出 / `import` 导入 JSON） |
 
-每个命令均支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
+每个命令均支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数。`play`/`homework`/`exam` 支持 `--url`（与 `-c` 互斥，自动从浏览器 URL 解析课程参数）。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
 
 ## 配置
 
@@ -229,16 +248,19 @@ max_token = 27900
 | `execution.json` | `zhs fetch` 生成的课程列表 |
 | `qrcode.png` | 登录二维码图片 |
 | `logs/` | 日志目录（按天轮转，保留 30 天） |
-| `cache/` | 答案缓存目录（统一格式，见下表） |
+| `cache/` | 答案缓存目录（SQLite 数据库，见下） |
 
-### 缓存目录结构
+### 缓存存储
 
-缓存按课程类型分目录，路径格式为 `~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json`：
+答案缓存统一存储于 SQLite 数据库 `~/.zhs/cache/questions_bank.db`，包含两张表：
 
-| 路径 | 说明 |
+| 表 | 说明 |
 |------|------|
-| `cache/zhidao/{course_id}/{exam_id}.json` | 知到作业答案缓存（含对错标记、AI 解析） |
-| `cache/ai/{course_id}/{exam_id}.json` | AI 作业/考试答案缓存（HomeworkCtx 与 ExamCtx 共用） |
+| `zhidao_questions` | 知到作业答案缓存（双键 eid + question_id，含对错标记、AI 解析） |
+| `ai_questions` | AI 作业/考试答案缓存（单键 question_id，HomeworkCtx 与 ExamCtx 共用） |
+
+可通过 `zhs cache export -c COURSE_ID` 导出为人类可读 JSON 分享，`zhs cache import PATH` 导入。
+旧版 JSON 缓存可通过 `.temp/migrate_cache_to_db.py` 迁移到 SQLite。
 
 
 ## 开发

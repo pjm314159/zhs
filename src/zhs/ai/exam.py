@@ -65,6 +65,11 @@ class ExamCtx(AiExamBase):
         """考试 API 基础 URL"""
         return self._session.urls.exam
 
+    @property
+    def _cross_exam_search(self) -> bool:
+        """考试启用跨 exam 课程级查询（考试考察课程全部知识，需复用其他 exam 的答案）"""
+        return True
+
     def _api_query(self, url: str, data: dict[str, Any], method: str = "POST") -> dict[str, Any]:
         """同步考试 API 查询（exam_key 加密）"""
         return self._session.ai_exam_query(url, data, method=method)

@@ -23,6 +23,7 @@ dependencies = [
     "qrcode>=8.2",           # 编码二维码
     "tomli-w>=1.2.0",        # config的toml
     "python-pptx>=1.0",      # PPT 本地文本提取（python-pptx）
+    "beautifulsoup4>=4.12",  # HTML 标签剥离与实体转义（题目文本清洗）
 ]
 
 # 构建系统（src layout 需要）

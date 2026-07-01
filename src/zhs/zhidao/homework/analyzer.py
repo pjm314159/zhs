@@ -6,13 +6,13 @@ lookHomework → getStuAnswerInfo → 保存对错到缓存 → 判断是否重�
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from zhs.config import AppConfig
 from zhs.session import ZhsSession
+from zhs.utils.html import extract_text
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
     HomeworkDetail,
@@ -23,11 +23,6 @@ from zhs.zhidao.homework.models import (
 
 if TYPE_CHECKING:
     from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
-
-
-def _strip_html(text: str) -> str:
-    """移除 HTML 标签，保留纯文本"""
-    return re.sub(r"<[^>]+>", "", text).strip()
 
 
 class HomeworkAnalyzer:
@@ -128,9 +123,18 @@ class HomeworkAnalyzer:
 
             if answer_info.is_correct:
                 # 正确 → 标记选择的选项为正确
+                # auto_clear_wrong=True: 再次做对（之前做错）时清除 wrong 和 ai_analysis
+                # 首次做对（无 wrong_options）不会清除，保证性能
                 option_ids = self._parse_answer_option_ids(answer_info.answer)
                 if option_ids:
-                    self._cache.mark_correct(item.course_id, item.exam_id, key, option_ids)
+                    self._cache.mark_correct(
+                        item.course_id,
+                        item.exam_id,
+                        key,
+                        option_ids,
+                        course_name=item.course_name,
+                        auto_clear_wrong=True,
+                    )
                     logger.debug(f"题目 {qid} 正确: 选项 {option_ids}")
 
             elif answer_info.is_wrong:
@@ -141,13 +145,25 @@ class HomeworkAnalyzer:
                     text = answer_info.answer.strip()
                     if text:
                         wrong_texts = [t.strip() for t in text.split("/") if t.strip()]
-                        self._cache.mark_wrong(item.course_id, item.exam_id, key, wrong_texts)
+                        self._cache.mark_wrong(
+                            item.course_id,
+                            item.exam_id,
+                            key,
+                            wrong_texts,
+                            course_name=item.course_name,
+                        )
                         logger.debug(f"题目 {qid} 错误(填空): {wrong_texts}")
                 else:
                     # 选择题/判断题：存完整选项组合
                     option_ids = self._parse_answer_option_ids(answer_info.answer)
                     if option_ids:
-                        self._cache.mark_wrong(item.course_id, item.exam_id, key, option_ids)
+                        self._cache.mark_wrong(
+                            item.course_id,
+                            item.exam_id,
+                            key,
+                            option_ids,
+                            course_name=item.course_name,
+                        )
                         logger.debug(f"题目 {qid} 错误(选择): 组合 {option_ids}")
 
     def _save_question_options_to_cache(self, question: HomeworkQuestion, item: HomeworkItem) -> None:
@@ -158,14 +174,17 @@ class HomeworkAnalyzer:
         if not qid:
             return
 
-        options = [HomeworkCacheOption(id=opt.id, content=opt.content) for opt in question.question_options]
+        options = [
+            HomeworkCacheOption(id=opt.id, content=extract_text(opt.content)) for opt in question.question_options
+        ]
         self._cache.save_options(
             course_id=item.course_id,
             exam_id=item.exam_id,
             question_key=qid,
             question_type=question.question_type_id,
             options=options,
-            content=_strip_html(question.name),
+            content=extract_text(question.name),
+            course_name=item.course_name,
         )
 
     def should_redo(self, item: HomeworkItem, score_rate: float) -> bool:

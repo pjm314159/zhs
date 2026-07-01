@@ -19,8 +19,8 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
     from zhs.utils.path import get_data_dir
     from zhs.zhidao.course import ZhidaoCourseManager
 
-    zhidao_ids: list[dict[str, str]] = []
-    hike_ids: list[dict[str, str]] = []
+    zhidao_ids: list[dict[str, Any]] = []
+    hike_ids: list[dict[str, Any]] = []
     ai_ids: list[dict[str, Any]] = []
 
     if fetch_type in ("all", "course"):
@@ -28,8 +28,8 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
         hike_mgr = HikeCourseManager(session)
         ai_mgr = AiCourseManager(session)
 
-        zhidao_ids = [{"name": c.course_name, "id": c.secret} for c in zhidao_mgr.get_course_list()]
-        hike_ids = [{"name": c.course_name, "id": str(c.course_id)} for c in hike_mgr.get_course_list()]
+        zhidao_ids = [{"name": c.course_name, "courseId": c.course_id} for c in zhidao_mgr.get_course_list()]
+        hike_ids = [{"name": c.course_name, "courseId": str(c.course_id)} for c in hike_mgr.get_course_list()]
         ai_ids = [
             {
                 "name": c.get("courseName", ""),
@@ -41,10 +41,10 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
 
         print(f"{course_tag('zhidao')} {len(zhidao_ids)} 门课程")
         for c in zhidao_ids:
-            print(f"  {c['name']} ({c['id']})")
+            print(f"  {c['name']} (courseId={c['courseId']})")
         print(f"{course_tag('hike')} {len(hike_ids)} 门课程")
         for c in hike_ids:
-            print(f"  {c['name']} ({c['id']})")
+            print(f"  {c['name']} (courseId={c['courseId']})")
         print(f"{course_tag('ai')} {len(ai_ids)} 门课程")
         for c in ai_ids:
             print(f"  {c['name']} (courseId={c['courseId']}, classId={c['classId']})")

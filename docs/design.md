@@ -25,11 +25,11 @@ e:\project\python\ZHS\
 │       ├── exceptions.py       # 全局异常定义
 │       ├── logger.py           # 日志配置（loguru）
 │       ├── reporter.py         # 进度报告器（ConsoleReporter / ProgressReporter）
-│       ├── cache/              # 统一缓存子包
+│       ├── cache/              # 统一缓存子包（SQLite 存储）
 │       │   ├── __init__.py
-│       │   ├── base.py         # BaseQuestionCache[T] 抽象基类（PEP 695 泛型）
-│       │   ├── zhidao_cache.py # ZhidaoHomeworkCache（知到作业缓存）
-│       │   └── ai_cache.py     # AiExamCache（AI 作业/考试缓存）
+│       │   ├── base.py         # BaseQuestionCache 旧基类（已弃用，保留兼容）
+│       │   ├── zhidao_cache.py # ZhidaoHomeworkCache（SQLite 双键 eid+question_id）
+│       │   └── ai_cache.py     # AiExamCache（SQLite 单键 question_id，UPSERT）
 │       ├── zhidao/             # 知到共享课程
 │       │   ├── __init__.py
 │       │   ├── models.py       # 数据模型
@@ -67,17 +67,21 @@ e:\project\python\ZHS\
 │       ├── cli/                # CLI 子包
 │       │   ├── __init__.py
 │       │   ├── bootstrap.py    # CLI 初始化（配置、日志、session）
-│       │   ├── course_type.py  # 课程类型检测
+│       │   ├── course_type.py  # 课程类型检测（含冒号→ai，纯数字→知到列表优先）
+│       │   ├── course_resolver.py # 统一 -c 解析（ResolvedCourse，知到反查 rac_id）
+│       │   ├── url_parser.py   # 按命令分层的 URL 解析（parse_play/homework/exam_url）
 │       │   └── services/       # 命令服务
 │       │       ├── __init__.py
-│       │       ├── play_service.py
-│       │       ├── homework_service.py
-│       │       ├── exam_service.py
-│       │       └── fetch_service.py
+│       │       ├── play_service.py     # 含 dispatch_play_url（--url 分发）
+│       │       ├── homework_service.py # 含 dispatch_homework_url（--url 分发）
+│       │       ├── exam_service.py     # 含 dispatch_exam_url（--url 分发）
+│       │       ├── fetch_service.py    # 输出 courseId（不再输出 secret）
+│       │       └── cache_service.py    # zhs cache export/import 业务逻辑
 │       └── utils/              # 工具
 │           ├── __init__.py
 │           ├── display.py      # 进度条 / 二维码 / 树形视图
 │           ├── cookie.py       # Cookie 序列化
+│           ├── html.py         # HTML 文本提取（extract_text，BeautifulSoup）
 │           └── path.py         # 路径工具
 ├── tests/                      # 测试目录（镜像 src/zhs 结构）
 │   ├── conftest.py             # 全局 fixtures
@@ -90,9 +94,10 @@ e:\project\python\ZHS\
 │   ├── test_reporter.py
 │   ├── cache/                  # 缓存测试
 │   │   ├── __init__.py
-│   │   ├── test_base.py        # BaseQuestionCache 测试
-│   │   ├── test_zhidao_cache.py
-│   │   └── test_ai_cache.py
+│   │   ├── test_base.py        # BaseQuestionCache 旧基类测试
+│   │   ├── test_zhidao_cache.py     # ZhidaoHomeworkCache（SQLite）
+│   │   ├── test_zhidao_cache_db.py  # SQLite 双键/桥接/课程级查询测试
+│   │   └── test_ai_cache.py    # AiExamCache（SQLite）
 │   ├── zhidao/
 │   │   ├── conftest.py
 │   │   ├── test_course.py
@@ -134,9 +139,14 @@ e:\project\python\ZHS\
 │   ├── utils/
 │   │   ├── test_cookie.py
 │   │   ├── test_display.py
+│   │   ├── test_html.py         # extract_text 测试
 │   │   └── test_path.py
 │   └── cli/
-│       └── test_main.py
+│       ├── test_main.py
+│       ├── test_bootstrap.py
+│       ├── test_course_type.py  # 课程类型检测测试
+│       ├── test_course_resolver.py # 课程 ID 解析测试
+│       └── test_url_parser.py   # URL 解析测试
 └── docs/
     ├── spec.md                 # 功能规格
     ├── design.md               # 本文档
@@ -592,100 +602,136 @@ stateDiagram-v2
 - `gologin` 返回 HTML 不解析 JSON
 - Cookie 恢复由 CLI 的 `_try_restore_cookies` 处理，通过调用 `ZhidaoCourseManager.get_course_list()` 验证有效性
 
-### 2.6 cache/ — 统一缓存子包
+### 2.6 cache/ — 统一缓存子包（SQLite 存储）
 
-统一管理知到作业与 AI 作业/考试的答案缓存，消除各模块自行实现 JSON 读写的重复代码。
+统一管理知到作业与 AI 作业/考试的答案缓存。使用单一 SQLite 数据库
+`{cache_dir}/questions_bank.db`，包含 `zhidao_questions` 与 `ai_questions` 两张表，
+替代旧的 JSON 文件存储。
 
-#### 2.6.1 base.py — BaseQuestionCache 抽象基类
+**设计目标**：
+1. 一道题一条记录，知到双键（eid + question_id）直查，无需运行时桥接
+2. 桥接只在保存时执行（低频），查询时 O(1) 索引
+3. exam 模块可跨 exam 搜索课程题库（`search_in_course`），homework 仅查当前 exam
+4. 提供 `zhs cache export/import` CLI，输出人类可读 JSON 便于分享
+5. 缓存中的 `content` / `question` / `answer_content` 字段经 `extract_text` 清洗 HTML
 
-```python
-from abc import ABC, abstractmethod
-from pathlib import Path
+#### 2.6.1 数据库表结构
 
-class BaseQuestionCache[T](ABC):
-    """题目缓存基类（PEP 695 泛型）
+```sql
+-- 知到作业表（双键：eid + question_id）
+CREATE TABLE zhidao_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL,
+    course_name TEXT NOT NULL DEFAULT '',
+    exam_id TEXT NOT NULL,
+    eid TEXT,                          -- doHomework 阶段保存
+    question_id TEXT,                  -- lookHomework 阶段保存（桥接关联到 eid 记录）
+    question_type INTEGER NOT NULL DEFAULT -1,
+    content TEXT NOT NULL DEFAULT '',  -- extract_text 清洗后的题目纯文本
+    options TEXT NOT NULL DEFAULT '[]',
+    option_ids_hash TEXT NOT NULL DEFAULT '',
+    correct_options TEXT NOT NULL DEFAULT '[]',
+    wrong_options TEXT NOT NULL DEFAULT '[]',
+    ai_analysis TEXT,
+    last_updated TEXT NOT NULL
+);
+-- 双键唯一索引 + 课程级查询索引（option_ids_hash / content）
 
-    子类通过设置 course_type 与实现序列化方法，复用路径管理与持久化逻辑。
-    """
-
-    course_type: str = ""
-
-    def __init__(self, cache_dir: Path | None = None) -> None: ...
-
-    def _cache_path(self, course_id: int | str, exam_id: int | str) -> Path:
-        """缓存文件路径: {cache_dir}/{course_type}/{course_id}/{exam_id}.json"""
-
-    def _load_exam(self, course_id: int | str, exam_id: int | str) -> dict[str, T]:
-        """加载某个 exam 的缓存（惰性加载，结果缓存在 _loaded）"""
-
-    def _save_exam(self, course_id: int | str, exam_id: int | str, entries: dict[str, T]) -> None:
-        """保存某个 exam 的缓存"""
-
-    def _load_all_exams(self, course_id: int | str) -> dict[str, T]:
-        """加载课程下所有 exam 的缓存（扫描目录合并）"""
-
-    @abstractmethod
-    def _deserialize_entry(self, data: dict[str, Any]) -> T: ...
-    @abstractmethod
-    def _serialize_entry(self, entry: T) -> dict[str, Any]: ...
+-- AI 作业表（单键：question_id，UPSERT）
+CREATE TABLE ai_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL,
+    course_name TEXT NOT NULL DEFAULT '',
+    exam_id TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    question TEXT NOT NULL DEFAULT '',     -- extract_text 清洗后
+    answer TEXT NOT NULL DEFAULT '',
+    answer_content TEXT NOT NULL DEFAULT '',
+    question_dict TEXT NOT NULL DEFAULT '{}',
+    last_updated TEXT NOT NULL
+);
+-- 唯一索引 (course_id, exam_id, question_id) + 课程级查询索引 (course_id, question)
 ```
-
-**设计要点**：
-- 使用 PEP 695 类型参数语法 `class BaseQuestionCache[T](ABC):`（替代 `Generic[T]`，ruff UP046 要求）
-- 缓存路径统一格式：`{cache_dir}/{course_type}/{course_id}/{exam_id}.json`
-- 惰性加载：`_loaded` 字典缓存已读取的 exam，避免重复 IO
-- 损坏文件自动跳过并记录日志（`logger.error`），不抛异常
-- `_load_all_exams` 扫描课程目录下所有 `.json` 文件并合并，用于构建跨 exam 的合并缓存
 
 #### 2.6.2 zhidao_cache.py — ZhidaoHomeworkCache
 
 ```python
-class ZhidaoHomeworkCache(BaseQuestionCache[HomeworkCacheEntry]):
-    """知到作业答案本地缓存"""
+class ZhidaoHomeworkCache:
+    """知到作业答案本地缓存（SQLite 双键）"""
 
-    course_type = "zhidao"
+    def __init__(self, cache_dir: Path | None = None) -> None: ...
 
+    # 查询（O(1) 索引，无需桥接）
     def get(self, course_id: int, exam_id: str, question_key: str) -> HomeworkCacheEntry | None: ...
-    def put(self, course_id: int, exam_id: str, question_key: str, entry: HomeworkCacheEntry) -> None: ...
-    def mark_correct(self, course_id: int, exam_id: str, question_key: str, option_ids: list[int]) -> None: ...
-    def mark_wrong(self, course_id: int, exam_id: str, question_key: str, option_ids: list[int]) -> None: ...
     def get_correct_options(self, course_id: int, exam_id: str, question_key: str) -> list[int]: ...
-    def get_wrong_options(self, course_id: int, exam_id: str, question_key: str) -> list[int]: ...
-    def save_ai_analysis(self, course_id: int, exam_id: str, question_key: str, ai_analysis: str) -> None: ...
-    def save_options(self, course_id: int, exam_id: str, question_key: str, question_type: int, options: list[HomeworkCacheOption]) -> None: ...
-    def find_key_by_options(self, course_id: int, exam_id: str, option_ids: list[int]) -> str | None: ...
-    def load_all_for_course(self, course_id: int) -> dict[str, HomeworkCacheEntry]: ...
+    def get_wrong_options(self, course_id: int, exam_id: str, question_key: str) -> list[WrongOption]: ...
+
+    # 保存（含桥接）
+    def save_options_by_eid(self, course_id, exam_id, eid, question_type, options, content, course_name) -> None: ...
+    def save_options_by_id(self, course_id, exam_id, question_id, question_type, options, content, course_name) -> None: ...
+    def mark_correct(self, course_id, exam_id, question_key, option_ids: list[int]) -> None: ...
+    def mark_wrong(self, course_id, exam_id, question_key, answer) -> None: ...
+    def save_ai_analysis(self, course_id, exam_id, question_key, ai_analysis: str) -> None: ...
+
+    # 桥接查找（当前 exam）
+    def find_key_by_options(self, course_id, exam_id, option_ids: list[int]) -> str | None: ...
+    def find_key_by_content(self, course_id, exam_id, content: str) -> str | None: ...
+
+    # 课程级查询（跨 exam，仅 exam 模块）
+    def search_in_course(self, course_id, content="", option_ids=None) -> HomeworkCacheEntry | None: ...
+    def load_all_for_course(self, course_id) -> dict[str, HomeworkCacheEntry]: ...
+
+    # 导出导入
+    def export_course(self, course_id) -> dict[str, Any]: ...
+    def import_course(self, data: dict[str, Any]) -> None: ...
 ```
 
-**与旧 HomeworkCache 的差异**：
-- 路径从 `zhidao_homework_cache/{courseId}/{examId}.json` 改为 `zhidao/{course_id}/{exam_id}.json`
-- key 从 `courseId:examId:questionKey` 改为纯 `question_key`
-- 继承 `BaseQuestionCache[HomeworkCacheEntry]`，复用路径与持久化逻辑
+**保存桥接逻辑**：
+- `save_options_by_eid`（doHomework 阶段，eid 先于 id）：已有则跳过，否则 INSERT (eid, question_id=NULL)
+- `save_options_by_id`（lookHomework 阶段，id 后于 eid）：
+  1. 已有 question_id 记录 → UPDATE
+  2. 桥接查找（当前 exam，eid IS NOT NULL）：按 `option_ids_hash` 或 `content` 匹配 → UPDATE 补上 question_id
+  3. 桥接未找到 → INSERT (eid=NULL, question_id=值)
+- `question_key.isdigit()` 决定路由到 question_id 列（数字）或 eid 列（非数字）
 
 #### 2.6.3 ai_cache.py — AiExamCache
 
 ```python
-class AiExamCache(BaseQuestionCache[dict[str, Any]]):
-    """AI 作业/考试缓存（HomeworkCtx 与 ExamCtx 共用）"""
+class AiExamCache:
+    """AI 作业/考试缓存（SQLite 单键 UPSERT）"""
 
-    course_type = "ai"
+    def __init__(self, cache_dir: Any | None = None) -> None: ...
 
-    def get(self, course_id: int | str, exam_id: int | str, question_id: int) -> dict[str, Any] | None: ...
-    def put(self, course_id: int | str, exam_id: int | str, question_id: int, entry: dict[str, Any]) -> None: ...
-    def load_all_for_course(self, course_id: int | str) -> dict[str, dict[str, Any]]: ...
+    def get(self, course_id, exam_id, question_id: int) -> dict[str, Any] | None: ...
+    def put(self, course_id, exam_id, question_id: int, entry: dict[str, Any], course_name: str = "") -> None: ...
+    def load_all_for_course(self, course_id) -> dict[str, dict[str, Any]]: ...
+    def load_exam(self, course_id, exam_id) -> dict[str, dict[str, Any]]: ...
+
+    # 课程级查询（跨 exam，仅 exam 模块）
+    def search_in_course(self, course_id, question: str) -> dict[str, Any] | None: ...
+
+    # 导出导入
+    def export_course(self, course_id) -> dict[str, Any]: ...
+    def import_course(self, data: dict[str, Any]) -> None: ...
 
     @staticmethod
-    def parse_answer(answer_str: str) -> list[str] | None:
-        """解析 answer 字段：含 #@# → 分隔，否则单元素列表"""
+    def parse_answer(answer_str: str) -> list[str] | None: ...
 ```
 
 **设计要点**：
 - 条目格式：`{"question": str, "answer": str, "answer_content": str, "questionDict": dict}`
-- key 为 `question_id` 的字符串形式
+- key 为 `question_id` 的字符串形式，UPSERT 语义
 - `parse_answer` 静态方法供 `AiExamBase._parse_cached_answer` 委托调用
-- `load_all_for_course` 用于构建 `_all_answer_cache`（跨 exam 合并缓存）
+- `search_in_course` 按 `question` 文本跨 exam 搜索，仅返回有答案的题目（仅 ExamCtx 调用）
+- `load_exam` 加载当前 exam 缓存到内存；`load_all_for_course` 保留为工具方法（不再被 exam_base 预加载）
 
-#### 2.6.4 zhidao/homework/cache.py — 兼容入口
+#### 2.6.4 base.py — 已弃用基类
+
+`BaseQuestionCache[T]` 是旧的 JSON 文件缓存基类（PEP 695 泛型）。
+`ZhidaoHomeworkCache` 与 `AiExamCache` 已迁移到独立 SQLite 实现，不再继承此类。
+`base.py` 保留但无子类使用，后续可清理。
+
+#### 2.6.5 zhidao/homework/cache.py — 兼容入口
 
 ```python
 """知到作业本地缓存管理（兼容入口）
@@ -1332,7 +1378,9 @@ class AiExamBase(ABC):
     def _answer_questions(self, sheets: list[QuestionSheet]) -> None: ...
 
     # --- 公共实现 ---
-    def _get_cached_answer(self, question_id: int) -> list[str] | None: ...
+    @property
+    def _cross_exam_search(self) -> bool: ...  # 基类 False，ExamCtx 重写 True
+    def _get_cached_answer(self, question_id: int, question_text: str = "") -> list[str] | None: ...
     @staticmethod
     def _parse_cached_answer(answer_str: str) -> list[str] | None: ...
     def _load_cache(self) -> None: ...
@@ -1342,7 +1390,8 @@ class AiExamBase(ABC):
 
 **设计要点**：
 - **模板方法模式**：`start()` 定义算法骨架（加载缓存 → 打开 → 心跳 → 答题 → 提交），子类实现差异化步骤
-- **两级缓存**：`_answer_cache`（当前 exam）+ `_all_answer_cache`（跨 exam 合并），持久化通过 `AiExamCache`
+- **单级内存缓存 + 三级查询**：`_answer_cache`（当前 exam 内存缓存），`_get_cached_answer` 三级查询：内存 → `cache.get`（当前 exam SQLite）→ `cache.search_in_course`（跨 exam，仅 ExamCtx）。持久化通过 `AiExamCache`
+- **跨 exam 查询开关**：`_cross_exam_search` 属性，基类 False（homework 仅查当前 exam），ExamCtx 重写 True（可跨 exam 复用答案）
 - **三级答案策略**：缓存 → AI（LLM）→ 随机兜底
 - **LLM 提供者初始化**：通过 `LLMProviderFactory.create()` 统一创建，消除子类重复代码
 - **心跳**：`threading.Thread(daemon=True)`，通过 `_stopped` 标志退出
@@ -1401,7 +1450,7 @@ sequenceDiagram
     loop 每道题目（顺序处理，每题 sleep 3-5s）
         H->>API: _get_question_content()
         API-->>H: QuestionContent
-        H->>Cache: 查缓存（_all_answer_cache → _answer_cache）
+        H->>Cache: 查缓存（_answer_cache → cache.get 当前 exam）
         alt 缓存命中
             Cache-->>H: cached answer
         else 缓存未命中
@@ -1458,6 +1507,9 @@ class ExamCtx(AiExamBase):
     def _submit(self, submit: bool) -> None: ...  # submit
     def _answer_questions(self, sheets: list[QuestionSheet]) -> None: ...  # 批量处理
     def _open_exam_detail(self) -> dict: ...  # 提交后判断是否可查看答案
+
+    @property
+    def _cross_exam_search(self) -> bool: ...  # 重写为 True，启用跨 exam 查询
 ```
 
 **与 HomeworkCtx 的关键差异**：
@@ -1469,6 +1521,7 @@ class ExamCtx(AiExamBase):
 | 填空题答案分隔 | 换行 | `/` 分隔 |
 | 心跳 API | `updateUserUsedTime` | `updateUserUsedTime` |
 | 提交后行为 | 检查得分率 | `openExamDetail` 判断是否可查看答案 |
+| 跨 exam 查询 | 否（`_cross_exam_search=False`，仅查当前 exam） | 是（`_cross_exam_search=True`，可跨 exam 复用答案） |
 | 配置 | `HomeworkConfig` | `ExamConfig`（`save_nums`/`delay_min`/`delay_max`） |
 | CLI 命令 | `zhs homework` | `zhs exam` |
 
@@ -1696,6 +1749,24 @@ def get_real_path(path: str) -> Path: ...
 **设计要点**：
 - **已删除** `version_cmp`（未使用的版本比较函数）
 
+#### 2.11.4 html.py — HTML 文本提取
+
+```python
+def extract_text(html: str) -> str:
+    """使用 BeautifulSoup 从 HTML 中提取纯文本
+
+    - 解析嵌套标签（<p><span>文本</span></p> → 文本）
+    - 正确处理 HTML 实体（&nbsp; → 空格、&amp; → &）
+    - 多余空白合并为单个空格
+    - 空输入返回空字符串
+    """
+```
+
+**设计要点**：
+- 替代旧的正则清洗 `_strip_html`（无法处理嵌套标签与 HTML 实体）
+- 用于：作业输出打印、缓存 `content` 字段、桥接匹配
+- 依赖 `beautifulsoup4`，解析器使用 `html.parser`（标准库自带）
+
 ### 2.12 logger.py — 日志模块
 
 基于 loguru 的日志系统，替代旧版自定义 MonoLogger。
@@ -1922,8 +1993,12 @@ flowchart TD
 
 **课程类型检测说明**：
 - `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai`/`auto` 时直接路由
-- 自动检测（"含字母→知到，纯数字→Hike"）仅作为 fallback
+- 自动检测规则（`detect_course_type`）：
+  - 含冒号（`courseId:classId`）→ AI 课程
+  - 含字母 → 知到（zhidao）
+  - 纯数字 → 传入 `session` 反查知到课程列表，命中则知到，否则 Hike
 - `--type auto` 等同于不指定，执行全刷模式
+- `play`/`homework`/`exam` 支持 `--url` 参数（与 `-c` 互斥），由 `cli/url_parser.py` 按命令分层解析
 
 **设计要点**：
 - 使用 typer 框架替代旧版 argparse
@@ -1931,6 +2006,83 @@ flowchart TD
 - `no_args_is_help=True`：无参数时显示帮助
 - AI 课程使用 `--ai-course` + `--ai-class` 显式指定 courseId 和 classId
 - 知到作业需先调用 `session.exam_sso_login()` 进行 CAS SSO 认证
+- `--url` 由 `dispatch_play_url` / `dispatch_homework_url` / `dispatch_exam_url` 分发到对应 service
+
+### 2.14 cli/ — CLI 子包（URL 解析与课程解析）
+
+#### 2.14.1 url_parser.py — 按命令分层的 URL 解析
+
+```python
+@dataclass
+class ParsedPlayUrl:
+    course_id: int | str | None
+    class_id: str | None = None
+    node_uid: str | None = None      # 非空 → 直接模式（只刷该知识点）
+    recruit_and_course_id: str | None = None  # 知到 rac_id
+
+@dataclass
+class ParsedHomeworkUrl:
+    course_id: int | str | None
+    class_id: str | None = None
+    node_uid: str | None = None
+    # 知到作业直接做题
+    recruit_id: str | None = None
+    stu_exam_id: str | None = None
+    exam_id: str | None = None
+    school_id: str | None = None
+
+@dataclass
+class ParsedExamUrl:
+    course_id: int | str | None
+    class_id: str | None = None
+    exam_test_id: str | None = None
+    exam_paper_id: str | None = None
+
+def parse_play_url(url: str) -> ParsedPlayUrl: ...
+def parse_homework_url_v2(url: str) -> ParsedHomeworkUrl: ...
+def parse_exam_url(url: str) -> ParsedExamUrl: ...
+```
+
+**设计要点**：
+- **不依赖域名前缀**，仅按 URL 路径模式匹配（`learnPage` / `knowledgeStudy` / `testDetail` / `dohomework` / `recruitAndCourseId`）
+- 每个命令有独立的解析函数与返回类型，职责清晰
+- `node_uid` 非空 → 直接模式（只处理该知识点）；为空 → 扫描模式（全刷课程）
+
+#### 2.14.2 course_resolver.py — 统一 -c 解析
+
+```python
+@dataclass
+class ResolvedCourse:
+    course_id: int | str
+    course_type: str    # zhidao / hike / ai
+    class_id: str | None = None
+    rac_id: str | None = None  # 知到 recruitAndCourseId
+
+def resolve_course_id(
+    course_str: str,
+    course_type: str = "auto",
+    session: ZhsSession | None = None,
+) -> ResolvedCourse: ...
+```
+
+**设计要点**：
+- 统一处理 `-c` 参数：纯数字、含字母、`courseId:classId` 格式
+- `auto` 模式下纯数字 ID 调用 `_find_rac_by_course_id` 反查知到课程列表
+- AI 课程从 `courseId:classId` 格式解析出 `course_id` 与 `class_id`
+
+#### 2.14.3 course_type.py — 课程类型检测
+
+```python
+def detect_course_type(
+    course_str: str,
+    session: ZhsSession | None = None,
+) -> str:  # "zhidao" / "hike" / "ai"
+```
+
+**检测规则**：
+1. 含冒号 → `ai`（`courseId:classId` 格式）
+2. 含字母 → `zhidao`
+3. 纯数字 → 传入 `session` 时反查知到课程列表，命中则 `zhidao`，否则 `hike`；无 `session` 时默认 `hike`
 
 ---
 
@@ -2083,11 +2235,12 @@ flowchart LR
 **cache/**：
 - `BaseQuestionCache` 路径管理、惰性加载、损坏文件处理
 - `ZhidaoHomeworkCache` 对错标记、AI 解析保存、选项匹配
-- `AiExamCache` 答案存取、跨 exam 合并、`parse_answer` 静态方法
+- `AiExamCache` 答案存取、`search_in_course` 跨 exam 查询、`parse_answer` 静态方法
 
 **ai/exam_base.py**：
 - `AiExamBase` 模板方法流程（start → load_cache → open → heartbeat → answer → submit）
-- 两级缓存（`_answer_cache` / `_all_answer_cache`）
+- 单级内存缓存（`_answer_cache`）+ 三级查询（内存 → SQLite 当前 exam → 跨 exam `search_in_course`）
+- `_cross_exam_search` 开关：基类 False（homework），ExamCtx 重写 True（exam）
 - 三级答案策略（缓存 → AI → 随机）
 
 **ai/homework.py**：

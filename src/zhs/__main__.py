@@ -25,13 +25,17 @@ from zhs.cli.bootstrap import setup_logger as _setup_logger
 from zhs.cli.bootstrap import try_restore_cookies as _try_restore_cookies  # noqa: F401
 from zhs.cli.course_type import detect_course_type as _detect_course_type
 from zhs.cli.course_type import validate_course_type as _validate_course_type
+from zhs.cli.services.cache_service import export_course as _export_course
+from zhs.cli.services.cache_service import import_files as _import_files
+from zhs.cli.services.exam_service import dispatch_exam_url as _dispatch_exam_url
 from zhs.cli.services.exam_service import run_ai_exam as _run_ai_exam
 from zhs.cli.services.fetch_service import fetch_course_list as _fetch_course_list
+from zhs.cli.services.homework_service import dispatch_homework_url as _dispatch_homework_url
 from zhs.cli.services.homework_service import run_ai_homework as _run_ai_homework
 from zhs.cli.services.homework_service import run_ai_homework_by_str as _run_ai_homework_by_str
 from zhs.cli.services.homework_service import run_all_homework as _run_all_homework
-from zhs.cli.services.homework_service import run_homework_from_url as _run_homework_from_url
 from zhs.cli.services.homework_service import run_zhidao_homework_by_course as _run_zhidao_homework_by_course
+from zhs.cli.services.play_service import dispatch_play_url as _dispatch_play_url
 from zhs.cli.services.play_service import run_ai as _run_ai
 from zhs.cli.services.play_service import run_ai_by_str as _run_ai_by_str
 from zhs.cli.services.play_service import run_all as _run_all
@@ -127,6 +131,7 @@ def login(
 @app.command()
 def play(
     course: list[str] | None = typer.Option(None, "-c", "--course", help="课程 ID"),  # noqa: B008
+    url: str | None = typer.Option(None, "--url", help="课程 URL（自动解析，与 -c 互斥）"),  # noqa: B008
     course_type: str | None = typer.Option(None, "--type", help="课程类型: zhidao/hike/ai/auto"),  # noqa: B008
     ai_course: int | None = typer.Option(None, "--ai-course", help="AI 课程 courseId"),  # noqa: B008
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
@@ -159,8 +164,21 @@ def play(
     if learn_optional:
         config.video.ai_learn_optional = True
 
+    # --url 与 -c 互斥
+    if url and course:
+        print("--url 与 -c 互斥，请只指定一个")
+        raise typer.Exit(1)
+
+    # --url 模式：解析 URL 并分发
+    if url:
+        try:
+            _dispatch_play_url(session, config, url)
+        except Exception as e:
+            logger.error(f"URL 处理失败: {e}")
+            print(f"URL 处理失败: {e}")
+            raise typer.Exit(1) from e
     # AI 课程走 --ai-course + --ai-class
-    if ai_course is not None and ai_class is not None:
+    elif ai_course is not None and ai_class is not None:
         _run_ai(session, config, ai_course, ai_class)
     elif course:
         # 内联路由循环，确保 _run_zhidao/_run_hike/_run_ai_by_str 从 __main__ 命名空间查找
@@ -221,10 +239,10 @@ def homework(
     if max_submit is not None:
         config.homework.max_submit = max_submit
 
-    # --url 模式：直接指定作业
+    # --url 模式：解析 URL 并分发（支持 dohomework / learnPage / knowledgeStudy）
     if url:
         try:
-            _run_homework_from_url(session, config, url)
+            _dispatch_homework_url(session, config, url)
         except Exception as e:
             logger.error(f"URL 作业处理失败: {e}")
             print(f"URL 作业处理失败: {e}")
@@ -265,6 +283,7 @@ def homework(
 @app.command()
 def exam(
     course: list[str] | None = typer.Option(None, "-c", "--course", help="课程 ID"),  # noqa: B008
+    url: str | None = typer.Option(None, "--url", help="考试 URL（自动解析，与 -c 互斥）"),  # noqa: B008
     course_type: str | None = typer.Option(None, "--type", help="课程类型: zhidao/ai/auto"),  # noqa: B008
     ai_course: int | None = typer.Option(None, "--ai-course", help="AI 课程 courseId"),  # noqa: B008
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
@@ -280,6 +299,21 @@ def exam(
     config, session = result
 
     from zhs.utils.display import msg_warn
+
+    # --url 与 -c 互斥
+    if url and course:
+        print("--url 与 -c 互斥，请只指定一个")
+        raise typer.Exit(1)
+
+    # --url 模式：解析 testDetail URL 并直接做某个考试
+    if url:
+        try:
+            _dispatch_exam_url(session, config, url, submit=submit)
+        except Exception as e:
+            logger.error(f"URL 考试处理失败: {e}")
+            print(f"URL 考试处理失败: {e}")
+            raise typer.Exit(1) from e
+        return
 
     if course_type != "ai" and not ai_course:
         print(msg_warn("目前仅支持 AI 课程考试，请使用 --type ai 或 --ai-course 指定"))
@@ -307,6 +341,36 @@ def fetch(
     config, session = result
 
     _fetch_course_list(session, fetch_type)
+
+
+# --- cache 子命令组 ---
+
+cache_app = typer.Typer(name="cache", help="题库缓存管理（导出/导入）", no_args_is_help=True)
+app.add_typer(cache_app)
+
+
+@cache_app.command("export")
+def cache_export(
+    course: int = typer.Option(..., "-c", "--course", help="课程 ID"),  # noqa: B008
+    course_type: str = typer.Option("auto", "--type", help="课程类型: zhidao/ai/auto"),  # noqa: B008
+    output: str | None = typer.Option(None, "-o", "--output", help="输出目录（默认 ~/.zhs/cache/）"),  # noqa: B008
+) -> None:
+    """导出课程题库缓存为 JSON 文件"""
+    try:
+        path = _export_course(course, course_type, output)
+        typer.echo(f"导出完成: {path}")
+    except (ValueError, Exception) as e:
+        typer.echo(f"导出失败: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@cache_app.command("import")
+def cache_import(
+    files: list[str] = typer.Argument(..., help="导入的 JSON 文件路径（支持多个）"),  # noqa: B008
+) -> None:
+    """导入课程题库缓存 JSON 文件"""
+    count = _import_files(files)
+    typer.echo(f"导入完成: {count} 个文件")
 
 
 if __name__ == "__main__":

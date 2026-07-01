@@ -23,11 +23,11 @@ src/zhs/
 ├── exceptions.py        # 全局异常定义（含 ApiUnavailableError / RateLimitError）
 ├── logger.py            # loguru 日志配置（filter 脱敏）
 ├── reporter.py          # 进度报告器（ConsoleReporter / ProgressReporter）
-├── cache/               # 统一缓存子包
+├── cache/               # 统一缓存子包（SQLite 存储 questions_bank.db）
 │   ├── __init__.py
-│   ├── base.py          # BaseQuestionCache[T] 抽象基类（PEP 695 泛型）
-│   ├── zhidao_cache.py  # ZhidaoHomeworkCache（知到作业缓存）
-│   └── ai_cache.py      # AiExamCache（AI 作业/考试缓存）
+│   ├── base.py          # BaseQuestionCache 旧基类（已弃用，保留兼容）
+│   ├── zhidao_cache.py  # ZhidaoHomeworkCache（SQLite 双键 eid+question_id）
+│   └── ai_cache.py      # AiExamCache（SQLite 单键 question_id，UPSERT）
 ├── zhidao/              # 知到共享课模块
 │   ├── __init__.py
 │   ├── course.py        # 课程列表与上下文
@@ -48,7 +48,7 @@ src/zhs/
 │   └── models.py        # 数据模型
 ├── ai/                  # AI 智慧课程模块
 │   ├── __init__.py
-│   ├── course.py        # AI 课程管理（编排视频/作业/考试）
+│   ├── course.py        # AI 课程管理（编排视频/作业/考试，支持 node_uid 直接模式）
 │   ├── video.py         # AI 视频播放器（AiVideoPlayer）
 │   ├── exam_base.py     # AiExamBase 基类（模板方法模式）
 │   ├── homework.py      # AI 作业上下文（HomeworkCtx，继承 AiExamBase）
@@ -65,16 +65,19 @@ src/zhs/
 ├── cli/                 # CLI 子包
 │   ├── __init__.py
 │   ├── bootstrap.py     # CLI 初始化（配置、日志、session）
-│   ├── course_type.py   # 课程类型检测
+│   ├── course_type.py   # 课程类型检测（含冒号→ai，纯数字→优先匹配 zhidao 列表）
+│   ├── course_resolver.py # 统一 -c 解析（ResolvedCourse，知到反查 rac_id）
+│   ├── url_parser.py    # 按命令分层的 URL 解析（parse_play/homework/exam_url）
 │   └── services/        # 命令服务
-│       ├── play_service.py
-│       ├── homework_service.py
-│       ├── exam_service.py
-│       └── fetch_service.py
+│       ├── play_service.py     # 含 dispatch_play_url（--url 分发）
+│       ├── homework_service.py # 含 dispatch_homework_url（--url 分发）
+│       ├── exam_service.py     # 含 dispatch_exam_url（--url 分发）
+│       └── fetch_service.py    # 输出 courseId（不再输出 secret）
 └── utils/               # 工具模块
     ├── __init__.py
     ├── display.py       # 终端显示（进度条、二维码、树形视图、彩色消息）
     ├── cookie.py        # Cookie 序列化/反序列化
+    ├── html.py          # HTML 文本提取（extract_text，BeautifulSoup）
     └── path.py          # 路径工具
 ```
 
@@ -175,10 +178,14 @@ src/zhs/
 - 调用 AI 解析接口（`ai_analysis_run`，SSE 流式）获取题目解析
 - 更新本地答案缓存
 
-**答案缓存（HomeworkCache）**：
-- 按课程 ID + 作业 ID 分组存储
-- 缓存键：`{questionId}_{version}`（version=1 时无后缀）
-- 答题前查缓存，提交后根据对错更新缓存
+**答案缓存（ZhidaoHomeworkCache，SQLite 双键）**：
+- 统一存储于 `~/.zhs/cache/questions_bank.db` 的 `zhidao_questions` 表（双键 eid + question_id）
+- 缓存键：题目 `id`（数字型，优先）或 `eid`（加密型），`_resolve_cache_key` 解析
+- doHomework 阶段 `save_options_by_eid` 保存 eid 条目，lookHomework 阶段 `save_options_by_id` 桥接找到 eid 条目并补上 question_id
+- 查询时按 key 类型直查（`question_key.isdigit()` → question_id 列 / eid 列），O(1) 索引无需运行时桥接
+- 答题前查缓存，提交后根据对错更新缓存（`mark_correct` / `mark_wrong`）
+- AI 解析结果保存到缓存（`save_ai_analysis`）
+- 缓存中的 `content` / 选项 `content` 经 `extract_text` 清洗 HTML
 
 ### 3.4 职教云（Hike）课程
 
@@ -246,7 +253,7 @@ src/zhs/
 #### 3.5.5 AI 作业（HomeworkCtx）
 
 **作业流程**：
-1. 加载答案缓存（本地 JSON 文件）
+1. 加载答案缓存（SQLite `ai_questions` 表）
 2. 打开作业（`openExam`）
 3. 启动心跳线程定期更新作业用时（`updateUserUsedTime`，daemon 线程，通过 `_stopped` 标志退出）
 4. 获取试卷内容（`getExamSheetInfo`）
@@ -261,12 +268,13 @@ src/zhs/
 - AI 生成失败时使用兜底答案
 - 支持题目类型：`1` 单选、`2` 多选、`3` 填空、`14` 判断
 
-**答案缓存（AiExamCache）**：
-- 统一缓存路径：`~/.zhs/cache/ai/{courseId}/{examTestId}.json`
-- 两级缓存策略：
-  - `_answer_cache`：当前作业/考试的答案
-  - `_all_answer_cache`：课程下所有作业/考试的答案汇总（`load_all_for_course` 加载）
-- 支持版本号（`questionId_version`）
+**答案缓存（AiExamCache，SQLite 单键 UPSERT）**：
+- 统一存储于 `~/.zhs/cache/questions_bank.db` 的 `ai_questions` 表（单键 question_id，UPSERT 语义）
+- 单级内存缓存 + 三级查询（由 `AiExamBase._get_cached_answer` 管理）：
+  - `_answer_cache`：当前作业/考试的内存缓存（`load_exam` 加载，`_save_cache` 持久化）
+  - 查询顺序：内存 `_answer_cache` → SQLite 当前 exam（`cache.get`）→ 跨 exam（`cache.search_in_course`）
+- `_cross_exam_search` 开关控制跨 exam 查询：homework 默认 False（仅查当前 exam），ExamCtx 重写 True（可跨 exam 复用答案）
+- 缓存中的 `question` / `answer_content` 经 `extract_text` 清洗 HTML
 - 由 `AiExamBase` 基类统一管理，`HomeworkCtx` 与 `ExamCtx` 共用
 
 **掌握度判断**：
@@ -445,6 +453,7 @@ zhs init
 |------|------|------|
 | `--course` | `-c` | 课程 ID（可多次指定） |
 | `--type` | | 课程类型：zhidao/hike/ai/auto |
+| `--url` | | 视频/课程页 URL（从浏览器复制，与 `-c` 互斥） |
 | `--ai-course` | | AI 课程 courseId |
 | `--ai-class` | | AI 课程 classId |
 | `--speed` | `-s` | 播放速度 |
@@ -452,6 +461,11 @@ zhs init
 | `--proxy` | | 代理 |
 | `-d, --debug` | | 调试模式 |
 | `--console-log` | | 日志输出到控制台 |
+
+`--url` 接受三类 URL（按命令分层解析，不依赖域名前缀）：
+- 知到视频页 `stuStudy?recruitAndCourseId=...` → 扫描模式全刷
+- AI 学习页 `learnPage/{courseId}/{nodeUid}/{classId}` → 直接模式，只刷该知识点
+- AI 课程页 `singleCourse/knowledgeStudy/{courseId}/{classId}` → 扫描模式全刷
 
 #### 3.11.4 zhs homework
 
@@ -461,13 +475,18 @@ zhs init
 |------|------|------|
 | `--course` | `-c` | 课程 ID（可多次指定） |
 | `--type` | | 课程类型：zhidao/ai/auto |
-| `--url` | | 作业 URL（从浏览器复制） |
+| `--url` | | 作业 URL（从浏览器复制，与 `-c` 互斥） |
 | `--ai-course` | | AI 课程 courseId |
 | `--ai-class` | | AI 课程 classId |
 | `--no-ai` | | 不使用 AI 模型（随机生成） |
 | `--homework-threshold` | | 满分阈值百分比（0-100） |
 | `--max-submit` | | 最大提交次数 |
 | `--proxy` / `-d` / `--console-log` | | 同上 |
+
+`--url` 接受三类 URL：
+- 知到作业页 `dohomework/{recruitId}/{stuExamId}/{examId}/{courseId}/{schoolId}/0`
+- AI 学习页 `learnPage/{courseId}/{nodeUid}/{classId}` → 直接模式，只做该知识点作业
+- AI 课程页 `singleCourse/knowledgeStudy/{courseId}/{classId}` → 扫描模式全刷
 
 #### 3.11.5 zhs exam
 
@@ -477,10 +496,13 @@ AI 课程考试。
 |------|------|------|
 | `--course` | `-c` | 课程 ID |
 | `--type` | | 课程类型（目前仅支持 ai） |
+| `--url` | | 考试 URL（从浏览器复制，与 `-c` 互斥） |
 | `--ai-course` | | AI 课程 courseId |
 | `--ai-class` | | AI 课程 classId |
 | `--submit` | | 答题后提交考试（默认不提交） |
 | `--proxy` / `-d` / `--console-log` | | 同上 |
+
+`--url` 接受 AI 考试详情页 `testDetail/{courseId}/{classId}/{examTestId}/{examPaperId}/...`，直接做该场考试。
 
 #### 3.11.6 zhs fetch
 
@@ -491,11 +513,51 @@ AI 课程考试。
 | `--type` | 数据类型：all/course/homework（默认 all） |
 | `--proxy` / `-d` / `--console-log` | 同上 |
 
-#### 3.11.7 课程类型自动检测
+#### 3.11.7 zhs cache
+
+题库缓存管理（导出/导入 SQLite 缓存为人类可读 JSON）。
+
+```bash
+zhs cache export -c COURSE_ID [--type zhidao/ai/auto] [-o OUTPUT_DIR]
+zhs cache import PATH [PATH ...]
+```
+
+| 子命令 | 参数 | 说明 |
+|--------|------|------|
+| `export` | `-c/--course`（必填）、`--type`（默认 auto，自动检测）、`-o/--output` | 导出一个课程为 JSON 文件 |
+| `import` | `PATH...`（可变参数） | 导入 JSON 文件，自动检测 type 字段 |
+
+- export 输出：`{output_dir}/{type}/{course_id}.json`，包含该课程所有 exam 的题目
+- import 合并策略：按 question_id/eid 匹配，命中则 UPDATE 合并，未命中则 INSERT
+
+#### 3.11.8 课程类型自动检测
 
 - `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai`/`auto` 时直接路由
-- 自动检测（`auto` 或未指定）：含字母 → 知到，纯数字 → Hike
+- 自动检测（`auto` 或未指定）规则：
+  - 含冒号（`courseId:classId` 格式）→ AI 课程
+  - 含字母 → 知到（zhidao）
+  - 纯数字 → 先匹配知到课程列表，命中则知到，否则 Hike
 - AI 课程通过 `--ai-course` + `--ai-class` 或 `-c courseId:classId --type ai` 指定
+- `detect_course_type` 支持传入 `session` 参数，纯数字 ID 时反查知到课程列表以区分知到/Hike
+
+#### 3.11.9 命令分层 URL 解析（`--url`）
+
+`--url` 参数按命令职责分层解析，**不依赖域名前缀**，仅依据 URL 路径模式匹配：
+
+| 命令 | 接受的 URL 路径模式 | 解析结果 | 模式 |
+|------|---------------------|----------|------|
+| `play` | `stuStudy?recruitAndCourseId=...` | rac_id → 知到 courseId | 扫描 |
+| `play` | `learnPage/{courseId}/{nodeUid}/{classId}` | AI courseId + nodeUid | 直接 |
+| `play` | `singleCourse/knowledgeStudy/{courseId}/{classId}` | AI courseId | 扫描 |
+| `homework` | `dohomework/{recruitId}/{stuExamId}/{examId}/{courseId}/{schoolId}/0` | 知到作业直接做题 | 直接 |
+| `homework` | `learnPage/{courseId}/{nodeUid}/{classId}` | AI courseId + nodeUid | 直接 |
+| `homework` | `singleCourse/knowledgeStudy/{courseId}/{classId}` | AI courseId | 扫描 |
+| `exam` | `testDetail/{courseId}/{classId}/{examTestId}/{examPaperId}/...` | AI 考试直接做题 | 直接 |
+
+- **直接模式**：URL 含 `nodeUid`（play/homework）或 `examTestId`（exam）时，仅处理该知识点/考试
+- **扫描模式**：URL 不含上述 ID 时，扫描整个课程
+- 解析由 `cli/url_parser.py` 的 `parse_play_url` / `parse_homework_url_v2` / `parse_exam_url` 实现
+- 课程 ID 统一由 `cli/course_resolver.py` 的 `resolve_course_id` 解析（含知到 rac_id 反查）
 
 ### 3.12 CAS SSO 认证
 
@@ -505,6 +567,15 @@ AI 课程考试。
 - `ZhsSession.exam_sso_login()` 封装此流程
 - 失败时抛 `ZhsError`（CASTGC cookie 已过期，需重新登录）
 - 知到作业功能（`zhs homework`）执行前自动调用
+
+### 3.13 HTML 文本提取（extract_text）
+
+知到作业的题目名称与选项内容以 HTML 格式返回（含 `<p>`、`<span>`、`&nbsp;` 等标签与实体）。`utils/html.py` 的 `extract_text(html)` 使用 BeautifulSoup 进行文本提取，替代旧的正则清洗 `_strip_html`：
+
+- 解析嵌套标签（`<p><span>文本</span></p>` → `文本`）
+- 正确处理 HTML 实体（`&nbsp;` → 空格、`&amp;` → `&`）
+- 多余空白合并为单个空格
+- 用于：作业输出打印、缓存 `content` 字段、桥接匹配
 
 ## 4. API 端点汇总
 
@@ -634,17 +705,40 @@ SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatc
 
 ### 答案缓存格式
 
+缓存统一存储于 SQLite 数据库 `~/.zhs/cache/questions_bank.db`，包含两张表：
+
+**知到作业表 `zhidao_questions`**（双键 eid + question_id）：
+
 ```json
 {
-  "questionId_version": {
-    "version": 1,
-    "question": "题目内容",
-    "answer": "选项ID#@#选项ID",
-    "answer_content": "选项文本\n选项文本",
-    "questionDict": { ... }
-  }
+  "course_id": 1000008156,
+  "exam_id": "5kNKk0qe",
+  "eid": "KSOe9/zfDihaLT7T3DBHJw==",
+  "question_id": "1092595689",
+  "question_type": 1,
+  "content": "题目纯文本（extract_text 清洗后）",
+  "options": [{"id": 440703134, "content": "选项A"}],
+  "correct_options": [440703134],
+  "wrong_options": [],
+  "ai_analysis": null
 }
 ```
+
+**AI 作业表 `ai_questions`**（单键 question_id，UPSERT）：
+
+```json
+{
+  "course_id": 2036787923612635136,
+  "exam_id": "2923908",
+  "question_id": "12345",
+  "question": "题目纯文本（extract_text 清洗后）",
+  "answer": "选项ID#@#选项ID",
+  "answer_content": "选项文本\n选项文本",
+  "question_dict": { ... }
+}
+```
+
+可通过 `zhs cache export -c COURSE_ID` 导出为人类可读 JSON，`zhs cache import PATH` 导入。
 
 ## 6. 异常处理
 
@@ -769,7 +863,7 @@ disallow_untyped_defs = false
 14. **作业 API 加密**：知到作业 API（`studentexam-api`）使用 `exam_key` 加密，**不发送 `dateFormate`** 字段
 15. **AI 考试 API 加密**：AI 考试 API（`studentexamtest`）使用 `exam_key` 加密，**发送 `dateFormate`** 字段，检查 `code` 字段
 16. **禁止 asyncio**：项目不使用 `asyncio`，所有代码同步实现
-17. **统一缓存路径**：所有缓存使用 `~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json` 格式，禁止旧版 `ai_homework_cache/` 路径
+17. **统一缓存存储**：所有答案缓存使用 SQLite 数据库 `~/.zhs/cache/questions_bank.db`（`zhidao_questions` + `ai_questions` 两张表），禁止旧版 JSON 文件缓存；`content` / `question` / `answer_content` 字段必须经 `extract_text` 清洗 HTML
 18. **PEP 695 泛型语法**：泛型类使用 `class Foo[T](Base):` 语法（ruff UP046），禁止 `TypeVar` + `Generic[T]`
 19. **循环导入解决**：使用 PEP 562 模块级 `__getattr__` 懒加载 + `TYPE_CHECKING` 守卫，避免运行时循环导入
 20. **模板方法模式**：`HomeworkCtx` 与 `ExamCtx` 必须继承 `AiExamBase`，公共逻辑（缓存、心跳、Provider 初始化）在基类实现

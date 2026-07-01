@@ -9,6 +9,83 @@ from zhs.config import AppConfig
 from zhs.session import ZhsSession
 
 
+def dispatch_exam_url(session: ZhsSession, config: AppConfig, url: str, submit: bool = False) -> None:
+    """解析 exam URL 并分发到对应流程
+
+    支持的 URL 类型:
+    - ai_direct: testDetail URL → run_ai_exam_direct（直接做某个特定考试）
+    """
+    from zhs.cli.url_parser import parse_exam_url
+
+    parsed = parse_exam_url(url)
+    if parsed.type == "ai_direct":
+        assert parsed.course_id is not None
+        assert parsed.class_id is not None
+        assert parsed.exam_test_id is not None
+        assert parsed.exam_paper_id is not None
+        run_ai_exam_direct(
+            session,
+            config,
+            parsed.course_id,
+            parsed.class_id,
+            parsed.exam_test_id,
+            parsed.exam_paper_id,
+            submit=submit,
+        )
+
+
+def run_ai_exam_direct(
+    session: ZhsSession,
+    config: AppConfig,
+    course_id: int,
+    class_id: int,
+    exam_test_id: int,
+    exam_paper_id: int,
+    submit: bool = False,
+) -> None:
+    """直接做某个 AI 考试（通过 testDetail URL 定位）
+
+    Args:
+        course_id: 课程 ID
+        class_id: 班级 ID
+        exam_test_id: 考试测试 ID
+        exam_paper_id: 考试试卷 ID
+        submit: 是否提交
+    """
+    from zhs.ai.exam import ExamCtx
+    from zhs.utils.display import course_tag, msg_done, msg_info, msg_warn
+
+    print(f"\n{course_tag('ai')} 直接模式: courseId={course_id}, classId={class_id}")
+    print(f"  examTestId={exam_test_id}, examPaperId={exam_paper_id}")
+
+    try:
+        ctx = ExamCtx(
+            session=session,
+            course_id=str(course_id),
+            class_id=str(class_id),
+            exam_test_id=str(exam_test_id),
+            exam_paper_id=str(exam_paper_id),
+            ai_config=config.ai,
+            exam_config=config.exam,
+            op_extra={},
+            student_id=0,
+            task_id="",
+        )
+        all_correct, correct, total = ctx.start(submit=submit)
+        if submit:
+            if all_correct:
+                print(f"  {msg_done(f'考试完成: {correct}/{total} 全对')}")
+            elif correct == 0:
+                print(f"  {msg_info('考试已提交，无法查看答案')}")
+            else:
+                print(f"  {msg_warn(f'考试完成: {correct}/{total} 正确')}")
+        else:
+            print(f"  {msg_info(f'答题完成（未提交）: {total} 题，可以使用--submit提交')}")
+    except Exception as e:
+        logger.error(f"考试处理失败: {e}")
+        print(f"  考试处理失败: {e}")
+
+
 def run_ai_exam(
     session: ZhsSession,
     config: AppConfig,
@@ -101,4 +178,4 @@ def run_ai_exam(
     print(f"\n共完成 {total_exams} 个考试")
 
 
-__all__ = ["run_ai_exam"]
+__all__ = ["dispatch_exam_url", "run_ai_exam", "run_ai_exam_direct"]

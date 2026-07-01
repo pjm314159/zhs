@@ -32,7 +32,10 @@ def _make_config(
 
 def _make_cache(tmp_path: Path | None = None) -> ZhidaoHomeworkCache:
     """创建测试缓存"""
-    return ZhidaoHomeworkCache(cache_dir=tmp_path) if tmp_path else ZhidaoHomeworkCache(cache_dir=MagicMock())
+    import tempfile
+
+    cache_dir = tmp_path if tmp_path else Path(tempfile.mkdtemp(prefix="zhs_test_"))
+    return ZhidaoHomeworkCache(cache_dir=cache_dir)
 
 
 def _make_item(**overrides: object) -> HomeworkItem:
@@ -250,6 +253,52 @@ class TestHomeworkAnalyzerSaveToCache:
         correct_id = cache.get_correct_options(100, "exam1", "1001")
         assert 101 in correct_id
 
+    def test_save_to_cache_persists_course_name(self) -> None:
+        """save_to_cache 持久化 course_name 到 DB
+
+        lookHomework 返回的题目无 eid → _save_question_options_to_cache 被调用 →
+        save_options 写入 course_name。mark_correct 后续 UPDATE 同一行。
+        """
+        import sqlite3
+
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        analyzer = HomeworkAnalyzer(session, config, cache)
+
+        item = _make_item(courseName="高等数学")
+        questions = [
+            HomeworkQuestion(
+                id=2002,
+                eid=None,  # lookHomework 返回的题目无 eid
+                name="题目CN",
+                questionType=1,
+                questionOptions=[HomeworkQuestionOption(id=201, content="A")],
+                questionScore="5",
+            ),
+        ]
+        answers = {
+            "2002": HomeworkAnswerInfo(
+                question_id="2002",
+                answer="201",
+                is_current="1",
+                score="5",
+                stu_exam_id="123",
+            ),
+        }
+
+        analyzer.save_to_cache(item, questions, answers)
+
+        conn = sqlite3.connect(cache._cache_dir / "questions_bank.db")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT course_name FROM zhidao_questions WHERE course_id=? AND question_id=?",
+            (100, "2002"),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["course_name"] == "高等数学"
+
     def test_save_wrong_to_cache(self) -> None:
         """错误题目标记到缓存"""
         session = _make_mock_session()
@@ -360,6 +409,104 @@ class TestHomeworkAnalyzerSaveToCache:
         # 验证缓存中标记了错误选择方式（只保存到 id key）
         wrong = cache.get_wrong_options(100, "exam1", "1001")
         assert [101, 102] in wrong
+
+    def test_save_to_cache_re_correct_clears_wrong_and_ai(self) -> None:
+        """再次做对（之前做错）→ 清除 wrong_options 和 ai_analysis
+
+        save_to_cache 传 auto_clear_wrong=True，之前有 wrong_options 时清除。
+        首次做对（无 wrong_options）不清除。
+        """
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        analyzer = HomeworkAnalyzer(session, config, cache)
+
+        item = _make_item()
+        # 第一轮：题目做错，保存 wrong + ai_analysis
+        questions_wrong = [
+            HomeworkQuestion(
+                id=3001,
+                eid=None,
+                name="再次做对题",
+                questionType=1,
+                questionOptions=[
+                    HomeworkQuestionOption(id=301, content="A"),
+                    HomeworkQuestionOption(id=302, content="B"),
+                ],
+                questionScore="5",
+            ),
+        ]
+        answers_wrong = {
+            "3001": HomeworkAnswerInfo(
+                question_id="3001",
+                answer="302",
+                is_current="0",
+                score="0",
+                stu_exam_id="123",
+            ),
+        }
+        analyzer.save_to_cache(item, questions_wrong, answers_wrong)
+        cache.save_ai_analysis(100, "exam1", "3001", "错题解析")
+
+        # 验证 wrong 和 ai 已保存
+        assert cache.get_wrong_options(100, "exam1", "3001") == [[302]]
+        entry_before = cache.get(100, "exam1", "3001")
+        assert entry_before is not None
+        assert entry_before.ai_analysis == "错题解析"
+
+        # 第二轮：同一题做对
+        answers_correct = {
+            "3001": HomeworkAnswerInfo(
+                question_id="3001",
+                answer="301",
+                is_current="1",
+                score="5",
+                stu_exam_id="123",
+            ),
+        }
+        analyzer.save_to_cache(item, questions_wrong, answers_correct)
+
+        # 再次做对 → wrong 和 ai 应被清除
+        entry = cache.get(100, "exam1", "3001")
+        assert entry is not None
+        assert 301 in entry.correct_options
+        assert entry.wrong_options == []
+        assert entry.ai_analysis is None
+
+    def test_save_to_cache_first_correct_no_clear(self) -> None:
+        """首次做对（无 wrong_options）→ auto_clear_wrong 不影响"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        analyzer = HomeworkAnalyzer(session, config, cache)
+
+        item = _make_item()
+        questions = [
+            HomeworkQuestion(
+                id=4001,
+                eid=None,
+                name="首次做对题",
+                questionType=1,
+                questionOptions=[HomeworkQuestionOption(id=401, content="A")],
+                questionScore="5",
+            ),
+        ]
+        answers = {
+            "4001": HomeworkAnswerInfo(
+                question_id="4001",
+                answer="401",
+                is_current="1",
+                score="5",
+                stu_exam_id="123",
+            ),
+        }
+        analyzer.save_to_cache(item, questions, answers)
+
+        entry = cache.get(100, "exam1", "4001")
+        assert entry is not None
+        assert 401 in entry.correct_options
+        assert entry.wrong_options == []
+        assert entry.ai_analysis is None
 
 
 class TestHomeworkAnalyzerShouldRedo:

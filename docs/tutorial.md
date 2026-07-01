@@ -58,11 +58,8 @@ zhs init
 ├── config.toml       # 配置文件
 ├── cookies.json      # 登录 Cookie（登录后生成）
 ├── execution.json    # 课程列表（zhs fetch 生成）
-├── cache/            # 答案缓存目录
-│   ├── zhidao/       # 知到作业答案缓存
-│   │   └── {course_id}/{exam_id}.json
-│   └── ai/           # AI 作业/考试答案缓存
-│       └── {course_id}/{exam_id}.json
+├── cache/            # 答案缓存目录（SQLite）
+│   └── questions_bank.db  # 题库数据库（zhidao_questions + ai_questions 两张表）
 └── logs/             # 日志目录（按日期轮转）
 ```
 
@@ -280,11 +277,29 @@ zhs play --type zhidao
 课程类型自动检测规则：
 
 - 显式 `--type` 优先级最高
+- ID 含冒号（`courseId:classId`）→ AI 课程
 - ID 含字母 → 知到（zhidao）
-- ID 纯数字 → Hike（hike）
-- AI 课程需通过 `--ai-course`/`--ai-class` 或 `courseId:classId` 格式指定
+- ID 纯数字 → 先匹配知到课程列表，命中则知到，否则 Hike
+- AI 课程也可通过 `--ai-course`/`--ai-class` 指定
 
-### 5.6 覆盖配置参数
+### 5.6 通过 URL 刷课
+
+从浏览器复制的 URL 可直接传入 `--url`（与 `-c` 互斥），自动解析课程参数：
+
+```bash
+# 知到视频页（扫描模式全刷）
+zhs play --url "https://studyvideoh5.zhihuishu.com/stuStudy?recruitAndCourseId=xxx"
+
+# AI 学习页（直接模式，只刷该知识点）
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/{courseId}/{nodeUid}/{classId}"
+
+# AI 课程页（扫描模式全刷）
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/{courseId}/{classId}"
+```
+
+> `--url` 按命令分层解析，不依赖域名前缀。AI 学习页 URL 含 `nodeUid` 时走**直接模式**（只刷该知识点），AI 课程页 `knowledgeStudy` 走**扫描模式**（全刷课程）。
+
+### 5.7 覆盖配置参数
 
 ```bash
 # 指定播放速度（覆盖 config.toml 中的 video.*_speed）
@@ -318,13 +333,21 @@ zhs homework --ai-course 1001 --ai-class 2001
 
 ### 6.3 通过 URL 写指定作业
 
-从浏览器复制作业 URL（`onlineexamh5new.zhihuishu.com/stuExamWeb.html#/webExamList/dohomework/...`）：
+从浏览器复制的 URL 可直接传入 `--url`（与 `-c` 互斥），支持三类 URL：
 
 ```bash
+# 知到作业页（直接做该作业）
 zhs homework --url "https://onlineexamh5new.zhihuishu.com/stuExamWeb.html#/webExamList/dohomework/{recruitId}/{stuExamId}/{examId}/{courseId}/{schoolId}/0"
+
+# AI 学习页（直接模式，只做该知识点作业）
+zhs homework --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/{courseId}/{nodeUid}/{classId}"
+
+# AI 课程页（扫描模式，全刷课程作业）
+zhs homework --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/{courseId}/{classId}"
 ```
 
-URL 中参数顺序为：`recruitId / stuExamId / examId / courseId / schoolId`。
+知到作业 URL 参数顺序为：`recruitId / stuExamId / examId / courseId / schoolId`。
+AI 学习页 URL 含 `nodeUid` 时走**直接模式**（只做该知识点作业），AI 课程页走**扫描模式**（全刷）。
 
 ### 6.4 作业参数
 
@@ -361,7 +384,17 @@ zhs exam --ai-course 1001 --ai-class 2001 --submit
 zhs exam --type ai
 ```
 
-### 7.3 提交说明
+### 7.3 通过 URL 直接做某场考试
+
+从浏览器复制考试详情页 URL（`testDetail/...`），直接做该场考试：
+
+```bash
+zhs exam --url "https://ai-smart-course-student-pro.zhihuishu.com/testDetail/{courseId}/{classId}/{examTestId}/{examPaperId}/..."
+```
+
+URL 参数顺序为：`courseId / classId / examTestId / examPaperId`。
+
+### 7.4 提交说明
 
 - **不提交**（默认）：仅答题并保存到缓存，可重复运行。
 - **提交**（`--submit`）：答题后提交考试，提交后无法修改。提交成功后会尝试保存答案到缓存供后续参考。
@@ -487,12 +520,11 @@ https = "http://127.0.0.1:7890"
 | `config.toml` | 配置文件（`zhs init` 生成） |
 | `cookies.json` | 登录 Cookie（`zhs login` 生成） |
 | `execution.json` | 课程列表（`zhs fetch` 生成） |
-| `cache/zhidao/{course_id}/{exam_id}.json` | 知到作业答案缓存（含对错标记、AI 解析） |
-| `cache/ai/{course_id}/{exam_id}.json` | AI 作业/考试答案缓存（HomeworkCtx 与 ExamCtx 共用） |
+| `cache/questions_bank.db` | 题库缓存数据库（SQLite，含 `zhidao_questions` + `ai_questions` 两张表） |
 | `logs/` | 日志目录（按日期轮转，保留 30 天，gz 压缩） |
 | `qrcode.png` | 登录二维码图片（`zhs login` 生成） |
 
-> **缓存路径格式**：`~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json`，按课程类型分目录。从旧版缓存格式升级时，运行 `uv run python scripts/migrate_cache.py --dry-run` 预览，确认后去掉 `--dry-run` 执行迁移。
+> **缓存存储**：答案缓存统一存储于 SQLite 数据库 `~/.zhs/cache/questions_bank.db`。可通过 `zhs cache export -c COURSE_ID` 导出为 JSON 分享，`zhs cache import PATH` 导入。从旧版 JSON 缓存升级时，运行 `uv run python .temp/migrate_cache_to_db.py --dry-run` 预览，确认后去掉 `--dry-run` 执行迁移。
 
 ---
 
