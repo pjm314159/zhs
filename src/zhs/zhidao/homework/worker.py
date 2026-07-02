@@ -16,6 +16,7 @@ from loguru import logger
 from zhs.config import AppConfig
 from zhs.exceptions import SliderVerificationRequired, ZhsError
 from zhs.llm.base import LLMProvider
+from zhs.question_bank.models import map_question_type
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import _C, msg_done, msg_error, msg_info, msg_warn, progress_bar, styled
@@ -34,6 +35,7 @@ from zhs.zhidao.homework.models import (
 
 if TYPE_CHECKING:
     from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
+    from zhs.question_bank.client import QuestionBankClient
 
 
 class HomeworkWorker:
@@ -46,6 +48,7 @@ class HomeworkWorker:
         cache: HomeworkCache,
         llm: LLMProvider | None = None,
         reporter: ProgressReporter | None = None,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         self._session = session
         self._config = config
@@ -53,6 +56,7 @@ class HomeworkWorker:
         self._llm = llm
         self._reporter = reporter or ConsoleReporter()
         self._analyzer = HomeworkAnalyzer(session, config, cache)
+        self._question_bank = question_bank
 
     def run_homework(self, item: HomeworkItem, recruit_id: str, school_id: str) -> float:
         """运行完整作业流程（做 → 提交 → 检查 → 重做循环），返回最终得分率
@@ -117,6 +121,12 @@ class HomeworkWorker:
             threshold_str = f"(未达标，阈值 {self._config.homework.threshold}%)"
             self._reporter.print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.YELLOW)} {threshold_str}")
         self._reporter.print(styled("=" * 60, _C.DIM))
+
+        # 题库使用统计（仅当题库存在且有查询时显示）
+        if self._question_bank is not None:
+            success, total = self._question_bank.get_usage_stats()
+            if total > 0:
+                self._reporter.print(msg_info(f"题库使用: 成功 {success} 次 / 总查询 {total} 次"))
 
         return score_rate
 
@@ -269,6 +279,24 @@ class HomeworkWorker:
             questions.extend(part.question_dtos)
         return questions
 
+    def _query_question_bank(self, question: HomeworkQuestion, choices: list[dict[str, Any]]) -> str:
+        """查询题库，返回格式化提示文本（失败/无答案返回空串）。
+
+        绝不中断做题：所有异常均捕获后返回空串。
+        """
+        assert self._question_bank is not None
+        try:
+            title = extract_text(question.name)
+            options = "\n".join(c["content"] for c in choices)
+            qtype = map_question_type(question.question_type_id)
+            result = self._question_bank.query(title, options, qtype)
+            if result is None:
+                return ""
+            return result.format_hint()
+        except Exception as e:
+            logger.error(f"题库查询失败: {e}")
+            return ""
+
     def _generate_answer_with_llm(
         self,
         question: HomeworkQuestion,
@@ -352,6 +380,13 @@ class HomeworkWorker:
         if ai_analysis:
             extra["历史AI解析"] = f"之前 AI 对此题的分析（仅供参考）:\n{ai_analysis}"
             logger.debug(f"历史AI解析: {ai_analysis[:100]}")
+
+        # 题库参考注入（仅当题库可用时查询，失败/无答案不影响主流程）
+        if self._question_bank is not None:
+            hint = self._query_question_bank(question, choices)
+            if hint:
+                extra["题库参考"] = hint
+                logger.debug(f"题库参考已注入: {hint[:50]}")
 
         # 多选题/填空题：最多尝试 3 次，如果 AI 选了错误组合则 rollback
         max_retries = 3 if qt in (HomeworkQuestionType.MULTI, HomeworkQuestionType.FILL) else 1

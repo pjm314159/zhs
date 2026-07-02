@@ -53,11 +53,13 @@ def run_ai_exam_direct(
         submit: 是否提交
     """
     from zhs.ai.exam import ExamCtx
+    from zhs.cli.bootstrap import init_question_bank
     from zhs.utils.display import course_tag, msg_done, msg_info, msg_warn
 
     print(f"\n{course_tag('ai')} 直接模式: courseId={course_id}, classId={class_id}")
     print(f"  examTestId={exam_test_id}, examPaperId={exam_paper_id}")
 
+    bank = init_question_bank(config, scope="ai_exam")
     try:
         ctx = ExamCtx(
             session=session,
@@ -70,6 +72,7 @@ def run_ai_exam_direct(
             op_extra={},
             student_id=0,
             task_id="",
+            question_bank=bank,
         )
         all_correct, correct, total = ctx.start(submit=submit)
         if submit:
@@ -103,9 +106,11 @@ def run_ai_exam(
     """
     from zhs.ai.course import AiCourseManager
     from zhs.ai.exam import ExamCtx
+    from zhs.cli.bootstrap import init_question_bank
     from zhs.utils.display import course_tag, msg_done, msg_info, msg_warn
 
     mgr = AiCourseManager(session)
+    bank = init_question_bank(config, scope="ai_exam")
 
     # 获取课程列表
     if ai_course and ai_class:
@@ -156,6 +161,7 @@ def run_ai_exam(
                         op_extra={"courseName": course_name},
                         student_id=student_id,
                         task_id=task_id,
+                        question_bank=bank,
                     )
                     all_correct, correct, total = ctx.start(submit=submit)
                     if submit:

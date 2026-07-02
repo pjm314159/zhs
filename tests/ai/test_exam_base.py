@@ -367,6 +367,122 @@ class TestGetAnswerStrategy:
         assert source == "random"
 
 
+class TestQuestionBankInjection:
+    """题库注入：缓存未命中 + AI 启用时查题库作为参考"""
+
+    @staticmethod
+    def _make_question() -> QuestionContent:
+        return QuestionContent(
+            id=1,
+            content="测试题目",
+            question_type=1,
+            option_vos=[OptionVo(id=10, content="选项A"), OptionVo(id=11, content="选项B")],
+        )
+
+    def test_bank_none_no_injection(self, exam_base: AiExamBase) -> None:
+        """question_bank=None 时 provider 用原 extra（无题库参考）"""
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        answers, source = exam_base._get_answer(self._make_question())
+
+        assert source == "AI generated"
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" not in extra
+
+    def test_bank_hit_injects_hint(self, exam_base: AiExamBase) -> None:
+        """题库命中时注入 extra["题库参考"]"""
+        from zhs.question_bank.models import QuestionBankResult
+
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = QuestionBankResult(question="测试题目", answer="选项A", times=10, ai=False)
+        exam_base._question_bank = mock_bank
+
+        answers, source = exam_base._get_answer(self._make_question())
+
+        assert source == "AI generated"
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" in extra
+        assert "选项A" in extra["题库参考"]
+        # 题库被查询过
+        mock_bank.query.assert_called_once()
+
+    def test_bank_no_answer_no_injection(self, exam_base: AiExamBase) -> None:
+        """题库无答案（返回 None）时不注入"""
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = None
+        exam_base._question_bank = mock_bank
+
+        exam_base._get_answer(self._make_question())
+
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" not in extra
+
+    def test_bank_error_no_injection(self, exam_base: AiExamBase) -> None:
+        """题库查询异常时捕获，不注入，provider 正常调用"""
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.side_effect = Exception("network error")
+        exam_base._question_bank = mock_bank
+
+        exam_base._get_answer(self._make_question())
+
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" not in extra
+
+    def test_cache_hit_skips_bank(self, exam_base: AiExamBase) -> None:
+        """缓存命中时不查题库"""
+        mock_bank = MagicMock()
+        exam_base._question_bank = mock_bank
+        exam_base._answer_cache = {"1": {"answer": "10"}}
+
+        answers, source = exam_base._get_answer(self._make_question())
+
+        assert source == "cached"
+        mock_bank.query.assert_not_called()
+
+    def test_provider_none_skips_bank(self, exam_base: AiExamBase) -> None:
+        """provider=None 时不查题库（题库依赖 AI）"""
+        mock_bank = MagicMock()
+        exam_base._question_bank = mock_bank
+        # exam_base._provider 已为 None（ai_config.enabled=False）
+
+        exam_base._get_answer(self._make_question())
+
+        mock_bank.query.assert_not_called()
+
+    def test_bank_query_params(self, exam_base: AiExamBase) -> None:
+        """题库查询参数：title=题目文本, options=选项, type=题型"""
+        from zhs.question_bank.models import QuestionBankResult
+
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = QuestionBankResult(answer="选项A", times=10)
+        exam_base._question_bank = mock_bank
+
+        exam_base._get_answer(self._make_question())
+
+        call = mock_bank.query.call_args
+        assert call.args[0] == "测试题目"  # title
+        assert "选项A" in call.args[1]  # options 含选项文本
+        assert call.args[2] == "single"  # qtype
+
+
 class TestCheckResults:
     """结果检查与缓存更新"""
 

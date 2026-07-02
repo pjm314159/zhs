@@ -12,6 +12,7 @@ import pytest
 from zhs.cli.bootstrap import (
     do_login,
     init_llm,
+    init_question_bank,
     load_config_and_session,
     parse_proxy,
     setup_logger,
@@ -318,12 +319,28 @@ class TestInitLlm:
         config.ai.enabled = False
         assert init_llm(config) is None
 
-    def test_use_zhidao_ai_returns_none(self) -> None:
-        """ai.use_zhidao_ai=True 返回 None（使用知到 AI）"""
+    def test_use_zhidao_ai_ignored_returns_provider(self) -> None:
+        """use_zhidao_ai 在知到作业中被忽略（仅 AI 智慧课程生效），有 api_key 则用 OpenAI"""
         config = _make_config()
         config.ai.enabled = True
         config.ai.use_zhidao_ai = True
         config.ai.api_key = "test-key"
+        config.ai.base_url = "https://api.openai.com/v1"
+        config.ai.model = "gpt-4o-mini"
+        config.ai.max_token = 4096
+
+        provider = init_llm(config)
+        assert provider is not None
+        from zhs.llm.openai import OpenAIProvider
+
+        assert isinstance(provider, OpenAIProvider)
+
+    def test_use_zhidao_ai_no_api_key_returns_none(self) -> None:
+        """use_zhidao_ai=True 且无 api_key 时返回 None（zhidao_ai 被忽略，回退到 api_key 检查）"""
+        config = _make_config()
+        config.ai.enabled = True
+        config.ai.use_zhidao_ai = True
+        config.ai.api_key = ""
         assert init_llm(config) is None
 
     def test_no_api_key_returns_none(self) -> None:
@@ -350,6 +367,65 @@ class TestInitLlm:
         from zhs.llm.openai import OpenAIProvider
 
         assert isinstance(provider, OpenAIProvider)
+
+
+class TestInitQuestionBank:
+    """init_question_bank"""
+
+    def test_disabled_returns_none(self) -> None:
+        """question_bank.enabled=False 返回 None"""
+        config = _make_config()
+        config.question_bank.enabled = False
+        assert init_question_bank(config, scope="ai_exam") is None
+
+    def test_no_token_returns_none(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """token 为空返回 None 并 print 告警（终端可见）"""
+        config = _make_config()
+        config.question_bank.enabled = True
+        config.question_bank.token = ""
+        assert init_question_bank(config, scope="ai_exam") is None
+        captured = capsys.readouterr()
+        assert "题库" in captured.out
+
+    def test_ai_disabled_returns_none(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """ai.enabled=False 时题库依赖 AI 不可用，返回 None 并 print 告警（终端可见）"""
+        config = _make_config()
+        config.question_bank.enabled = True
+        config.question_bank.token = "tok-abc"
+        config.ai.enabled = False
+        assert init_question_bank(config, scope="ai_exam") is None
+        captured = capsys.readouterr()
+        assert "题库" in captured.out
+
+    def test_scope_not_in_scopes_returns_none(self) -> None:
+        """scope 不在 scopes 列表中返回 None"""
+        config = _make_config()
+        config.question_bank.enabled = True
+        config.question_bank.token = "tok-abc"
+        config.ai.enabled = True
+        config.ai.api_key = "sk-test"
+        config.question_bank.scopes = ["ai_exam"]
+        assert init_question_bank(config, scope="zhidao_homework") is None
+
+    def test_valid_config_returns_client(self) -> None:
+        """全部启用 + scope 命中返回 QuestionBankClient"""
+        config = _make_config()
+        config.question_bank.enabled = True
+        config.question_bank.token = "tok-abc"
+        config.ai.enabled = True
+        config.ai.use_zhidao_ai = False
+        config.ai.api_key = "sk-test"
+        config.question_bank.scopes = ["ai_exam", "ai_homework"]
+
+        client = init_question_bank(config, scope="ai_exam")
+        try:
+            assert client is not None
+            from zhs.question_bank.client import QuestionBankClient
+
+            assert isinstance(client, QuestionBankClient)
+        finally:
+            if client is not None:
+                client.close()
 
 
 class TestLoadConfigAndSession:

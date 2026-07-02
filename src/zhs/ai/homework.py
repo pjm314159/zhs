@@ -20,6 +20,7 @@ from zhs.ai.exam_base import AiExamBase
 from zhs.ai.models import QuestionContent, QuestionSheet
 from zhs.config import AIConfig
 from zhs.exceptions import ZhsError
+from zhs.question_bank.client import QuestionBankClient
 from zhs.session import ZhsSession
 
 
@@ -36,6 +37,7 @@ class HomeworkCtx(AiExamBase):
         ai_config: AIConfig,
         op_extra: dict[str, Any] | None = None,
         progress_view: bool = True,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         super().__init__(
             session=session,
@@ -45,6 +47,7 @@ class HomeworkCtx(AiExamBase):
             ai_config=ai_config,
             op_extra=op_extra,
             progress_view=progress_view,
+            question_bank=question_bank,
         )
         self._knowledge_id = knowledge_id
 

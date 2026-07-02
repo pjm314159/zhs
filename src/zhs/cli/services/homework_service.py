@@ -88,11 +88,12 @@ def run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> N
         f"  state={target.state}, score={target.score}, backNum={target.back_num}, isMarking={target.is_marking}"
     )
 
-    from zhs.cli.bootstrap import init_llm
+    from zhs.cli.bootstrap import init_llm, init_question_bank
 
     llm = init_llm(config)
+    bank = init_question_bank(config, scope="zhidao_homework")
     cache = ZhidaoHomeworkCache()
-    worker = HomeworkWorker(session, config, cache, llm=llm)
+    worker = HomeworkWorker(session, config, cache, llm=llm, question_bank=bank)
     score_rate = worker.run_homework(target, params["recruit_id"], params["school_id"])
 
     if score_rate >= config.homework.threshold:
@@ -167,11 +168,12 @@ def run_zhidao_homework(
 
     tree_print(msg_done(f"待处理: {len(pending)} 个作业"), depth=depth + 1, enabled=True)
 
-    from zhs.cli.bootstrap import init_llm
+    from zhs.cli.bootstrap import init_llm, init_question_bank
 
     llm = init_llm(config)
+    bank = init_question_bank(config, scope="zhidao_homework")
     cache = ZhidaoHomeworkCache()
-    worker = HomeworkWorker(session, config, cache, llm=llm)
+    worker = HomeworkWorker(session, config, cache, llm=llm, question_bank=bank)
 
     for item in pending:
         try:
@@ -241,8 +243,10 @@ def run_ai_homework(
         node_uid: 知识点 ID。非 None 时走直接模式（只做该知识点作业），None 时全刷
     """
     from zhs.ai.course import AiCourseManager
+    from zhs.cli.bootstrap import init_question_bank
 
     mgr = AiCourseManager(session)
+    bank = init_question_bank(config, scope="ai_homework")
     mgr.run_course(
         course_id,
         class_id,
@@ -250,6 +254,7 @@ def run_ai_homework(
         config.homework,
         speed=config.video.ai_speed,
         node_uid=node_uid,
+        question_bank=bank,
     )
 
 
@@ -265,6 +270,7 @@ def run_ai_homework_by_str(session: ZhsSession, config: AppConfig, course_id_str
 def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | None) -> None:
     """全刷作业模式"""
     from zhs.ai.course import AiCourseManager
+    from zhs.cli.bootstrap import init_question_bank
     from zhs.utils.display import course_tag
 
     # 知到课程作业
@@ -282,6 +288,7 @@ def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | 
     if course_type in (None, "auto", "ai"):
         try:
             ai_mgr = AiCourseManager(session)
+            bank = init_question_bank(config, scope="ai_homework")
             ai_courses = ai_mgr.get_ai_course_list()
             print(f"\n{course_tag('ai')} 发现 {len(ai_courses)} 门课程")
             for ac in ai_courses:
@@ -296,6 +303,7 @@ def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | 
                             config.ai,
                             config.homework,
                             speed=config.video.ai_speed,
+                            question_bank=bank,
                         )
                     else:
                         logger.warning(f"AI 课程 {course_name} 缺少 courseId 或 classId")

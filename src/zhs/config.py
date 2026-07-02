@@ -17,7 +17,7 @@
 import json
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -130,6 +130,18 @@ class ExamConfig(BaseModel):
     delay_max: float = Field(default=5.0, description="每批保存后最大休息时间（秒）")
 
 
+class QuestionBankConfig(BaseModel):
+    """题库配置（外部题库查询，作为 LLM 答题的提示源）"""
+
+    enabled: bool = Field(default=False, description="是否启用题库查询")
+    token: str = Field(default="", description="题库 token（enncy.cn 个人中心-更多配置获取）")
+    query_url: str = Field(default="https://tk.enncy.cn/query", description="题库查询 API URL")
+    info_url: str = Field(default="https://tk.enncy.cn/info", description="题库信息 API URL")
+    scopes: list[Literal["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam"]] = Field(
+        default=["zhidao_exam", "ai_exam"], description="启用题库查询的范围"
+    )
+
+
 class AppConfig(BaseModel):
     """应用全局配置"""
 
@@ -148,6 +160,7 @@ class AppConfig(BaseModel):
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()
     exam: ExamConfig = ExamConfig()
+    question_bank: QuestionBankConfig = QuestionBankConfig()
 
 
 # ============================================================
@@ -318,6 +331,10 @@ class ConfigManager:
         if "exam" in data:
             result["exam"] = ExamConfig(**data["exam"])
 
+        # [question_bank] section
+        if "question_bank" in data:
+            result["question_bank"] = QuestionBankConfig(**data["question_bank"])
+
         return result
 
     @staticmethod
@@ -344,7 +361,19 @@ class ConfigManager:
             result["threshold"] = data.pop("threshold")
 
         # 嵌套配置
-        for section in ("video", "homework", "display", "proxies", "qr", "crypto", "urls", "ai", "exam"):
+        sections = (
+            "video",
+            "homework",
+            "display",
+            "proxies",
+            "qr",
+            "crypto",
+            "urls",
+            "ai",
+            "exam",
+            "question_bank",
+        )
+        for section in sections:
             if section in data:
                 result[section] = ConfigManager._strip_none(data.pop(section))
 

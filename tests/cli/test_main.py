@@ -39,6 +39,9 @@ def _make_mock_config() -> MagicMock:
     mock_config.ai.enabled = True
     mock_config.ai.use_zhidao_ai = True
 
+    mock_config.question_bank = MagicMock()
+    mock_config.question_bank.enabled = True
+
     mock_config.urls = MagicMock()
     mock_config.crypto = MagicMock()
     return mock_config
@@ -296,6 +299,19 @@ class TestHomeworkCommand:
         assert mock_config.ai.enabled is False
 
     @patch("zhs.__main__._load_config_and_session")
+    def test_homework_no_question_bank_disables_bank(
+        self,
+        mock_load: MagicMock,
+    ) -> None:
+        """--no-question-bank 禁用题库"""
+        mock_config = _make_mock_config()
+        mock_session = MagicMock()
+        mock_load.return_value = (mock_config, mock_session)
+
+        runner.invoke(app, ["homework", "--no-question-bank"])
+        assert mock_config.question_bank.enabled is False
+
+    @patch("zhs.__main__._load_config_and_session")
     def test_homework_threshold_override(
         self,
         mock_load: MagicMock,
@@ -350,6 +366,21 @@ class TestExamCommand:
         """zhs exam --help 不报错"""
         result = runner.invoke(app, ["exam", "--help"])
         assert result.exit_code == 0
+
+    @patch("zhs.__main__._run_ai_exam")
+    @patch("zhs.__main__._load_config_and_session")
+    def test_exam_no_question_bank_disables_bank(
+        self,
+        mock_load: MagicMock,
+        mock_run_ai_exam: MagicMock,
+    ) -> None:
+        """--no-question-bank 禁用题库"""
+        mock_config = _make_mock_config()
+        mock_session = MagicMock()
+        mock_load.return_value = (mock_config, mock_session)
+
+        runner.invoke(app, ["exam", "--type", "ai", "--no-question-bank"])
+        assert mock_config.question_bank.enabled is False
 
 
 class TestValidateCourseType:

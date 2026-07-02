@@ -150,7 +150,10 @@ def do_login(
 
 
 def init_llm(config: AppConfig) -> Any:
-    """初始化 LLM 提供者
+    """初始化 LLM 提供者（知到作业专用）
+
+    知到作业不使用 zhidao_ai（zhidao_ai 仅在 AI 智慧课程生效，由 LLMProviderFactory
+    创建 ZhidaoAIProvider）。此处仅创建 OpenAI 兼容 provider；无 api_key 则返回 None。
 
     Returns:
         LLMProvider | None
@@ -159,8 +162,6 @@ def init_llm(config: AppConfig) -> Any:
 
     ai = config.ai
     if not ai.enabled:
-        return None
-    if ai.use_zhidao_ai:
         return None
     if not ai.api_key:
         logger.warning("API key 为空，LLM 不可用，将使用随机答题")
@@ -173,9 +174,42 @@ def init_llm(config: AppConfig) -> Any:
     )
 
 
+def init_question_bank(config: AppConfig, scope: str) -> Any:
+    """初始化题库查询客户端
+
+    题库依赖 AI：若 AI 未启用则禁用题库并告警。
+    scope 决定当前场景是否在启用范围内（zhidao_homework/zhidao_exam/ai_homework/ai_exam）。
+
+    Returns:
+        QuestionBankClient | None
+    """
+    from zhs.question_bank.client import QuestionBankClient
+    from zhs.utils.display import msg_warn
+
+    qb = config.question_bank
+    if not qb.enabled:
+        return None
+    if not qb.token:
+        logger.warning("题库 token 为空，题库不可用")
+        print(msg_warn("题库已启用但 token 为空，题库不可用（请在配置中设置 token 或关闭题库功能）"))
+        return None
+    if not config.ai.enabled:
+        logger.warning("题库功能依赖 AI，但 AI 未启用，已禁用题库查询")
+        print(msg_warn("题库功能依赖 AI，但 AI 未启用，已禁用题库查询"))
+        return None
+    if scope not in qb.scopes:
+        return None
+    return QuestionBankClient(
+        token=qb.token,
+        query_url=qb.query_url,
+        info_url=qb.info_url,
+    )
+
+
 __all__ = [
     "do_login",
     "init_llm",
+    "init_question_bank",
     "load_config_and_session",
     "parse_proxy",
     "setup_logger",

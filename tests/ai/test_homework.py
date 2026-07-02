@@ -67,6 +67,24 @@ class TestHomeworkCtxInit:
         """作业不启用跨 exam 查询"""
         assert homework_ctx._cross_exam_search is False
 
+    def test_question_bank_forwarded(self, mock_session: MagicMock, ai_config: AIConfig) -> None:
+        """question_bank 参数转发到基类"""
+        bank = MagicMock()
+        ctx = HomeworkCtx(
+            session=mock_session,
+            course_id=100,
+            knowledge_id=200,
+            exam_test_id=300,
+            exam_paper_id=400,
+            ai_config=ai_config,
+            question_bank=bank,
+        )
+        assert ctx._question_bank is bank
+
+    def test_question_bank_defaults_none(self, homework_ctx: HomeworkCtx) -> None:
+        """question_bank 默认 None"""
+        assert homework_ctx._question_bank is None
+
 
 class TestSaveAnswerFormat:
     """答案格式化"""

@@ -9,6 +9,7 @@ from loguru import logger
 from zhs.ai.models import AiCourseInfo, ExamInfo, KnowledgePoint, Resource
 from zhs.ai.video import AiVideoPlayer
 from zhs.config import AIConfig, HomeworkConfig, VideoConfig
+from zhs.question_bank.client import QuestionBankClient
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import (
@@ -231,6 +232,7 @@ class AiCourseManager:
         speed: float = 1.5,
         learn_optional: bool = False,
         node_uid: int | None = None,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         """执行 AI 课程学习流程
 
@@ -275,6 +277,7 @@ class AiCourseManager:
                         course_info,
                         ai_config,
                         homework_config,
+                        question_bank,
                     )
                 self._reporter.print()
                 self._reporter.print(msg_done(f"完成: {knowledge.knowledge_name}"))
@@ -300,6 +303,7 @@ class AiCourseManager:
                         course_info,
                         ai_config,
                         homework_config,
+                        question_bank,
                     )
 
             # 主题间随机延迟
@@ -382,6 +386,7 @@ class AiCourseManager:
         course_info: Any,
         ai_config: AIConfig,
         homework_config: HomeworkConfig,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         """homework 模式：只做作业，不刷视频"""
         from zhs.ai.homework import HomeworkCtx
@@ -458,6 +463,7 @@ class AiCourseManager:
                     "theme": theme.theme_name,
                     "knowledgePoint": knowledge.knowledge_name,
                 },
+                question_bank=question_bank,
             )
 
             try:
@@ -476,6 +482,13 @@ class AiCourseManager:
                 logger.error(f"作业失败: {e}")
 
             time.sleep(2)
+
+        # 题库使用统计（仅当题库存在且有查询时显示）
+        if question_bank is not None:
+            success, total = question_bank.get_usage_stats()
+            if total > 0:
+                stats_msg = f"题库使用: 成功 {success} 次 / 总查询 {total} 次"
+                self._reporter.tree_print(msg_info(stats_msg), depth=3, enabled=True)
 
         # 知识点作业结束，释放 PPT 内存缓存
         reference_materials.clear()

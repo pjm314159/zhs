@@ -79,6 +79,27 @@ class TestExamCtxInit:
         """考试启用跨 exam 课程级查询（与作业区别）"""
         assert exam_ctx._cross_exam_search is True
 
+    def test_question_bank_forwarded(
+        self, mock_session: MagicMock, ai_config: AIConfig, exam_config: ExamConfig
+    ) -> None:
+        """question_bank 参数转发到基类"""
+        bank = MagicMock()
+        ctx = ExamCtx(
+            session=mock_session,
+            course_id="7123456789012345678",
+            class_id="523456",
+            exam_test_id="1890123",
+            exam_paper_id="867890123",
+            ai_config=ai_config,
+            exam_config=exam_config,
+            question_bank=bank,
+        )
+        assert ctx._question_bank is bank
+
+    def test_question_bank_defaults_none(self, exam_ctx: ExamCtx) -> None:
+        """question_bank 默认 None"""
+        assert exam_ctx._question_bank is None
+
 
 class TestAnswerFormat:
     """答案格式化"""

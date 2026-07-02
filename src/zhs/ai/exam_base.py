@@ -32,6 +32,8 @@ from zhs.config import AIConfig
 from zhs.exceptions import ZhsError
 from zhs.llm.base import LLMProvider
 from zhs.llm.factory import LLMProviderFactory
+from zhs.question_bank.client import QuestionBankClient
+from zhs.question_bank.models import map_question_type
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import _C, progress_bar, styled
@@ -55,6 +57,7 @@ class AiExamBase(ABC):
         progress_view: bool = True,
         reporter: ProgressReporter | None = None,
         cache: AiExamCache | None = None,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         self._session = session
         self._course_id = course_id
@@ -65,6 +68,7 @@ class AiExamBase(ABC):
         self._progress_view = progress_view
         self._reporter = reporter or ConsoleReporter()
         self._cache = cache or AiExamCache()
+        self._question_bank = question_bank
 
         # 缓存（当前 exam 内存缓存，持久化通过 self._cache）
         self._answer_cache: dict[str, dict[str, Any]] = {}
@@ -280,26 +284,23 @@ class AiExamBase(ABC):
 
         # 2. AI 生成
         if self._provider is not None:
+            extra = self._build_extra(question, choices)
             try:
                 if question_type == 1:
-                    ids = self._provider.single_choice(
-                        question.content, choices, self._reference_materials, self._op_extra
-                    )
+                    ids = self._provider.single_choice(question.content, choices, self._reference_materials, extra)
                     if ids:
                         return [str(i) for i in ids], "AI generated"
                     logger.warning(f"{question.content} {question_id} AI provide empty")
                 elif question_type == 2:
-                    ids = self._provider.multiple_choice(
-                        question.content, choices, self._reference_materials, self._op_extra
-                    )
+                    ids = self._provider.multiple_choice(question.content, choices, self._reference_materials, extra)
                     if ids:
                         return [str(i) for i in ids], "AI generated"
                 elif question_type == 14:
-                    ids = self._provider.judgement(question.content, choices, self._reference_materials, self._op_extra)
+                    ids = self._provider.judgement(question.content, choices, self._reference_materials, extra)
                     if ids:
                         return [str(i) for i in ids], "AI generated"
                 elif question_type == 3:
-                    answers = self._provider.fill_blank(question.content, self._reference_materials, self._op_extra)
+                    answers = self._provider.fill_blank(question.content, self._reference_materials, extra)
                     if answers:
                         return answers, "AI generated"
             except Exception as e:
@@ -317,6 +318,39 @@ class AiExamBase(ABC):
         elif question_type == 14 and choices:
             return [str(random.choice(choices)["id"])], "random"
         return [], "random"
+
+    # --- 题库参考注入 ---
+
+    def _build_extra(self, question: QuestionContent, choices: list[dict[str, Any]]) -> dict[str, Any]:
+        """构建 extra 字典：拷贝 _op_extra，并在题库命中时注入 题库参考。
+
+        题库依赖 AI：仅当 _provider 非空时才查询（无 AI 时查了也无用）。
+        题库查询失败/无答案均不影响主流程，返回不含 题库参考 的 extra。
+        """
+        extra = dict(self._op_extra)
+        if self._question_bank is not None:
+            hint = self._query_question_bank(question, choices)
+            if hint:
+                extra["题库参考"] = hint
+        return extra
+
+    def _query_question_bank(self, question: QuestionContent, choices: list[dict[str, Any]]) -> str:
+        """查询题库，返回格式化提示文本（失败/无答案返回空串）。
+
+        绝不中断做题：所有异常均捕获后返回空串。
+        """
+        assert self._question_bank is not None
+        try:
+            title = extract_text(question.content)
+            options = "\n".join(extract_text(c["content"]) for c in choices)
+            qtype = map_question_type(question.question_type)
+            result = self._question_bank.query(title, options, qtype)
+            if result is None:
+                return ""
+            return result.format_hint()
+        except Exception as e:
+            logger.error(f"题库查询失败: {e}")
+            return ""
 
     # --- 进度条 ---
 

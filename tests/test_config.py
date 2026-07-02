@@ -4,8 +4,17 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from zhs.config import AIConfig, AppConfig, ConfigManager, CryptoConfig, ExamConfig, UrlConfig
+from zhs.config import (
+    AIConfig,
+    AppConfig,
+    ConfigManager,
+    CryptoConfig,
+    ExamConfig,
+    QuestionBankConfig,
+    UrlConfig,
+)
 
 # ---------------------------------------------------------------------------
 # CryptoConfig
@@ -108,6 +117,47 @@ class TestExamConfig:
 
 
 # ---------------------------------------------------------------------------
+# QuestionBankConfig
+# ---------------------------------------------------------------------------
+
+
+class TestQuestionBankConfig:
+    def test_default_values(self) -> None:
+        qb = QuestionBankConfig()
+        assert qb.enabled is False
+        assert qb.token == ""
+        assert qb.query_url == "https://tk.enncy.cn/query"
+        assert qb.info_url == "https://tk.enncy.cn/info"
+        assert qb.scopes == ["zhidao_exam", "ai_exam"]
+
+    def test_custom_values(self) -> None:
+        qb = QuestionBankConfig(
+            enabled=True,
+            token="test-token",
+            query_url="https://example.com/q",
+            info_url="https://example.com/i",
+            scopes=["zhidao_homework", "ai_homework"],
+        )
+        assert qb.enabled is True
+        assert qb.token == "test-token"
+        assert qb.query_url == "https://example.com/q"
+        assert qb.info_url == "https://example.com/i"
+        assert qb.scopes == ["zhidao_homework", "ai_homework"]
+
+    def test_scopes_all_valid_values(self) -> None:
+        qb = QuestionBankConfig(scopes=["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam"])
+        assert qb.scopes == ["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam"]
+
+    def test_invalid_scope_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            QuestionBankConfig(scopes=["invalid_scope"])
+
+    def test_empty_scopes(self) -> None:
+        qb = QuestionBankConfig(scopes=[])
+        assert qb.scopes == []
+
+
+# ---------------------------------------------------------------------------
 # AppConfig
 # ---------------------------------------------------------------------------
 
@@ -145,6 +195,12 @@ class TestAppConfig:
         cfg = AppConfig(ai=AIConfig(api_key="sk-test", model="gpt-4"))
         assert cfg.ai.api_key == "sk-test"
         assert cfg.ai.model == "gpt-4"
+
+    def test_nested_question_bank_override(self) -> None:
+        cfg = AppConfig(question_bank=QuestionBankConfig(enabled=True, token="tok-123"))
+        assert cfg.question_bank.enabled is True
+        assert cfg.question_bank.token == "tok-123"
+        assert cfg.question_bank.scopes == ["zhidao_exam", "ai_exam"]  # 默认值不变
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +289,37 @@ max_token = 16000
         assert cfg.ai.model == "deepseek-v4-pro"
         assert cfg.ai.max_token == 16000
 
+    def test_load_question_bank_section(self, tmp_path: Path) -> None:
+        """加载 question_bank 子配置"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[question_bank]
+enabled = true
+token = "tok-abc"
+query_url = "https://example.com/q"
+info_url = "https://example.com/i"
+scopes = ["ai_exam", "ai_homework"]
+"""
+        )
+        mgr = ConfigManager(config_file)
+        cfg = mgr.load()
+        assert cfg.question_bank.enabled is True
+        assert cfg.question_bank.token == "tok-abc"
+        assert cfg.question_bank.query_url == "https://example.com/q"
+        assert cfg.question_bank.info_url == "https://example.com/i"
+        assert cfg.question_bank.scopes == ["ai_exam", "ai_homework"]
+
+    def test_load_question_bank_defaults(self, tmp_path: Path) -> None:
+        """question_bank 段缺失时使用默认值"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text("save_cookies = false\n")
+        mgr = ConfigManager(config_file)
+        cfg = mgr.load()
+        assert cfg.question_bank.enabled is False
+        assert cfg.question_bank.token == ""
+        assert cfg.question_bank.scopes == ["zhidao_exam", "ai_exam"]
+
     def test_load_proxies(self, tmp_path: Path) -> None:
         """加载代理配置"""
         config_file = tmp_path / "config.toml"
@@ -287,6 +374,17 @@ class TestConfigManagerSave:
         assert loaded.urls.base == "http://localhost:8080"
         assert loaded.ai.api_key == "sk-test"
         assert loaded.ai.model == "gpt-4"
+
+    def test_save_preserves_question_bank(self, tmp_path: Path) -> None:
+        """保存和加载保留 question_bank 配置"""
+        config_file = tmp_path / "config.toml"
+        cfg = AppConfig(question_bank=QuestionBankConfig(enabled=True, token="tok-xyz", scopes=["ai_homework"]))
+        mgr = ConfigManager(config_file)
+        mgr.save(cfg)
+        loaded = mgr.load()
+        assert loaded.question_bank.enabled is True
+        assert loaded.question_bank.token == "tok-xyz"
+        assert loaded.question_bank.scopes == ["ai_homework"]
 
     def test_roundtrip_all_defaults(self, tmp_path: Path) -> None:
         """默认值保存后加载一致"""

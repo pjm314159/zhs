@@ -214,6 +214,7 @@ def homework(
     ai_course: int | None = typer.Option(None, "--ai-course", help="AI 课程 courseId"),  # noqa: B008
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
     no_ai: bool = typer.Option(False, "--no-ai", help="不使用 AI 模型（随机生成）"),  # noqa: B008
+    no_question_bank: bool = typer.Option(False, "--no-question-bank", help="不查询题库"),  # noqa: B008
     homework_threshold: int | None = typer.Option(None, "--homework-threshold", help="满分阈值百分比(0-100)"),  # noqa: B008
     max_submit: int | None = typer.Option(None, "--max-submit", help="最大提交次数"),  # noqa: B008
     proxy: str | None = typer.Option(None, "--proxy", help="代理"),  # noqa: B008
@@ -234,6 +235,8 @@ def homework(
     # CLI 参数覆盖配置
     if no_ai:
         config.ai.enabled = False
+    if no_question_bank:
+        config.question_bank.enabled = False
     if homework_threshold is not None:
         config.homework.threshold = homework_threshold
     if max_submit is not None:
@@ -288,6 +291,7 @@ def exam(
     ai_course: int | None = typer.Option(None, "--ai-course", help="AI 课程 courseId"),  # noqa: B008
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
     submit: bool = typer.Option(False, "--submit", help="答题后提交考试（默认不提交）"),  # noqa: B008
+    no_question_bank: bool = typer.Option(False, "--no-question-bank", help="不查询题库"),  # noqa: B008
     proxy: str | None = typer.Option(None, "--proxy", help="代理"),  # noqa: B008
     debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),  # noqa: B008
     console_log: bool = typer.Option(False, "--console-log", help="日志输出到控制台"),  # noqa: B008
@@ -297,6 +301,10 @@ def exam(
     if result is None:
         raise typer.Exit(1)
     config, session = result
+
+    # CLI 参数覆盖配置
+    if no_question_bank:
+        config.question_bank.enabled = False
 
     from zhs.utils.display import msg_warn
 

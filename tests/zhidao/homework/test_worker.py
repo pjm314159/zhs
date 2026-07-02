@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
 from zhs.config import AppConfig, HomeworkConfig
 from zhs.session import ZhsSession
@@ -514,6 +516,110 @@ class TestHomeworkWorkerRandomAnswer:
         assert answer is None
 
 
+class TestQuestionBankInjection:
+    """题库注入：LLM 启用时查题库作为参考"""
+
+    def _make_worker_with_llm(self, bank: object | None = None) -> tuple[HomeworkWorker, MagicMock]:
+        """创建带 mock LLM 的 worker，返回 (worker, mock_llm)"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        mock_llm = MagicMock()
+        worker = HomeworkWorker(session, config, cache, llm=mock_llm)
+        worker._question_bank = bank  # type: ignore[assignment]
+        return worker, mock_llm
+
+    def test_bank_none_no_injection(self) -> None:
+        """question_bank=None 时 LLM extra 不含 题库参考"""
+        worker, mock_llm = self._make_worker_with_llm(bank=None)
+        mock_llm.single_choice.return_value = [101]
+        question = _make_question()
+        item = _make_item()
+
+        worker._generate_answer_with_llm(question, item)
+
+        extra = mock_llm.single_choice.call_args.kwargs["extra"]
+        assert "题库参考" not in extra
+
+    def test_bank_hit_injects_hint(self) -> None:
+        """题库命中时注入 extra["题库参考"]"""
+        from zhs.question_bank.models import QuestionBankResult
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = QuestionBankResult(answer="选项A", times=10, ai=False)
+        worker, mock_llm = self._make_worker_with_llm(bank=mock_bank)
+        mock_llm.single_choice.return_value = [101]
+        question = _make_question()
+        item = _make_item()
+
+        worker._generate_answer_with_llm(question, item)
+
+        extra = mock_llm.single_choice.call_args.kwargs["extra"]
+        assert "题库参考" in extra
+        assert "选项A" in extra["题库参考"]
+        mock_bank.query.assert_called_once()
+
+    def test_bank_no_answer_no_injection(self) -> None:
+        """题库无答案（返回 None）时不注入"""
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = None
+        worker, mock_llm = self._make_worker_with_llm(bank=mock_bank)
+        mock_llm.single_choice.return_value = [101]
+        question = _make_question()
+        item = _make_item()
+
+        worker._generate_answer_with_llm(question, item)
+
+        extra = mock_llm.single_choice.call_args.kwargs["extra"]
+        assert "题库参考" not in extra
+
+    def test_bank_error_no_injection(self) -> None:
+        """题库查询异常时捕获，不注入，LLM 正常调用"""
+        mock_bank = MagicMock()
+        mock_bank.query.side_effect = Exception("network error")
+        worker, mock_llm = self._make_worker_with_llm(bank=mock_bank)
+        mock_llm.single_choice.return_value = [101]
+        question = _make_question()
+        item = _make_item()
+
+        worker._generate_answer_with_llm(question, item)
+
+        extra = mock_llm.single_choice.call_args.kwargs["extra"]
+        assert "题库参考" not in extra
+
+    def test_no_llm_skips_bank(self) -> None:
+        """_llm=None 时不查题库（直接随机）"""
+        mock_bank = MagicMock()
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        worker = HomeworkWorker(session, config, cache, llm=None)
+        worker._question_bank = mock_bank
+        question = _make_question()
+        item = _make_item()
+
+        worker._generate_answer_with_llm(question, item)
+
+        mock_bank.query.assert_not_called()
+
+    def test_bank_query_params(self) -> None:
+        """题库查询参数：title=题目文本, options=选项, type=题型"""
+        from zhs.question_bank.models import QuestionBankResult
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = QuestionBankResult(answer="选项A", times=10)
+        worker, _ = self._make_worker_with_llm(bank=mock_bank)
+        question = _make_question()
+        item = _make_item()
+
+        worker._generate_answer_with_llm(question, item)
+
+        call = mock_bank.query.call_args
+        assert call.args[0] == "测试题目"  # title
+        assert "选项A" in call.args[1]  # options
+        assert call.args[2] == "single"  # qtype
+
+
 class TestHomeworkWorkerRunHomework:
     """完整流程测试（做 → 提交 → 检查 → 重做循环）"""
 
@@ -645,3 +751,30 @@ class TestHomeworkWorkerRunHomework:
         session.homework_redo.assert_called_once()
         # 提交后应调用 lookHomework 检查对错
         session.homework_look.assert_called_once()
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_run_homework_prints_bank_stats(self, mock_sleep: MagicMock, capsys: pytest.CaptureFixture[str]) -> None:
+        """run_homework 结束时 print 题库使用统计"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+
+        # Mock 题库 client with usage stats
+        mock_bank = MagicMock()
+        mock_bank.get_usage_stats.return_value = (3, 5)  # 成功 3 次，总查询 5 次
+
+        worker = HomeworkWorker(session, config, cache, question_bank=mock_bank)
+        item = _make_item()
+
+        # Mock do_homework + check_and_cache
+        worker.do_homework = MagicMock(return_value=90.0)
+        worker._check_and_cache = MagicMock()
+
+        rate = worker.run_homework(item, "414804", "625")
+
+        assert rate == 90.0
+        captured = capsys.readouterr()
+        # 验证 print 输出包含"题库使用"和统计数字
+        assert "题库" in captured.out
+        assert "3" in captured.out
+        assert "5" in captured.out
