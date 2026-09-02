@@ -184,7 +184,7 @@ class TestGetLoginSchoolInfo:
             rt = SCHOOL_INFO_RESPONSE["rt"]
             assert isinstance(rt, dict)
             resp: dict[str, Any] = {**SCHOOL_INFO_RESPONSE, "rt": {**rt, "schoolId": None}}
-            respx.post(f"{self.HW_BASE}/studentExam/gateway/v1/exam/getLoginSchoolInfo").mock(
+            respx.post(f"{self.HW_BASE}/studentExam/gateway/t/v1/exam/getLoginSchoolInfo").mock(
                 return_value=httpx.Response(200, json=resp)
             )
             school_id = api.get_login_school_info()

@@ -100,7 +100,10 @@ def try_restore_cookies(session: ZhsSession, config: AppConfig) -> bool:
         from zhs.zhidao.course import ZhidaoCourseManager
 
         mgr = ZhidaoCourseManager(session)
-        mgr.get_course_list()
+        courses = mgr.get_course_list()
+        if not courses:
+            logger.info("Cookie 恢复成功但课程列表为空")
+            return False
         logger.info("Cookie 恢复成功")
         from zhs.utils.display import msg_done
 
