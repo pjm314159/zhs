@@ -751,7 +751,11 @@ class TestHomeworkWorkerRunHomework:
         session.homework_look.assert_called_once()
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
-    def test_run_homework_prints_bank_stats(self, mock_sleep: MagicMock, capsys: pytest.CaptureFixture[str]) -> None:
+    @patch.object(HomeworkWorker, "do_homework", return_value=90.0)
+    @patch.object(HomeworkWorker, "_check_and_cache")
+    def test_run_homework_prints_bank_stats(
+        self, mock_check: MagicMock, mock_do: MagicMock, mock_sleep: MagicMock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """run_homework 结束时 print 题库使用统计"""
         session = _make_mock_session()
         config = _make_config()
@@ -763,10 +767,6 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache, question_bank=mock_bank)
         item = _make_item()
-
-        # Mock do_homework + check_and_cache
-        worker.do_homework = MagicMock(return_value=90.0)
-        worker._check_and_cache = MagicMock()
 
         rate = worker.run_homework(item, "414804", "625")
 

@@ -66,7 +66,7 @@ def _make_exam(**overrides: object) -> ExamInfo:
         "endDate": "2026-07-10 23:59:59",
     }
     data.update(overrides)
-    return ExamInfo.from_api(data)  # type: ignore[arg-type]
+    return ExamInfo.from_api(data)
 
 
 def _make_question(

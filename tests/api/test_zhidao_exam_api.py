@@ -8,6 +8,8 @@
 getLoginSchoolInfo）因验证码无法自动化已移除，不再测试。
 """
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
@@ -179,8 +181,10 @@ class TestGetLoginSchoolInfo:
     def test_returns_empty_when_school_id_is_none(self, api: ZhidaoExamApi) -> None:
         """schoolId=null 时返回空字符串（用户未绑定学校）"""
         with respx.mock:
-            resp = {**SCHOOL_INFO_RESPONSE, "rt": {**SCHOOL_INFO_RESPONSE["rt"], "schoolId": None}}
-            respx.post(f"{self.HW_BASE}/studentExam/gateway/t/v1/exam/getLoginSchoolInfo").mock(
+            rt = SCHOOL_INFO_RESPONSE["rt"]
+            assert isinstance(rt, dict)
+            resp: dict[str, Any] = {**SCHOOL_INFO_RESPONSE, "rt": {**rt, "schoolId": None}}
+            respx.post(f"{self.HW_BASE}/studentExam/gateway/v1/exam/getLoginSchoolInfo").mock(
                 return_value=httpx.Response(200, json=resp)
             )
             school_id = api.get_login_school_info()
