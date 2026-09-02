@@ -98,6 +98,9 @@ class HomeworkWorker:
         attempt = 1
 
         while self._analyzer.should_redo(item, score_rate):
+            # 每次重做消耗一次剩余次数（服务器端 isMarking 会 +1）。
+            # item 是列表快照，若不更新，得分始终低于阈值时会无限重做。
+            item.is_marking += 1
             attempt += 1
             self._reporter.print()
             self._reporter.print(styled("-" * 60, _C.DIM))
