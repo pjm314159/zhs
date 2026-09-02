@@ -100,12 +100,12 @@ class HttpClient:
                 timeout=30.0,
                 headers={
                     "Accept": "*/*",
-                    "sec-ch-ua": ('" Not A;Brand";v="99", "Chromium";v="101", "Google Chrome";v="101"'),
+                    "sec-ch-ua": ('" Not A;Brand";v="99", "Chromium";v="149", "Google Chrome";v="149"'),
                     "sec-ch-ua-mobile": "?0",
                     "User-Agent": (
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                         " AppleWebKit/537.36 (KHTML, like Gecko)"
-                        " Chrome/101.0.4951.64 Safari/537.36"
+                        " Chrome/149.0.0.0 Safari/537.36"
                     ),
                     "sec-ch-ua-platform": '"Windows"',
                     "Accept-Encoding": "gzip, deflate, br",
@@ -213,4 +213,4 @@ class HttpClient:
     @staticmethod
     def now_timestamp_ms() -> int:
         """当前时间戳（毫秒）"""
-        return int(time.time()) * 1000
+        return int(time.time() * 1000)

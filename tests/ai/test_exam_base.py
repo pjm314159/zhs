@@ -84,9 +84,12 @@ class TestAiExamBaseInit:
         assert exam_base._exam_paper_id == 400
 
     def test_init_cache_empty(self, exam_base: AiExamBase) -> None:
-        """缓存初始化为空"""
+        """缓存初始化为空（仅当前 exam 内存缓存）"""
         assert exam_base._answer_cache == {}
-        assert exam_base._all_answer_cache == {}
+
+    def test_init_cross_exam_search_false_in_base(self, exam_base: AiExamBase) -> None:
+        """基类默认不启用跨 exam 查询（ExamCtx 重写为 True）"""
+        assert exam_base._cross_exam_search is False
 
     def test_init_stopped_false(self, exam_base: AiExamBase) -> None:
         """stopped 标志初始化为 False"""
@@ -143,36 +146,67 @@ class TestParseCachedAnswer:
 
 
 class TestGetCachedAnswer:
-    """两级缓存查询"""
+    """三级缓存查询：内存 → SQLite 当前 exam → 跨 exam search_in_course"""
 
-    def test_cache_hit_all_answer_cache(self, exam_base: AiExamBase) -> None:
-        """all_answer_cache 命中"""
-        exam_base._all_answer_cache = {"123": {"answer": "456#@#789"}}
+    def test_cache_hit_in_memory(self, exam_base: AiExamBase) -> None:
+        """内存缓存 _answer_cache 命中"""
+        exam_base._answer_cache = {"123": {"answer": "456#@#789"}}
         assert exam_base._get_cached_answer(123) == ["456", "789"]
 
-    def test_cache_hit_answer_cache(self, exam_base: AiExamBase) -> None:
-        """answer_cache 命中（all_answer_cache 未命中）"""
-        exam_base._answer_cache = {"456": {"answer": "1"}}
-        exam_base._all_answer_cache = {}
-        assert exam_base._get_cached_answer(456) == ["1"]
+    def test_cache_hit_sqlite_current_exam(self, exam_base: AiExamBase) -> None:
+        """内存未命中 → SQLite 当前 exam 命中"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = {"answer": "10"}
+        exam_base._cache = mock_cache
+        exam_base._answer_cache = {}
+        assert exam_base._get_cached_answer(123) == ["10"]
+        mock_cache.get.assert_called_once_with(100, 300, 123)
+
+    def test_cache_hit_cross_exam_search(self, exam_base: AiExamBase) -> None:
+        """当前 exam 未命中 → search_in_course 跨 exam 命中"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache.search_in_course.return_value = {"answer": "99"}
+        exam_base._cache = mock_cache
+        exam_base._answer_cache = {}
+        assert exam_base._get_cached_answer(123, "题目文本") == ["99"]
+        mock_cache.search_in_course.assert_called_once_with(100, "题目文本")
 
     def test_cache_miss(self, exam_base: AiExamBase) -> None:
-        """缓存未命中返回 None"""
-        assert exam_base._get_cached_answer(999) is None
+        """三级全部未命中返回 None"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache.search_in_course.return_value = None
+        exam_base._cache = mock_cache
+        exam_base._answer_cache = {}
+        assert exam_base._get_cached_answer(999, "不存在") is None
 
-    def test_all_answer_cache_priority(self, exam_base: AiExamBase) -> None:
-        """all_answer_cache 优先于 answer_cache"""
-        exam_base._all_answer_cache = {"123": {"answer": "from_all"}}
-        exam_base._answer_cache = {"123": {"answer": "from_current"}}
-        # 应返回 all_answer_cache 的值
-        assert exam_base._get_cached_answer(123) == ["from_all"]
+    def test_cross_exam_search_skipped_without_text(self, exam_base: AiExamBase) -> None:
+        """question_text 为空时不触发跨 exam 查询"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        exam_base._cache = mock_cache
+        exam_base._answer_cache = {}
+        assert exam_base._get_cached_answer(999) is None
+        mock_cache.search_in_course.assert_not_called()
+
+    def test_hit_backfills_in_memory(self, exam_base: AiExamBase) -> None:
+        """SQLite 命中后回填到内存缓存，下次不再查 SQLite"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = {"answer": "10"}
+        exam_base._cache = mock_cache
+        exam_base._answer_cache = {}
+        exam_base._get_cached_answer(123)
+        exam_base._get_cached_answer(123)
+        # 第二次应从内存命中，get 只调用一次
+        assert mock_cache.get.call_count == 1
 
 
 class TestSetCachedAnswer:
-    """设置缓存"""
+    """设置缓存（仅写入当前 exam 内存缓存）"""
 
-    def test_set_writes_both_caches(self, exam_base: AiExamBase) -> None:
-        """设置缓存同时写入两级缓存"""
+    def test_set_writes_answer_cache(self, exam_base: AiExamBase) -> None:
+        """设置缓存写入 _answer_cache"""
         exam_base._set_cached_answer(
             123,
             {
@@ -183,9 +217,7 @@ class TestSetCachedAnswer:
             },
         )
         assert "123" in exam_base._answer_cache
-        assert "123" in exam_base._all_answer_cache
         assert exam_base._answer_cache["123"]["answer"] == "456"
-        assert exam_base._all_answer_cache["123"]["answer"] == "456"
 
     def test_set_preserves_fields(self, exam_base: AiExamBase) -> None:
         """设置缓存保留所有字段"""
@@ -203,6 +235,38 @@ class TestSetCachedAnswer:
         assert entry["answer"] == "A1"
         assert entry["answer_content"] == "C1"
         assert entry["questionDict"] == {"k": "v"}
+
+
+class TestSaveCache:
+    """_save_cache 持久化：传 course_name 到 cache.put"""
+
+    def test_save_passes_course_name(self, mock_session: MagicMock, ai_config: AIConfig) -> None:
+        """_save_cache 从 _op_extra["courseName"] 取课程名传入 cache.put"""
+        eb = _ConcreteExamBase(
+            session=mock_session,
+            course_id=100,
+            exam_test_id=300,
+            exam_paper_id=400,
+            ai_config=ai_config,
+            op_extra={"courseName": "计算机网络"},
+        )
+        mock_cache = MagicMock()
+        eb._cache = mock_cache
+        eb._answer_cache = {"1": {"answer": "10"}}
+
+        eb._save_cache()
+
+        mock_cache.put.assert_called_once_with(100, 300, 1, {"answer": "10"}, course_name="计算机网络")
+
+    def test_save_without_op_extra_uses_empty_course_name(self, exam_base: AiExamBase) -> None:
+        """无 op_extra 时 course_name 为空字符串"""
+        mock_cache = MagicMock()
+        exam_base._cache = mock_cache
+        exam_base._answer_cache = {"1": {"answer": "10"}}
+
+        exam_base._save_cache()
+
+        mock_cache.put.assert_called_once_with(100, 300, 1, {"answer": "10"}, course_name="")
 
 
 class TestGetAnswerStrategy:
@@ -233,7 +297,7 @@ class TestGetAnswerStrategy:
 
     def test_cache_hit_returns_cached(self, exam_base: AiExamBase) -> None:
         """缓存命中返回缓存答案"""
-        exam_base._all_answer_cache = {"1": {"answer": "10"}}
+        exam_base._answer_cache = {"1": {"answer": "10"}}
         question = QuestionContent(
             id=1,
             content="test",
@@ -301,6 +365,122 @@ class TestGetAnswerStrategy:
             answers, source = exam_base._get_answer(question)
         assert set(answers) == {"10", "11"}
         assert source == "random"
+
+
+class TestQuestionBankInjection:
+    """题库注入：缓存未命中 + AI 启用时查题库作为参考"""
+
+    @staticmethod
+    def _make_question() -> QuestionContent:
+        return QuestionContent(
+            id=1,
+            content="测试题目",
+            question_type=1,
+            option_vos=[OptionVo(id=10, content="选项A"), OptionVo(id=11, content="选项B")],
+        )
+
+    def test_bank_none_no_injection(self, exam_base: AiExamBase) -> None:
+        """question_bank=None 时 provider 用原 extra（无题库参考）"""
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        answers, source = exam_base._get_answer(self._make_question())
+
+        assert source == "AI generated"
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" not in extra
+
+    def test_bank_hit_injects_hint(self, exam_base: AiExamBase) -> None:
+        """题库命中时注入 extra["题库参考"]"""
+        from zhs.question_bank.models import QuestionBankResult
+
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = QuestionBankResult(question="测试题目", answer="选项A", times=10, ai=False)
+        exam_base._question_bank = mock_bank
+
+        answers, source = exam_base._get_answer(self._make_question())
+
+        assert source == "AI generated"
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" in extra
+        assert "选项A" in extra["题库参考"]
+        # 题库被查询过
+        mock_bank.query.assert_called_once()
+
+    def test_bank_no_answer_no_injection(self, exam_base: AiExamBase) -> None:
+        """题库无答案（返回 None）时不注入"""
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = None
+        exam_base._question_bank = mock_bank
+
+        exam_base._get_answer(self._make_question())
+
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" not in extra
+
+    def test_bank_error_no_injection(self, exam_base: AiExamBase) -> None:
+        """题库查询异常时捕获，不注入，provider 正常调用"""
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.side_effect = Exception("network error")
+        exam_base._question_bank = mock_bank
+
+        exam_base._get_answer(self._make_question())
+
+        extra = mock_provider.single_choice.call_args.args[3]
+        assert "题库参考" not in extra
+
+    def test_cache_hit_skips_bank(self, exam_base: AiExamBase) -> None:
+        """缓存命中时不查题库"""
+        mock_bank = MagicMock()
+        exam_base._question_bank = mock_bank
+        exam_base._answer_cache = {"1": {"answer": "10"}}
+
+        answers, source = exam_base._get_answer(self._make_question())
+
+        assert source == "cached"
+        mock_bank.query.assert_not_called()
+
+    def test_provider_none_skips_bank(self, exam_base: AiExamBase) -> None:
+        """provider=None 时不查题库（题库依赖 AI）"""
+        mock_bank = MagicMock()
+        exam_base._question_bank = mock_bank
+        # exam_base._provider 已为 None（ai_config.enabled=False）
+
+        exam_base._get_answer(self._make_question())
+
+        mock_bank.query.assert_not_called()
+
+    def test_bank_query_params(self, exam_base: AiExamBase) -> None:
+        """题库查询参数：title=题目文本, options=选项, type=题型"""
+        from zhs.question_bank.models import QuestionBankResult
+
+        mock_provider = MagicMock()
+        mock_provider.single_choice.return_value = [10]
+        exam_base._provider = mock_provider
+
+        mock_bank = MagicMock()
+        mock_bank.query.return_value = QuestionBankResult(answer="选项A", times=10)
+        exam_base._question_bank = mock_bank
+
+        exam_base._get_answer(self._make_question())
+
+        call = mock_bank.query.call_args
+        assert call.args[0] == "测试题目"  # title
+        assert "选项A" in call.args[1]  # options 含选项文本
+        assert call.args[2] == "single"  # qtype
 
 
 class TestCheckResults:
@@ -374,6 +554,29 @@ class TestCheckResults:
         ):
             exam_base._check_results(sheets)
         assert exam_base._answer_cache["1"]["answer"] == "答案1/答案2"
+
+    def test_check_results_strips_html_in_cache(self, exam_base: AiExamBase) -> None:
+        """缓存中的 question / answer_content 用 extract_text 清洗 HTML"""
+        sheets = [QuestionSheet(question_id=1, version=1)]
+        question = QuestionContent(
+            id=1,
+            content="<p>什么是 <b>TCP</b>？</p>",
+            question_type=1,
+            option_vos=[OptionVo(id=10, content="<span>传输控制协议</span>", is_correct=1)],
+            user_answer_vos=[],
+        )
+        with (
+            patch.object(exam_base, "_get_question_content", return_value=question),
+            patch.object(exam_base, "_save_cache"),
+        ):
+            exam_base._check_results(sheets)
+        entry = exam_base._answer_cache["1"]
+        # question 字段已剥离 HTML 标签
+        assert "<" not in entry["question"]
+        assert "TCP" in entry["question"]
+        # answer_content 字段已剥离 HTML 标签
+        assert "<" not in entry["answer_content"]
+        assert "传输控制协议" in entry["answer_content"]
 
 
 class TestHeartbeat:

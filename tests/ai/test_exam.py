@@ -75,6 +75,31 @@ class TestExamCtxInit:
         """stopped 标志初始化为 False"""
         assert exam_ctx._stopped is False
 
+    def test_cross_exam_search_enabled(self, exam_ctx: ExamCtx) -> None:
+        """考试启用跨 exam 课程级查询（与作业区别）"""
+        assert exam_ctx._cross_exam_search is True
+
+    def test_question_bank_forwarded(
+        self, mock_session: MagicMock, ai_config: AIConfig, exam_config: ExamConfig
+    ) -> None:
+        """question_bank 参数转发到基类"""
+        bank = MagicMock()
+        ctx = ExamCtx(
+            session=mock_session,
+            course_id="7123456789012345678",
+            class_id="523456",
+            exam_test_id="1890123",
+            exam_paper_id="867890123",
+            ai_config=ai_config,
+            exam_config=exam_config,
+            question_bank=bank,
+        )
+        assert ctx._question_bank is bank
+
+    def test_question_bank_defaults_none(self, exam_ctx: ExamCtx) -> None:
+        """question_bank 默认 None"""
+        assert exam_ctx._question_bank is None
+
 
 class TestAnswerFormat:
     """答案格式化"""
@@ -99,23 +124,39 @@ class TestAnswerFormat:
 
 
 class TestGetAnswer:
-    """答案获取策略"""
+    """答案获取策略：内存 → SQLite 当前 exam → 跨 exam search_in_course"""
 
-    def test_cache_hit(self, exam_ctx: ExamCtx) -> None:
-        """缓存命中返回答案"""
-        exam_ctx._all_answer_cache = {"123": {"answer": "456#@#789"}}
+    def test_cache_hit_in_memory(self, exam_ctx: ExamCtx) -> None:
+        """内存缓存命中返回答案"""
+        exam_ctx._answer_cache = {"123": {"answer": "456#@#789"}}
         result = exam_ctx._get_cached_answer(123)
         assert result is not None
         assert result == ["456", "789"]
 
+    def test_cache_hit_cross_exam(self, exam_ctx: ExamCtx) -> None:
+        """当前 exam 未命中 → search_in_course 跨 exam 命中"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache.search_in_course.return_value = {"answer": "456#@#789"}
+        exam_ctx._cache = mock_cache
+        exam_ctx._answer_cache = {}
+        result = exam_ctx._get_cached_answer(123, "题目文本")
+        assert result == ["456", "789"]
+        mock_cache.search_in_course.assert_called_once()
+
     def test_cache_miss(self, exam_ctx: ExamCtx) -> None:
         """缓存未命中返回 None"""
-        result = exam_ctx._get_cached_answer(999)
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache.search_in_course.return_value = None
+        exam_ctx._cache = mock_cache
+        exam_ctx._answer_cache = {}
+        result = exam_ctx._get_cached_answer(999, "不存在")
         assert result is None
 
     def test_fill_blank_cache_not_split(self, exam_ctx: ExamCtx) -> None:
         """填空题 answer 含 / 不拆分，返回单元素列表"""
-        exam_ctx._all_answer_cache = {"123": {"answer": "身体健康/心理健康"}}
+        exam_ctx._answer_cache = {"123": {"answer": "身体健康/心理健康"}}
         result = exam_ctx._get_cached_answer(123)
         assert result is not None
         assert result == ["身体健康/心理健康"]

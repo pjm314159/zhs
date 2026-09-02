@@ -19,6 +19,7 @@ from zhs.api.ai_analysis_api import AiAnalysisApi
 from zhs.api.encrypted_query import EncryptedQuery
 from zhs.api.http_client import HttpClient
 from zhs.api.sso import SsoAuthenticator
+from zhs.api.zhidao_exam_api import ZhidaoExamApi
 from zhs.api.zhidao_homework_api import ZhidaoHomeworkApi
 from zhs.config import AppConfig, CryptoConfig, UrlConfig
 
@@ -33,6 +34,7 @@ class ZhsSession:
         self._http = HttpClient(config, max_retries=max_retries)
         self._query = EncryptedQuery(self._http)
         self._homework_api = ZhidaoHomeworkApi(self._query)
+        self._exam_api = ZhidaoExamApi(self._query)
         self._ai_analysis_api = AiAnalysisApi(self._http)
         self._sso = SsoAuthenticator(self._http)
 
@@ -211,6 +213,21 @@ class ZhsSession:
         """知到作业 API 查询（exam_key 加密，无 dateFormate，检查 status='200'）"""
         return self._query.query("homework", url, data, method=method)
 
+    def zhidao_exam_query(
+        self,
+        url: str,
+        data: dict[str, Any],
+        key: bytes | None = None,
+        ok_status: str = "200",
+        method: str = "POST",
+        content_type: str = "form",
+    ) -> dict[str, Any]:
+        """知到考试 API 查询（exam_key 加密，无 dateFormate，检查 status='200'）
+
+        与 homework_query 加密策略相同，仅 base_url 不同（taurusexam vs homework）。
+        """
+        return self._query.query("zhidao_exam", url, data, method=method)
+
     # --- 知到作业业务 API（委托给 ZhidaoHomeworkApi）---
 
     def homework_redo(
@@ -275,6 +292,120 @@ class ZhsSession:
         return self._homework_api.homework_get_answer(
             recruit_id, stu_exam_id, exam_id, school_id, course_id, question_ids
         )
+
+    # --- 知到考试业务 API（委托给 ZhidaoExamApi）---
+
+    def exam_list(
+        self,
+        course_id: int,
+        recruit_id: str,
+        flag: int,
+    ) -> list[dict[str, Any]]:
+        """获取考试列表（getStudentFinalExam）
+
+        Args:
+            course_id: 课程 ID
+            recruit_id: 招募 ID
+            flag: 1=未完成考试, 0=已完成考试
+        """
+        return self._exam_api.get_student_final_exam(course_id, recruit_id, flag)
+
+    def exam_get_save_answer_lock_result(
+        self,
+        exam_id: str,
+        recruit_id: str,
+    ) -> int:
+        """查询答案是否锁死（getSaveAnswerLockResult）
+
+        Returns:
+            rt.state: 0=未锁死（可以答题），1=锁死（跳过该考试）
+        """
+        return self._exam_api.get_save_answer_lock_result(exam_id, recruit_id)
+
+    def exam_get_login_school_info(self) -> str:
+        """获取当前登录用户学校 ID（getLoginSchoolInfo）
+
+        用于 doExam / saveStudentAnswer 的 schoolId 参数。
+
+        部分用户未绑定学校，此时返回空字符串。
+
+        Returns:
+            学校 ID 字符串（如 "625"），未绑定时返回 ""
+        """
+        return self._exam_api.get_login_school_info()
+
+    def exam_do(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        student_exam_id: str,
+        school_id: str,
+        course_id: str,
+        device_id: str = "",
+    ) -> dict[str, Any]:
+        """开始考试（doExam），获取题目详情（含 eid）
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID
+            student_exam_id: 学生考试记录 ID
+            school_id: 学校 ID
+            course_id: 课程 ID
+            device_id: 设备 ID（通常为空字符串）
+
+        Returns:
+            rt 对象（含 examBase.workExamParts 题目列表）
+        """
+        return self._exam_api.do_exam(
+            recruit_id=recruit_id,
+            exam_id=exam_id,
+            student_exam_id=student_exam_id,
+            school_id=school_id,
+            course_id=course_id,
+            device_id=device_id,
+        )
+
+    def exam_save_answer(
+        self,
+        answer_item: dict[str, Any],
+        recruit_id: str,
+    ) -> dict[str, Any]:
+        """保存单题答案（saveStudentAnswer）
+
+        考试特有：额外发送 source=1 明文字段（作业不发送）。
+        answer_item 中 examType=1（整数），作业为 ""（空字符串）。
+
+        Args:
+            answer_item: 答案项字典（含 examId/eid/answer/questionType/examType 等）
+            recruit_id: 招募 ID
+
+        Returns:
+            rt 对象（含 statu 字段，注意 API 字段名拼写为 "statu" 非 "status"）
+        """
+        return self._exam_api.save_student_answer(answer_item, recruit_id)
+
+    def exam_submit(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        stu_exam_id: str,
+        achieve_count: str,
+    ) -> dict[str, Any]:
+        """提交考试（submit）
+
+        默认不提交，仅当用户指定 ``--submit`` 时调用。
+        使用 zhidao_exam 策略（taurusexam-api 域名）。
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID
+            stu_exam_id: 学生考试记录 ID
+            achieve_count: 已答题数量（字符串型，如 "80"）
+
+        Returns:
+            rt 对象（含 msg 和 statu 字段，statu="1" 表示提交成功）
+        """
+        return self._exam_api.submit_exam(recruit_id, exam_id, stu_exam_id, achieve_count)
 
     # --- AI 解析 SSE（委托给 AiAnalysisApi）---
 

@@ -3,7 +3,7 @@
 ANSI 颜色定义：
   - 课程类型标签: 知到=青色, Hike=黄色, AI=品红
   - 状态: 跳过=暗灰, 完成=绿色, 错误=红色, 警告=黄色
-  - 进度条: 填充=青色, 百分比=绿色
+  - 进度条: 填充=青色, 百分比=白色
 """
 
 import os
@@ -88,16 +88,19 @@ def course_tag(course_type: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def progress_bar(current: int, total: int, width: int = 40) -> str:
-    """生成带颜色的进度条字符串，total 为 0 时安全返回"""
+def progress_bar(current: float, total: float, width: int = 40) -> str:
+    """生成带颜色的进度条字符串，total 为 0 时安全返回
+
+    百分比显示到小数点后一位（如 99.5%）。
+    """
     if total == 0:
         bar = " " * width
-        return styled(f"[{bar}] 0%", _C.DIM)
+        return styled(f"[{bar}] 0.0%", _C.DIM)
     percent = current / total
     filled = int(width * percent)
     bar_fill = styled("#" * filled, _C.CYAN)
     bar_empty = styled(" " * (width - filled), _C.DIM)
-    pct = styled(f"{int(percent * 100)}%", _C.GREEN if percent >= 1.0 else _C.WHITE)
+    pct = styled(f"{percent * 100:.1f}%", _C.GREEN if percent >= 1.0 else _C.WHITE)
     return f"[{bar_fill}{bar_empty}] {pct}"
 
 

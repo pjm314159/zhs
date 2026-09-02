@@ -1006,10 +1006,10 @@ class TestHomeworkWorker:
     def test_run_homework_returns_score_rate(self) -> None:
         """run_homework 返回得分率（0.0-100.0）"""
 
-    def test_strip_html(self) -> None:
-        """_strip_html 去除 HTML 标签"""
-        from zhs.zhidao.homework.worker import _strip_html
-        assert _strip_html("<p>hello</p>") == "hello"
+    def test_extract_text(self) -> None:
+        """extract_text 用 BeautifulSoup 去除 HTML 标签"""
+        from zhs.utils.html import extract_text
+        assert extract_text("<p>hello</p>") == "hello"
 
     def test_slider_verification_raises(self) -> None:
         """遇到滑块验证抛 SliderVerificationRequired"""
@@ -1261,12 +1261,16 @@ class TestAiExamBase:
         # 通过子类化并 Mock 抽象方法验证调用顺序
         ...
 
-    def test_two_level_cache_initialization(self) -> None:
-        """两级缓存初始化：_answer_cache（当前）+ _all_answer_cache（汇总）"""
+    def test_cache_initialization(self) -> None:
+        """内存缓存初始化为空（仅 _answer_cache，当前 exam）"""
         ...
 
-    def test_load_all_for_course(self) -> None:
-        """load_all_for_course 加载课程下所有考试缓存到 _all_answer_cache"""
+    def test_cross_exam_search_flag(self) -> None:
+        """_cross_exam_search：基类 False（homework），ExamCtx 重写 True"""
+        ...
+
+    def test_get_cached_answer_three_level(self) -> None:
+        """三级查询：内存 _answer_cache → SQLite cache.get → search_in_course"""
         ...
 
     def test_heartbeat_lifecycle(self) -> None:

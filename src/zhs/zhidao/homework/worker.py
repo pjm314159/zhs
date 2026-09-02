@@ -8,7 +8,6 @@ doHomework → 生成答案（缓存/LLM）→ saveStudentAnswer → submit
 from __future__ import annotations
 
 import random
-import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -17,9 +16,11 @@ from loguru import logger
 from zhs.config import AppConfig
 from zhs.exceptions import SliderVerificationRequired, ZhsError
 from zhs.llm.base import LLMProvider
+from zhs.question_bank.models import map_question_type
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import _C, msg_done, msg_error, msg_info, msg_warn, progress_bar, styled
+from zhs.utils.html import extract_text
 from zhs.zhidao.homework.analyzer import HomeworkAnalyzer
 from zhs.zhidao.homework.models import (
     HomeworkAnswerInfo,
@@ -34,11 +35,7 @@ from zhs.zhidao.homework.models import (
 
 if TYPE_CHECKING:
     from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
-
-
-def _strip_html(text: str) -> str:
-    """移除 HTML 标签，保留纯文本"""
-    return re.sub(r"<[^>]+>", "", text).strip()
+    from zhs.question_bank.client import QuestionBankClient
 
 
 class HomeworkWorker:
@@ -51,6 +48,7 @@ class HomeworkWorker:
         cache: HomeworkCache,
         llm: LLMProvider | None = None,
         reporter: ProgressReporter | None = None,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         self._session = session
         self._config = config
@@ -58,6 +56,7 @@ class HomeworkWorker:
         self._llm = llm
         self._reporter = reporter or ConsoleReporter()
         self._analyzer = HomeworkAnalyzer(session, config, cache)
+        self._question_bank = question_bank
 
     def run_homework(self, item: HomeworkItem, recruit_id: str, school_id: str) -> float:
         """运行完整作业流程（做 → 提交 → 检查 → 重做循环），返回最终得分率
@@ -123,6 +122,12 @@ class HomeworkWorker:
             self._reporter.print(f"   得分率: {styled(f'{score_rate:.1f}%', _C.YELLOW)} {threshold_str}")
         self._reporter.print(styled("=" * 60, _C.DIM))
 
+        # 题库使用统计（仅当题库存在且有查询时显示）
+        if self._question_bank is not None:
+            success, total = self._question_bank.get_usage_stats()
+            if total > 0:
+                self._reporter.print(msg_info(f"题库使用: 成功 {success} 次 / 总查询 {total} 次"))
+
         return score_rate
 
     def _check_and_cache(self, item: HomeworkItem, recruit_id: str, school_id: str) -> None:
@@ -186,7 +191,7 @@ class HomeworkWorker:
 
             # 显示固定进度条
             qt_name = self._get_question_type_name(question.question_type_id)
-            question_text = _strip_html(question.name)[:30]
+            question_text = extract_text(question.name)[:30]
             bar_str = progress_bar(i - 1, len(questions), width=30)
             self._reporter.progress(f"  {bar_str} [{styled(qt_name, _C.CYAN)}] {question_text}... ")
 
@@ -274,12 +279,31 @@ class HomeworkWorker:
             questions.extend(part.question_dtos)
         return questions
 
+    def _query_question_bank(self, question: HomeworkQuestion, choices: list[dict[str, Any]]) -> str:
+        """查询题库，返回格式化提示文本（失败/无答案返回空串）。
+
+        绝不中断做题：所有异常均捕获后返回空串。
+        """
+        assert self._question_bank is not None
+        try:
+            title = extract_text(question.name)
+            options = "\n".join(c["content"] for c in choices)
+            qtype = map_question_type(question.question_type_id)
+            result = self._question_bank.query(title, options, qtype)
+            if result is None:
+                return ""
+            return result.format_hint()
+        except Exception as e:
+            logger.error(f"题库查询失败: {e}")
+            return ""
+
     def _generate_answer_with_llm(
         self,
         question: HomeworkQuestion,
         item: HomeworkItem,
         wrong_options: list[WrongOption] | None = None,
         ai_analysis: str | None = None,
+        bank_hint: str = "",
     ) -> int | str | None:
         """使用 LLM 生成答案
 
@@ -290,7 +314,7 @@ class HomeworkWorker:
             ai_analysis: 缓存中的 AI 解析内容
         """
         qt = question.question_type
-        question_text = _strip_html(question.name)
+        question_text = extract_text(question.name)
         all_options = question.question_options
 
         # 展平错误选项 ID（用于单选/判断题排除）
@@ -323,7 +347,7 @@ class HomeworkWorker:
                 logger.warning(f"所有选项都被标记为错误，无法生成答案: {question_text[:30]}")
                 return None
 
-        choices = [{"id": opt.id, "content": _strip_html(opt.content)} for opt in available_options]
+        choices = [{"id": opt.id, "content": extract_text(opt.content)} for opt in available_options]
 
         # 构建额外信息（根据题型传递不同的错误提示）
         extra: dict[str, str] = {"courseName": item.course_name}
@@ -357,6 +381,11 @@ class HomeworkWorker:
         if ai_analysis:
             extra["历史AI解析"] = f"之前 AI 对此题的分析（仅供参考）:\n{ai_analysis}"
             logger.debug(f"历史AI解析: {ai_analysis[:100]}")
+
+        # 题库参考注入（使用预查询结果）
+        if bank_hint:
+            extra["题库参考"] = bank_hint
+            logger.debug(f"题库参考已注入: {bank_hint[:50]}")
 
         # 多选题/填空题：最多尝试 3 次，如果 AI 选了错误组合则 rollback
         max_retries = 3 if qt in (HomeworkQuestionType.MULTI, HomeworkQuestionType.FILL) else 1
@@ -550,7 +579,7 @@ class HomeworkWorker:
     ) -> None:
         """保存单题答案（saveStudentAnswer）"""
         if not question.eid:
-            raise ZhsError(f"题目无 eid，无法保存答案: {question.name[:30]}")
+            raise ZhsError(f"题目无 eid，无法保存答案: {extract_text(question.name)[:30]}")
 
         answer_item: dict[str, Any] = {
             "examId": item.exam_id,
@@ -615,7 +644,7 @@ class HomeworkWorker:
             return
 
         options = [
-            HomeworkCacheOption(id=opt.id, content=_strip_html(opt.content)) for opt in question.question_options
+            HomeworkCacheOption(id=opt.id, content=extract_text(opt.content)) for opt in question.question_options
         ]
         self._cache.save_options(
             course_id=item.course_id,
@@ -623,7 +652,8 @@ class HomeworkWorker:
             question_key=question_key,
             question_type=question.question_type_id,
             options=options,
-            content=_strip_html(question.name),
+            content=extract_text(question.name),
+            course_name=item.course_name,
         )
 
     def _get_question_type_name(self, qt_id: int) -> str:
@@ -672,7 +702,17 @@ class HomeworkWorker:
         entry = self._cache.get(course_id, exam_id, question_key)
         ai_analysis = entry.ai_analysis if entry else None
 
-        logger.debug(f"缓存错误选择方式: {wrong}, AI分析: {ai_analysis[:50] if ai_analysis else None}")
+        # 题库参考预查询（仅当题库可用时，后续注入 LLM extra）
+        bank_hint = ""
+        if self._question_bank is not None:
+            choices = [{"id": o.id, "content": o.content} for o in question.question_options]
+            bank_hint = self._query_question_bank(question, choices)
+
+        logger.debug(
+            f"缓存错误选择方式: {wrong}, "
+            f"AI分析: {ai_analysis[:50] if ai_analysis else None}, "
+            f"题库={'有' if bank_hint else '无'}"
+        )
 
         # 3. 根据题型和缓存情况决定策略
         qt = question.question_type
@@ -688,14 +728,17 @@ class HomeworkWorker:
 
         # 其他情况：调用 AI，传递错误选项和 AI 分析
         logger.debug(f"调用 LLM: wrong={wrong}, ai_analysis={ai_analysis[:50] if ai_analysis else None}")
-        answer = self._generate_answer_with_llm(question, item, wrong_options=wrong, ai_analysis=ai_analysis)
+        answer = self._generate_answer_with_llm(
+            question, item, wrong_options=wrong, ai_analysis=ai_analysis, bank_hint=bank_hint
+        )
         if answer is not None:
             logger.debug(f"LLM 返回答案: {answer}")
+            bank_suffix = "+题库" if bank_hint else ""
             if self._llm is None:
-                return answer, "无LLM随机"
+                return answer, f"无LLM随机{bank_suffix}"
             if wrong:
-                return answer, "缓存排除AI"
-            return answer, "LLM"
+                return answer, f"缓存排除AI{bank_suffix}"
+            return answer, f"LLM{bank_suffix}"
 
         logger.warning(f"无法生成答案: question_key={question_key}, 题型={qt}")
         return None, "无法生成"
@@ -735,16 +778,23 @@ class HomeworkWorker:
 
     def _style_source(self, source: str) -> str:
         """美化答案来源显示"""
-        if source == "缓存正确":
-            return styled(source, _C.GREEN)
-        elif source in ("缓存排除直接", "缓存排除AI"):
-            return styled(source, _C.YELLOW)
-        elif source == "LLM":
-            return styled(source, _C.BRIGHT_MAGENTA)
-        elif source == "无LLM随机":
-            return styled(source, _C.DIM)
+        # 提取题库后缀（如 "+题库"）
+        bank_suffix = ""
+        base_source = source
+        if source.endswith("+题库"):
+            bank_suffix = styled("+题库", _C.BRIGHT_CYAN)
+            base_source = source.removesuffix("+题库")
+
+        if base_source == "缓存正确":
+            return styled(base_source, _C.GREEN) + bank_suffix
+        elif base_source in ("缓存排除直接", "缓存排除AI"):
+            return styled(base_source, _C.YELLOW) + bank_suffix
+        elif base_source == "LLM":
+            return styled(base_source, _C.BRIGHT_MAGENTA) + bank_suffix
+        elif base_source == "无LLM随机":
+            return styled(base_source, _C.DIM) + bank_suffix
         else:
-            return styled(source, _C.WHITE)
+            return styled(base_source, _C.WHITE) + bank_suffix
 
     def _get_option_labels(self, options: list[HomeworkQuestionOption], ids: list[int]) -> str:
         """将选项 ID 转换为标签字符串（如 A, B, C）
@@ -811,7 +861,7 @@ class HomeworkWorker:
                 return bridged
 
         # 5. 无选项题目（填空题）：通过内容桥接
-        content = _strip_html(question.name)
+        content = extract_text(question.name)
         if content:
             bridged = self._cache.find_key_by_content(item.course_id, item.exam_id, content)
             if bridged and bridged != eid:

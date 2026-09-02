@@ -335,6 +335,117 @@ class TestPlayCourse:
             player.play_course("ABC123", ctx)
             mock_play.assert_called_once_with("ABC123", 100, ctx)
 
+    def test_play_course_prints_new_course(self, mock_session: ZhsSession) -> None:
+        """play_course 开始时打印 '新课程' 标识"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(player, "play_video"),
+            patch("zhs.zhidao.video.tree_print"),
+            patch("zhs.zhidao.video.wipe_line"),
+            patch("zhs.zhidao.video.print") as mock_print,
+        ):
+            player.play_course("ABC123", ctx)
+            # 第一个 print 调用应包含 "新课程"
+            first_call_args = mock_print.call_args_list[0]
+            assert "新课程" in first_call_args.args[0]
+
+
+class TestPrintWithProgress:
+    """_print_with_progress / _clear_progress 测试"""
+
+    def test_print_no_bar(self, mock_session: ZhsSession) -> None:
+        """无进度条时正常打印"""
+        player = ZhidaoVideoPlayer(mock_session)
+        with patch("zhs.zhidao.video.print") as mock_print:
+            player._print_with_progress("章节: 第一章", depth=1)
+            assert mock_print.call_count == 1
+            assert "章节: 第一章" in mock_print.call_args_list[0].args[0]
+
+    def test_print_with_bar_reprints(self, mock_session: ZhsSession) -> None:
+        """有进度条时清除并重印进度条（保持进度条在底部）"""
+        player = ZhidaoVideoPlayer(mock_session)
+        player._progress_line = "playing 100 [####] 50.0%"
+        with (
+            patch("zhs.zhidao.video.wipe_line"),
+            patch("zhs.zhidao.video.print") as mock_print,
+        ):
+            player._print_with_progress("章节: 第一章", depth=1)
+            # 两次 print: 消息 + 重印进度条
+            assert mock_print.call_count == 2
+            assert "章节: 第一章" in mock_print.call_args_list[0].args[0]
+            assert "playing 100" in mock_print.call_args_list[1].args[0]
+
+    def test_print_disabled(self, mock_session: ZhsSession) -> None:
+        """enabled=False 时不打印"""
+        player = ZhidaoVideoPlayer(mock_session)
+        with patch("zhs.zhidao.video.print") as mock_print:
+            player._print_with_progress("章节", enabled=False)
+            mock_print.assert_not_called()
+
+    def test_clear_progress(self, mock_session: ZhsSession) -> None:
+        """_clear_progress 清除进度条"""
+        player = ZhidaoVideoPlayer(mock_session)
+        player._progress_line = "playing 100 [####] 50.0%"
+        with patch("zhs.zhidao.video.wipe_line") as mock_wipe:
+            player._clear_progress()
+            mock_wipe.assert_called_once()
+            assert player._progress_line is None
+
+    def test_clear_progress_no_bar(self, mock_session: ZhsSession) -> None:
+        """_clear_progress 无进度条时不调用 wipe_line"""
+        player = ZhidaoVideoPlayer(mock_session)
+        with patch("zhs.zhidao.video.wipe_line") as mock_wipe:
+            player._clear_progress()
+            mock_wipe.assert_not_called()
+
+
+class TestMainLoopCompletion:
+    """_main_loop 完成时显示 100% 进度条"""
+
+    def test_completion_shows_100_percent(self, mock_session: ZhsSession) -> None:
+        """视频播放完成时进度条显示 100.0%"""
+        ctx = _make_context(video_sec=100, study_total_time=0)
+        player = ZhidaoVideoPlayer(mock_session, end_threshold=0.05)
+        with (
+            patch.object(player, "_report_progress_v2", return_value=(5.0, True)),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print") as mock_print,
+        ):
+            player.play_video("ABC123", 100, ctx)
+            # 最后一次 print 调用应包含 "100.0%"
+            last_call_args = mock_print.call_args_list[-1]
+            assert "100.0%" in last_call_args.args[0]
+
+
+class TestProgressNoResidue:
+    """进度行用空格填充，避免变短时残留旧字符"""
+
+    def test_progress_padded_to_prev_len(self, mock_session: ZhsSession) -> None:
+        """切换到更短的 action（如 pause）时，填充空格覆盖残留"""
+        ctx = _make_context(video_sec=100, study_total_time=0)
+        player = ZhidaoVideoPlayer(mock_session, end_threshold=0.05)
+        # 模拟上一视频残留的长进度行
+        player._progress_line = "x" * 100
+        with (
+            patch.object(player, "_report_progress_v2", return_value=(5.0, True)),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print") as mock_print,
+        ):
+            player.play_video("ABC123", 100, ctx)
+            # 第一次进度打印应被填充至至少 100 字符（覆盖残留）
+            first = mock_print.call_args_list[0].args[0]
+            assert first.startswith("\r")
+            assert len(first) - 1 >= 100  # 去掉 \r 前缀后长度 >= 100
+
 
 class TestReportProgressV2Return:
     """_report_progress_v2 返回 (server_played, success) 元组"""
@@ -379,12 +490,15 @@ class TestReportProgressV2Return:
         """-8 错误同步成功时返回 (server_time, True)"""
         ctx = _make_context()
         player = ZhidaoVideoPlayer(mock_session)
-        call_count = 0
+        db_call_count = 0
 
-        def _query_side_effect(*args: object, **kwargs: object) -> object:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+        def _query_side_effect(url: str, *args: object, **kwargs: object) -> object:
+            # cache 调用始终成功
+            if "saveCacheIntervalTimeV2" in url:
+                return {}
+            nonlocal db_call_count
+            db_call_count += 1
+            if db_call_count == 1:
                 raise Exception("code: -8 msg: study time decreased")
             return {}  # 第二次调用成功
 
@@ -409,12 +523,15 @@ class TestReportProgressV2Return:
         """-10 错误重试成功时返回 (played_time, True)"""
         ctx = _make_context()
         player = ZhidaoVideoPlayer(mock_session)
-        call_count = 0
+        db_call_count = 0
 
-        def _query_side_effect(*args: object, **kwargs: object) -> object:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+        def _query_side_effect(url: str, *args: object, **kwargs: object) -> object:
+            # cache 调用始终成功
+            if "saveCacheIntervalTimeV2" in url:
+                return {}
+            nonlocal db_call_count
+            db_call_count += 1
+            if db_call_count == 1:
                 raise Exception("code: -10 msg: multi-window")
             return {}  # 第二次调用成功
 
@@ -452,7 +569,6 @@ class TestReportFailureNoLastSubmitUpdate:
             patch.object(player, "_start_watch_thread"),
             patch.object(player, "_three_dimensional_course_ware"),
             patch("zhs.zhidao.video.time.sleep"),
-            patch("zhs.zhidao.video.wipe_line"),
             patch("zhs.zhidao.video.print"),
         ):
             # played_time 从 70 开始，end_time=91%*1800=1638

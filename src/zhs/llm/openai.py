@@ -1,7 +1,10 @@
 """OpenAI 兼容接口 LLM 提供者"""
 
+import contextlib
 import re
 import time
+from queue import Empty, Full, Queue
+from threading import Thread
 from typing import Any
 
 from loguru import logger
@@ -27,13 +30,15 @@ class OpenAIProvider(LLMProvider):
         max_retries: int = 3,
         retry_delay: float = 1.0,
         max_token: int = 27900,
+        timeout: float = 120.0,
     ) -> None:
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
         self._model_name = model_name
         self._extra = extra or {}
         self._max_retries = max_retries
         self._retry_delay = retry_delay
         self._max_token = max_token
+        self._timeout = timeout
 
     def completion(
         self,
@@ -57,20 +62,69 @@ class OpenAIProvider(LLMProvider):
         raise ZhsError("Unexpected error in OpenAI completion")
 
     def _stream_completion(self, prompt: str, aim_start: str = "```answer", aim_end: str = "```") -> str:
-        """流式响应解析（含提前终止）"""
+        """流式响应解析（含提前终止和真正的超时保护）
+
+        使用后台线程读取 stream chunks，主线程通过 Queue.get(timeout) 实现真正的超时。
+        即使 OpenAI SDK 的 __next__() 阻塞，主线程也能在 timeout 后超时退出。
+        """
         stream = self._client.chat.completions.create(
             model=self._model_name,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
+            timeout=self._timeout,
             **self._extra,
         )
+
+        # 后台线程读取 chunks，通过 Queue 传递给主线程
+        # Queue item: str = content delta, None = 流结束, Exception = 错误
+        chunk_queue: Queue[str | None | Exception] = Queue(maxsize=100)
+
+        def _reader() -> None:
+            try:
+                for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    content = delta.content if delta.content else ""
+                    try:
+                        chunk_queue.put(content, timeout=5.0)
+                    except Full:
+                        logger.warning("chunk_queue 满，丢弃 chunk")
+                chunk_queue.put(None, timeout=5.0)  # 流结束信号
+            except Exception as e:
+                with contextlib.suppress(Full):
+                    chunk_queue.put(e, timeout=5.0)
+
+        reader_thread = Thread(target=_reader, daemon=True)
+        reader_thread.start()
+        logger.debug("OpenAI stream reader 线程已启动")
+
         collected: list[str] = []
         cache: str = ""
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta.content is not None:
-                collected.append(delta.content)
-                cache += delta.content
+        start_time = time.monotonic()
+
+        while True:
+            remaining = self._timeout - (time.monotonic() - start_time)
+            if remaining <= 0:
+                logger.error(f"OpenAI 流式响应超时（>{self._timeout}s），已收集 {len(collected)} 个 chunk")
+                raise ZhsError(f"OpenAI stream timeout after {self._timeout}s")
+
+            try:
+                item = chunk_queue.get(timeout=min(remaining, 30.0))
+            except Empty:
+                # 超时未收到 chunk
+                elapsed = time.monotonic() - start_time
+                logger.error(f"OpenAI 流式响应超时（{elapsed:.1f}s 无数据），已收集 {len(collected)} 个 chunk")
+                raise ZhsError(f"OpenAI stream timeout after {elapsed:.1f}s") from None
+
+            if item is None:
+                # 流结束
+                break
+            if isinstance(item, Exception):
+                raise ZhsError(f"OpenAI stream error: {item}") from item
+
+            content = item
+            if content:
+                collected.append(content)
+                cache += content
                 # 检测到答案标记后提前终止
                 match = re.search(f"{re.escape(aim_start)}(.*?){re.escape(aim_end)}", cache, re.DOTALL)
                 if match:

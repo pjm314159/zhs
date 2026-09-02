@@ -127,6 +127,16 @@ class HomeworkExamBase(BaseModel):
 
     model_config = {"populate_by_name": True}
 
+    @field_validator("to_chapter", mode="before")
+    @classmethod
+    def _coerce_none_to_empty(cls, v: Any) -> str:
+        """doExam API 可能返回 toChapter: null，统一转换为空字符串
+
+        知到作业 doHomework 返回字符串（如 "第一章"），
+        知到考试 doExam 返回 null（无对应章节），此处做兼容。
+        """
+        return v if v is not None else ""
+
 
 class HomeworkDetail(BaseModel):
     """doHomework/lookHomework 返回"""

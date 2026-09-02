@@ -26,17 +26,41 @@ def validate_course_type(course_type: str | None) -> str | None:
     return course_type
 
 
-def detect_course_type(course_id: str, course_type: str | None = None) -> str:
+def detect_course_type(
+    course_id: str,
+    course_type: str | None = None,
+    session: "object | None" = None,
+) -> str:
     """检测课程类型
 
     - 显式 type 优先
-    - 含字母 → zhidao
-    - 纯数字 → hike
+    - 含冒号 → ai（courseId:classId）
+    - 含字母（无冒号）→ zhidao
+    - 纯数字 → 有 session 时优先匹配 zhidao 列表，失败回退 hike；无 session → hike
+
+    Args:
+        course_id: 课程 ID 字符串
+        course_type: 显式类型（优先）
+        session: ZhsSession，传入时纯数字会尝试匹配 zhidao 课程列表
     """
     if course_type:
         return course_type
+    if ":" in course_id:
+        return "ai"
     if re.search(r"[a-zA-Z]", course_id):
         return "zhidao"
+    # 纯数字：有 session 时优先匹配 zhidao
+    if session is not None:
+        try:
+            from zhs.zhidao.course import ZhidaoCourseManager
+
+            mgr = ZhidaoCourseManager(session)  # type: ignore[arg-type]
+            cid_int = int(course_id)
+            for c in mgr.get_course_list():
+                if c.course_id == cid_int:
+                    return "zhidao"
+        except Exception as e:
+            logger.debug(f"zhidao 列表匹配失败，回退 hike: {e}")
     return "hike"
 
 

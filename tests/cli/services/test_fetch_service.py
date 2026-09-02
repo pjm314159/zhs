@@ -29,7 +29,7 @@ class TestFetchCourseList:
         # 准备 mock 数据
         mock_zhidao_course = MagicMock()
         mock_zhidao_course.course_name = "知到课程1"
-        mock_zhidao_course.secret = "ABC123"
+        mock_zhidao_course.course_id = 1000008156
         mock_zhidao_cls.return_value.get_course_list.return_value = [mock_zhidao_course]
 
         mock_hike_course = MagicMock()
@@ -54,9 +54,9 @@ class TestFetchCourseList:
         assert "ai" in data
         assert len(data["zhidao"]) == 1
         assert data["zhidao"][0]["name"] == "知到课程1"
-        assert data["zhidao"][0]["id"] == "ABC123"
+        assert data["zhidao"][0]["courseId"] == 1000008156
         assert len(data["hike"]) == 1
-        assert data["hike"][0]["id"] == "12345"
+        assert data["hike"][0]["courseId"] == "12345"
         assert len(data["ai"]) == 1
         assert data["ai"][0]["courseId"] == 100
 

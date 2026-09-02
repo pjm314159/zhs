@@ -6,9 +6,10 @@ from typing import Any
 
 from loguru import logger
 
-from zhs.ai.models import AiCourseInfo, ExamInfo, Resource
+from zhs.ai.models import AiCourseInfo, ExamInfo, KnowledgePoint, Resource
 from zhs.ai.video import AiVideoPlayer
 from zhs.config import AIConfig, HomeworkConfig, VideoConfig
+from zhs.question_bank.client import QuestionBankClient
 from zhs.reporter import ConsoleReporter, ProgressReporter
 from zhs.session import ZhsSession
 from zhs.utils.display import (
@@ -230,6 +231,8 @@ class AiCourseManager:
         no_homework: bool = False,
         speed: float = 1.5,
         learn_optional: bool = False,
+        node_uid: int | None = None,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         """执行 AI 课程学习流程
 
@@ -237,6 +240,7 @@ class AiCourseManager:
             video_config: 视频配置（含 ai_threshold）
             no_homework: 仅刷知识点，不做作业（play 模式）；否则只做作业（homework 模式）
             learn_optional: 是否学习选学资源（resourcesSyncType != 1）
+            node_uid: 知识点 ID。非 None 时走直接模式（只处理该知识点），None 时走扫描模式（全刷）
         """
         # 获取知识点
         course_info = self.get_knowledge_points(course_id, class_id)
@@ -251,6 +255,35 @@ class AiCourseManager:
         _vc = video_config or VideoConfig()
         threshold = _vc.ai_threshold
 
+        # 直接模式：有 node_uid，只处理该知识点
+        if node_uid is not None:
+            knowledge = self._find_knowledge_by_id(course_info, node_uid)
+            if knowledge is None:
+                logger.warning(f"nodeUid={node_uid} 未匹配任何知识点，回退扫描模式")
+                # 回退到扫描模式（node_uid 置空，走下方遍历）
+            else:
+                logger.info(f"直接模式：只处理知识点 {knowledge.knowledge_name}")
+                self._reporter.tree_print(
+                    f"知识点: {styled(knowledge.knowledge_name, _C.WHITE)}", depth=2, enabled=True
+                )
+                if no_homework:
+                    self._run_play_only(course_id, class_id, knowledge, video_player, learn_optional, threshold)
+                else:
+                    self._run_homework_only(
+                        course_id,
+                        class_id,
+                        knowledge,
+                        None,
+                        course_info,
+                        ai_config,
+                        homework_config,
+                        question_bank,
+                    )
+                self._reporter.print()
+                self._reporter.print(msg_done(f"完成: {knowledge.knowledge_name}"))
+                return
+
+        # 扫描模式：遍历所有知识点
         for theme in course_info.cake_theme_list:
             logger.info(f"主题: {theme.theme_name}")
             self._reporter.print()
@@ -270,6 +303,7 @@ class AiCourseManager:
                         course_info,
                         ai_config,
                         homework_config,
+                        question_bank,
                     )
 
             # 主题间随机延迟
@@ -278,6 +312,22 @@ class AiCourseManager:
         self._reporter.print()
         self._reporter.print(msg_done(f"课程完成: {course_info.course_name}"))
         self._reporter.print(styled("=" * 60, _C.DIM))
+
+    def _find_knowledge_by_id(self, course_info: AiCourseInfo, knowledge_id: int) -> KnowledgePoint | None:
+        """通过 knowledge_id 查找知识点
+
+        Args:
+            course_info: 课程信息
+            knowledge_id: 知识点 ID
+
+        Returns:
+            匹配的 KnowledgePoint，未找到返回 None
+        """
+        for theme in course_info.cake_theme_list:
+            for knowledge in theme.knowledge_list:
+                if knowledge.knowledge_id == knowledge_id:
+                    return knowledge
+        return None
 
     def _run_play_only(
         self,
@@ -336,6 +386,7 @@ class AiCourseManager:
         course_info: Any,
         ai_config: AIConfig,
         homework_config: HomeworkConfig,
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         """homework 模式：只做作业，不刷视频"""
         from zhs.ai.homework import HomeworkCtx
@@ -412,6 +463,7 @@ class AiCourseManager:
                     "theme": theme.theme_name,
                     "knowledgePoint": knowledge.knowledge_name,
                 },
+                question_bank=question_bank,
             )
 
             try:
@@ -430,6 +482,13 @@ class AiCourseManager:
                 logger.error(f"作业失败: {e}")
 
             time.sleep(2)
+
+        # 题库使用统计（仅当题库存在且有查询时显示）
+        if question_bank is not None:
+            success, total = question_bank.get_usage_stats()
+            if total > 0:
+                stats_msg = f"题库使用: 成功 {success} 次 / 总查询 {total} 次"
+                self._reporter.tree_print(msg_info(stats_msg), depth=3, enabled=True)
 
         # 知识点作业结束，释放 PPT 内存缓存
         reference_materials.clear()

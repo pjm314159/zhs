@@ -10,6 +10,26 @@ from zhs.config import AppConfig
 from zhs.session import ZhsSession
 
 
+def dispatch_play_url(session: ZhsSession, config: AppConfig, url: str) -> None:
+    """解析 play URL 并分发到对应流程"""
+    from zhs.cli.url_parser import parse_play_url
+
+    parsed = parse_play_url(url)
+    if parsed.type == "zhidao":
+        assert parsed.rac_id is not None
+        run_zhidao(session, config, parsed.rac_id)
+    elif parsed.type == "ai":
+        assert parsed.course_id is not None
+        assert parsed.class_id is not None
+        run_ai(
+            session,
+            config,
+            parsed.course_id,
+            parsed.class_id,
+            node_uid=parsed.node_uid,
+        )
+
+
 def run_courses(
     session: ZhsSession,
     config: AppConfig,
@@ -33,8 +53,18 @@ def run_courses(
             print(f"课程 {c} 处理失败: {e}")
 
 
-def run_ai(session: ZhsSession, config: AppConfig, course_id: int, class_id: int) -> None:
-    """刷 AI 课程（仅视频/知识点，不做作业）"""
+def run_ai(
+    session: ZhsSession,
+    config: AppConfig,
+    course_id: int,
+    class_id: int,
+    node_uid: int | None = None,
+) -> None:
+    """刷 AI 课程（仅视频/知识点，不做作业）
+
+    Args:
+        node_uid: 知识点 ID。非 None 时走直接模式（只刷该知识点），None 时全刷
+    """
     from zhs.ai.course import AiCourseManager
 
     mgr = AiCourseManager(session)
@@ -47,6 +77,7 @@ def run_ai(session: ZhsSession, config: AppConfig, course_id: int, class_id: int
         no_homework=True,
         speed=config.video.ai_speed,
         learn_optional=config.video.ai_learn_optional,
+        node_uid=node_uid,
     )
 
 
@@ -182,6 +213,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
 
 
 __all__ = [
+    "dispatch_play_url",
     "run_ai",
     "run_ai_by_str",
     "run_all",

@@ -60,9 +60,30 @@ class TestHomeworkCtxInit:
         assert homework_ctx._heartbeat_thread is None
 
     def test_cache_initialized(self, homework_ctx: HomeworkCtx) -> None:
-        """缓存初始化为空"""
+        """缓存初始化为空（仅当前 exam 内存缓存）"""
         assert homework_ctx._answer_cache == {}
-        assert homework_ctx._all_answer_cache == {}
+
+    def test_cross_exam_search_disabled(self, homework_ctx: HomeworkCtx) -> None:
+        """作业不启用跨 exam 查询"""
+        assert homework_ctx._cross_exam_search is False
+
+    def test_question_bank_forwarded(self, mock_session: MagicMock, ai_config: AIConfig) -> None:
+        """question_bank 参数转发到基类"""
+        bank = MagicMock()
+        ctx = HomeworkCtx(
+            session=mock_session,
+            course_id=100,
+            knowledge_id=200,
+            exam_test_id=300,
+            exam_paper_id=400,
+            ai_config=ai_config,
+            question_bank=bank,
+        )
+        assert ctx._question_bank is bank
+
+    def test_question_bank_defaults_none(self, homework_ctx: HomeworkCtx) -> None:
+        """question_bank 默认 None"""
+        assert homework_ctx._question_bank is None
 
 
 class TestSaveAnswerFormat:
@@ -82,35 +103,50 @@ class TestSaveAnswerFormat:
 
 
 class TestGetAnswer:
-    """答案获取策略"""
+    """答案获取策略：内存缓存 → SQLite 当前 exam → LLM → 随机"""
 
-    def test_cache_hit(self, homework_ctx: HomeworkCtx) -> None:
-        """缓存命中返回答案"""
-        homework_ctx._all_answer_cache = {"123": {"answer": "456#@#789"}}
+    def test_cache_hit_in_memory(self, homework_ctx: HomeworkCtx) -> None:
+        """内存缓存命中返回答案"""
+        homework_ctx._answer_cache = {"123": {"answer": "456#@#789"}}
         result = homework_ctx._get_cached_answer(123)
         assert result is not None
         assert result == ["456", "789"]
 
+    def test_cache_hit_sqlite(self, homework_ctx: HomeworkCtx) -> None:
+        """内存未命中 → SQLite 当前 exam 命中"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = {"answer": "1#@#2"}
+        homework_ctx._cache = mock_cache
+        homework_ctx._answer_cache = {}
+        result = homework_ctx._get_cached_answer(456)
+        assert result == ["1", "2"]
+
     def test_cache_miss(self, homework_ctx: HomeworkCtx) -> None:
         """缓存未命中返回 None"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        homework_ctx._cache = mock_cache
+        homework_ctx._answer_cache = {}
         result = homework_ctx._get_cached_answer(999)
         assert result is None
 
-    def test_two_level_cache(self, homework_ctx: HomeworkCtx) -> None:
-        """两级缓存：先查 all_answer_cache 再查 answer_cache"""
-        # answer_cache 有但 all_answer_cache 没有
-        homework_ctx._answer_cache = {"456": {"answer": "1#@#2"}}
-        homework_ctx._all_answer_cache = {}
-        result = homework_ctx._get_cached_answer(456)
-        assert result is not None
-        assert result == ["1", "2"]
-
     def test_slash_separator_compat(self, homework_ctx: HomeworkCtx) -> None:
         """填空题 answer 含 / 不拆分，返回单元素列表"""
-        homework_ctx._all_answer_cache = {"123": {"answer": "身体健康/心理健康"}}
+        homework_ctx._answer_cache = {"123": {"answer": "身体健康/心理健康"}}
         result = homework_ctx._get_cached_answer(123)
         assert result is not None
         assert result == ["身体健康/心理健康"]
+
+    def test_homework_no_cross_exam_search(self, homework_ctx: HomeworkCtx) -> None:
+        """作业即使传 question_text 也不触发跨 exam（_cross_exam_search=False）"""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        homework_ctx._cache = mock_cache
+        homework_ctx._answer_cache = {}
+        # 作业调用 _get_answer 时不会传 question_text
+        result = homework_ctx._get_cached_answer(999)
+        assert result is None
+        mock_cache.search_in_course.assert_not_called()
 
 
 class TestGetAnswerStrategy:

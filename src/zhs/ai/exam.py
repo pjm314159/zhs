@@ -23,6 +23,7 @@ from zhs.ai.exam_base import AiExamBase
 from zhs.ai.models import QuestionContent, QuestionSheet
 from zhs.config import AIConfig, ExamConfig
 from zhs.exceptions import ZhsError
+from zhs.question_bank.client import QuestionBankClient
 from zhs.session import ZhsSession
 
 
@@ -42,6 +43,7 @@ class ExamCtx(AiExamBase):
         progress_view: bool = True,
         student_id: int = 0,
         task_id: str = "",
+        question_bank: QuestionBankClient | None = None,
     ) -> None:
         super().__init__(
             session=session,
@@ -51,6 +53,7 @@ class ExamCtx(AiExamBase):
             ai_config=ai_config,
             op_extra=op_extra,
             progress_view=progress_view,
+            question_bank=question_bank,
         )
         self._class_id = class_id
         self._exam_config = exam_config
@@ -64,6 +67,11 @@ class ExamCtx(AiExamBase):
     def _exam_base_url(self) -> str:
         """考试 API 基础 URL"""
         return self._session.urls.exam
+
+    @property
+    def _cross_exam_search(self) -> bool:
+        """考试启用跨 exam 课程级查询（考试考察课程全部知识，需复用其他 exam 的答案）"""
+        return True
 
     def _api_query(self, url: str, data: dict[str, Any], method: str = "POST") -> dict[str, Any]:
         """同步考试 API 查询（exam_key 加密）"""

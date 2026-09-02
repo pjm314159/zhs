@@ -1,9 +1,10 @@
-"""ZhidaoHomeworkCache 测试
+"""ZhidaoHomeworkCache 测试（SQLite 版）
 
-验证知到作业缓存的所有行为：基本读写、标记正确/错误、选项匹配、持久化、损坏文件处理。
+验证知到作业缓存的所有行为：基本读写、标记正确/错误、选项匹配、持久化、双键查询。
+SQLite 实现（questions_bank.db）的详细测试见 test_zhidao_cache_db.py。
+本文件保留行为兼容性测试。
 """
 
-import json
 from pathlib import Path
 
 import pytest
@@ -22,16 +23,6 @@ def cache_dir(tmp_path: Path) -> Path:
 def cache(cache_dir: Path) -> ZhidaoHomeworkCache:
     """缓存实例"""
     return ZhidaoHomeworkCache(cache_dir=cache_dir)
-
-
-class TestCachePath:
-    """缓存路径格式"""
-
-    def test_path_uses_zhidao_subdir(self, cache: ZhidaoHomeworkCache, cache_dir: Path) -> None:
-        """路径格式: {cache_dir}/zhidao/{course_id}/{exam_id}.json"""
-        cache.put(100, "exam1", "q1", HomeworkCacheEntry(questionType=1, lastUpdated="2026-06-21"))
-        path = cache_dir / "zhidao" / "100" / "exam1.json"
-        assert path.exists()
 
 
 class TestBasicGetPut:
@@ -55,27 +46,12 @@ class TestBasicGetPut:
         assert result.question_type == 1
         assert result.correct_options == [1]
 
-    def test_put_persists_to_file(self, cache: ZhidaoHomeworkCache, cache_dir: Path) -> None:
-        """写入后文件存在"""
+    def test_db_file_exists(self, cache: ZhidaoHomeworkCache, cache_dir: Path) -> None:
+        """写入后 SQLite 数据库文件存在"""
         entry = HomeworkCacheEntry(questionType=1, lastUpdated="2026-06-21T12:00:00")
         cache.put(100, "exam1", "eid1", entry)
-
-        path = cache_dir / "zhidao" / "100" / "exam1.json"
-        assert path.exists()
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        # 新格式：key 仅 question_key，无 courseId:examId: 前缀
-        assert "eid1" in data
-        assert "100:exam1:eid1" not in data
-
-    def test_key_format_no_prefix(self, cache: ZhidaoHomeworkCache, cache_dir: Path) -> None:
-        """新格式 key 无 courseId:examId: 前缀"""
-        cache.mark_correct(100, "exam1", "eid1", [1])
-        path = cache_dir / "zhidao" / "100" / "exam1.json"
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        assert "eid1" in data
-        assert all(":" not in k for k in data)
+        db_path = cache_dir / "questions_bank.db"
+        assert db_path.exists()
 
 
 class TestMarkCorrectWrong:
@@ -149,18 +125,31 @@ class TestSaveOptions:
         assert len(result.options) == 2
         assert result.options[0].id == 1
 
-    def test_save_options_no_overwrite(self, cache: ZhidaoHomeworkCache) -> None:
-        """已有选项时不覆盖"""
+    def test_save_options_by_eid_skips_existing(self, cache: ZhidaoHomeworkCache) -> None:
+        """eid 已有记录时跳过（不覆盖选项、不更新 question_type）"""
         options1 = [HomeworkCacheOption(id=1, content="A")]
         options2 = [HomeworkCacheOption(id=2, content="B")]
         cache.save_options(100, "exam1", "eid1", question_type=1, options=options1)
         cache.save_options(100, "exam1", "eid1", question_type=2, options=options2)
         result = cache.get(100, "exam1", "eid1")
         assert result is not None
-        # 选项不覆盖，但 question_type 更新
-        assert result.question_type == 2
+        # eid 保存跳过已有记录，保留第一次的数据
+        assert result.question_type == 1
         assert len(result.options) == 1
         assert result.options[0].id == 1
+
+    def test_save_options_by_id_updates_existing(self, cache: ZhidaoHomeworkCache) -> None:
+        """id 已有记录时更新（question_type、options 均更新）"""
+        options1 = [HomeworkCacheOption(id=1, content="A")]
+        options2 = [HomeworkCacheOption(id=2, content="B")]
+        cache.save_options(100, "exam1", "1001", question_type=1, options=options1)
+        cache.save_options(100, "exam1", "1001", question_type=2, options=options2)
+        result = cache.get(100, "exam1", "1001")
+        assert result is not None
+        # id 保存更新已有记录
+        assert result.question_type == 2
+        assert len(result.options) == 1
+        assert result.options[0].id == 2
 
 
 class TestSaveAiAnalysis:
@@ -188,30 +177,16 @@ class TestMultipleExams:
 class TestReloadFromDisk:
     """从磁盘重新加载"""
 
-    def test_reload_from_file(self, cache_dir: Path) -> None:
-        """从文件重新加载"""
+    def test_reload_from_db(self, cache_dir: Path) -> None:
+        """从 SQLite 数据库重新加载"""
         cache1 = ZhidaoHomeworkCache(cache_dir=cache_dir)
         cache1.mark_correct(100, "exam1", "eid1", [1])
 
-        # 新实例从文件加载
+        # 新实例从数据库加载
         cache2 = ZhidaoHomeworkCache(cache_dir=cache_dir)
         result = cache2.get(100, "exam1", "eid1")
         assert result is not None
         assert result.correct_options == [1]
-
-
-class TestCorruptedFile:
-    """损坏文件处理"""
-
-    def test_corrupted_file(self, cache_dir: Path) -> None:
-        """损坏文件不崩溃"""
-        path = cache_dir / "zhidao" / "100"
-        path.mkdir(parents=True, exist_ok=True)
-        (path / "exam1.json").write_text("invalid json{{{", encoding="utf-8")
-
-        cache = ZhidaoHomeworkCache(cache_dir=cache_dir)
-        result = cache.get(100, "exam1", "eid1")
-        assert result is None
 
 
 class TestFindKeyByOptions:

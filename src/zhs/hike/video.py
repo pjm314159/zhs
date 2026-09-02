@@ -135,7 +135,7 @@ class HikeVideoPlayer:
                     logger.warning(f"Failed to save study record for {file_id}: {exc}")
 
             # 显示进度条
-            bar_str = progress_bar(int(played_time), int(end_time))
+            bar_str = progress_bar(played_time, end_time)
             print(f"\rplaying {file_id} {bar_str}", end="", flush=True)
 
         wipe_line()
@@ -207,11 +207,17 @@ class HikeVideoPlayer:
                             "_": int(time.time() * 1000),
                         },
                         headers={
+                            "Accept": "*/*",
+                            "sec-ch-ua": '" Not A;Brand";v="99", "Chromium";v="149", "Google Chrome";v="149"',
+                            "sec-ch-ua-mobile": "?0",
                             "User-Agent": (
                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                                 " AppleWebKit/537.36 (KHTML, like Gecko)"
-                                " Chrome/101.0.4951.64 Safari/537.36"
+                                " Chrome/149.0.0.0 Safari/537.36"
                             ),
+                            "sec-ch-ua-platform": '"Windows"',
+                            "Accept-Encoding": "gzip, deflate, br",
+                            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                             "Referer": "https://hike.zhihuishu.com/",
                         },
                     )
