@@ -14,7 +14,7 @@ import threading
 import time
 from base64 import b64encode
 from datetime import timedelta
- 7 cfrom random import randint, random, uniform
+from random import randint, random, uniform
 from typing import TYPE_CHECKING, Any
 
 import httpx
