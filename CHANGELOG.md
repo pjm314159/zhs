@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-09-16
+
+### Features
+
+- **video**: Randomize playback speed and report interval to evade risk control
+
+### Bug Fixes
+
+- **video**: Repair corrupted import line in video.py
+
+### Miscellaneous
+
+- Bump version to 0.1.3
+
 ## [0.1.2.2] - 2026-09-02
 
 ### Bug Fixes
