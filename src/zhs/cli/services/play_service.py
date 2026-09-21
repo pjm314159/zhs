@@ -103,8 +103,23 @@ def run_zhidao(session: ZhsSession, config: AppConfig, course_id: str) -> None:
         time_limit=config.limit * 60,
     )
 
-    ctx = mgr.get_context(course_id)
-    player.play_course(course_id, ctx)
+    rac_id = course_id
+    # 如果传入的是纯数字的 courseId（而不是 34 位十六进制 secret），先查询课程列表换取 secret
+    if course_id.isdigit():
+        courses = mgr.get_course_list()
+        for c in courses:
+            c_id = getattr(c, "course_id", None) or getattr(c, "courseId", None)
+            if c_id is not None and str(c_id) == str(course_id):
+                rac_id = c.secret
+                break
+            if getattr(c, "course_info", None) and str(getattr(c.course_info, "id", "")) == str(course_id):
+                rac_id = c.secret
+                break
+        else:
+            logger.warning(f"未能通过 courseId {course_id} 找到对应的 secret，尝试直接作为 rac_id 请求")
+
+    ctx = mgr.get_context(rac_id)
+    player.play_course(rac_id, ctx)
 
 
 def run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:
