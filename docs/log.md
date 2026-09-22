@@ -349,3 +349,16 @@ API 参考：`.temp/questions_bank.md`
   - 测试：`tests/llm/test_factory.py`、`tests/cli/test_bootstrap.py`、`tests/cli/test_main.py`、`tests/cli/services/test_homework_service.py`、`tests/test_config.py`
 - 迁移说明：旧键 `use_zhidao_ai` 已移除（不设兼容别名），旧配置中的该键会被 pydantic 忽略，请改用 `use_builtin_ai`；本机 `.zhs/config.toml` 已同步更新
 - Refactor: ruff check/format + mypy 通过；pytest 全量 1152 passed
+
+### Task 31 — LLM 失败可见性 + 4xx 不重试（知到作业）✅
+- 现象（实测日志 20:56）：DeepSeek 返回 `402 Insufficient Balance` → 每题 3 次重试全败 → `_generate_answer_with_llm` 静默 `_random_answer`，但 `_generate_answer_with_source` 仍标注来源 `LLM`/`缓存排除AI`、日志写"LLM 返回答案" → 用户以为在用 AI，实际提交的是随机答案（同期题库配额也为 0，正确率完全等于随机）
+- Green
+  - `src/zhs/zhidao/homework/worker.py`
+    - 新增实例状态 `_llm_degraded`（None / `failed` / `exhausted`）：`_generate_answer_with_llm` 每次调用先复位，LLM 抛错与重试耗尽分别置位
+    - `_generate_answer_with_source` 按真实来源标注 `LLM失败随机` / `LLM重试耗尽随机`（不再把随机答案记成 LLM），日志按级别区分（error/warning）
+    - `do_homework` 首次遇到 `LLM失败随机` 时在控制台提示一次"后续题目将降级为随机答案（正确率会明显下降），请检查 api_key/余额/网络"
+    - `_style_source`：两个新来源标签分别用红/黄着色，控制台一眼可辨
+  - `src/zhs/llm/openai.py`
+    - 新增显式集合 `NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404, 405, 409, 413, 422}`：命中即不重试、直接抛 `ZhsError`（每题省下约 2.3s 无效等待）；集合外的错误（408 超时、429 限流、5xx、网络异常、未列入的 4xx）仍按原策略重试，不做 4xx 一刀切
+- Test: `tests/zhidao/homework/test_worker.py::TestLlmFailureVisibility`（3 用例：失败标注 / 成功仍标 LLM / 控制台只提示一次）+ `tests/llm/test_openai.py::TestOpenAIRetryPolicy`（4 用例：402 不重试 / 429 仍重试 / 未列入集合的 4xx（418）仍重试 / 无状态码错误仍重试）
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1158 passed

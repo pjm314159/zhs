@@ -46,7 +46,11 @@ class OpenAIProvider(LLMProvider):
         aim_start: str = "```answer",
         aim_end: str = "```",
     ) -> str:
-        """调用 OpenAI 兼容接口获取补全结果（含重试和流式提前终止）"""
+        """调用 OpenAI 兼容接口获取补全结果（含重试和流式提前终止）
+
+        命中 NON_RETRYABLE_STATUS 的错误（如 402 余额不足、401 无效 Key）重试不可能成功，
+        直接失败，避免每题白等数秒；其它错误（408/429/5xx/网络异常）仍按原策略重试。
+        """
         # Token 截断
         prompt = self._truncate_prompt(prompt)
 
@@ -54,6 +58,9 @@ class OpenAIProvider(LLMProvider):
             try:
                 return self._stream_completion(prompt, aim_start, aim_end)
             except Exception as e:
+                if _is_non_retryable(e):
+                    logger.error(f"OpenAI 调用失败（HTTP {_status_code(e)}，不重试）: {e}")
+                    raise ZhsError(f"OpenAI API error (non-retryable, HTTP {_status_code(e)}): {e}") from e
                 logger.error(f"OpenAI attempt {attempt + 1}/{self._max_retries} failed: {e}")
                 if attempt < self._max_retries - 1:
                     time.sleep(self._retry_delay)
@@ -146,3 +153,35 @@ class OpenAIProvider(LLMProvider):
             prompt = prompt[-max_chars:]
             logger.warning(f"Prompt 过长，已截断至约 {self._max_token} tokens")
         return prompt
+
+
+# 明确不重试的 HTTP 状态码：请求本身有问题，重试不可能成功
+# 未列入的错误（408 超时、429 限流、5xx、网络异常、其它 4xx）仍按原策略重试
+NON_RETRYABLE_STATUS: frozenset[int] = frozenset(
+    {
+        400,  # 请求参数错误
+        401,  # 鉴权失败（api_key 无效）
+        402,  # 余额/配额不足
+        403,  # 无权限
+        404,  # 模型或接口不存在
+        405,  # 方法不允许
+        409,  # 请求冲突
+        413,  # 请求体过大（prompt 超出模型上限）
+        422,  # 参数校验失败
+    }
+)
+
+
+def _status_code(exc: Exception) -> int | None:
+    """取异常携带的 HTTP 状态码（仅 SDK 的 APIStatusError 系列有）"""
+    code = getattr(exc, "status_code", None)
+    return code if isinstance(code, int) else None
+
+
+def _is_non_retryable(exc: Exception) -> bool:
+    """是否为「重试也无用」的错误（见 NON_RETRYABLE_STATUS）
+
+    不在集合内的错误（含其它 4xx）一律按可重试处理，避免误判后直接放弃。
+    """
+    code = _status_code(exc)
+    return code is not None and code in NON_RETRYABLE_STATUS

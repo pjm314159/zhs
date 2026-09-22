@@ -347,6 +347,58 @@ class TestHomeworkWorkerSubmit:
         assert rate == 100.0
 
 
+class TestLlmFailureVisibility:
+    """LLM 失败必须如实标注来源，不能伪装成 LLM 答案"""
+
+    def test_llm_failure_labels_random_source(self, tmp_path: Path) -> None:
+        """LLM 调用抛错 → 来源标注 LLM失败随机（而非 LLM）"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache(tmp_path)
+        mock_llm = MagicMock()
+        mock_llm.single_choice.side_effect = Exception("Error code: 402 - Insufficient Balance")
+        worker = HomeworkWorker(session, config, cache, llm=mock_llm)
+
+        answer, source = worker._generate_answer_with_source(_make_question(), _make_item())
+
+        assert answer is not None
+        assert source.startswith("LLM失败随机")
+
+    def test_llm_success_labels_llm_source(self, tmp_path: Path) -> None:
+        """LLM 正常返回 → 来源仍为 LLM"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache(tmp_path)
+        mock_llm = MagicMock()
+        mock_llm.single_choice.return_value = [103]
+        worker = HomeworkWorker(session, config, cache, llm=mock_llm)
+
+        answer, source = worker._generate_answer_with_source(_make_question(), _make_item())
+
+        assert answer == 103
+        assert source.startswith("LLM")
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_do_homework_warns_once_on_llm_failure(self, mock_sleep: MagicMock, tmp_path: Path) -> None:
+        """LLM 失败时控制台给出一次性降级提示"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache(tmp_path)
+        session.homework_do.return_value = _make_do_homework_response([_make_question()])
+        session.homework_save_answer.return_value = {"status": "200"}
+        session.homework_submit.return_value = _make_submit_response("8")
+
+        reporter = MagicMock()
+        mock_llm = MagicMock()
+        mock_llm.single_choice.side_effect = Exception("Error code: 402 - Insufficient Balance")
+        worker = HomeworkWorker(session, config, cache, llm=mock_llm, reporter=reporter)
+
+        worker.do_homework(_make_item(), "414804", "625")
+
+        texts = [str(call.args[0]) for call in reporter.print.call_args_list if call.args]
+        assert sum(1 for t in texts if "降级为随机答案" in t) == 1
+
+
 class TestHomeworkWorkerDoHomework:
     """完整做作业流程测试"""
 
