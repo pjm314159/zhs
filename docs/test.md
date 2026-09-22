@@ -688,7 +688,7 @@ zhidao_speed = 2.0
 [homework]
 threshold = 80
 [ai]
-use_zhidao_ai = false
+use_builtin_ai = false
 api_key = "sk-test"
 """
         )
@@ -697,7 +697,7 @@ api_key = "sk-test"
         assert cfg.save_cookies is False
         assert cfg.video.zhidao_speed == 2.0
         assert cfg.homework.threshold == 80
-        assert cfg.ai.use_zhidao_ai is False
+        assert cfg.ai.use_builtin_ai is False
         assert cfg.ai.api_key == "sk-test"
 
     def test_migrate_legacy_json(self, tmp_path: Path) -> None:
@@ -1427,23 +1427,23 @@ class TestPrompts:
 
 ```python
 class TestLLMProviderFactory:
-    def test_create_zhidao_ai_when_use_zhidao_ai_true(self) -> None:
-        """use_zhidao_ai=True → 返回 ZhidaoAIProvider"""
+    def test_create_zhidao_ai_when_use_builtin_ai_true(self) -> None:
+        """use_builtin_ai=True → 返回 ZhidaoAIProvider"""
         from zhs.config import AIConfig
         from zhs.llm.factory import LLMProviderFactory
         from zhs.llm.zhidao import ZhidaoAIProvider
 
-        config = AIConfig(use_zhidao_ai=True)
+        config = AIConfig(use_builtin_ai=True)
         provider = LLMProviderFactory.create(config, session=...)
         assert isinstance(provider, ZhidaoAIProvider)
 
-    def test_create_openai_when_use_zhidao_ai_false(self) -> None:
-        """use_zhidao_ai=False → 返回 OpenAIProvider"""
+    def test_create_openai_when_use_builtin_ai_false(self) -> None:
+        """use_builtin_ai=False → 返回 OpenAIProvider"""
         from zhs.config import AIConfig
         from zhs.llm.factory import LLMProviderFactory
         from zhs.llm.openai import OpenAIProvider
 
-        config = AIConfig(use_zhidao_ai=False, api_key="sk-test")
+        config = AIConfig(use_builtin_ai=False, api_key="sk-test")
         provider = LLMProviderFactory.create(config, session=...)
         assert isinstance(provider, OpenAIProvider)
 
@@ -1474,7 +1474,10 @@ class TestCLI:
         """zhs init 不报错"""
 
     def test_play_command_routes_zhidao(self) -> None:
-        """zhs play -c ABC123 → 路由到知到"""
+        """zhs play -c 1000008156 → 反查 rac_id 后路由到知到"""
+
+    def test_play_command_rejects_rac_id(self) -> None:
+        """zhs play -c ABC123（recruitAndCourseId）→ 报错提示改用 --url"""
 
     def test_play_command_routes_hike(self) -> None:
         """zhs play -c 12345 → 路由到 Hike"""
@@ -1483,7 +1486,7 @@ class TestCLI:
         """zhs play -c 12345 --type zhidao 显式指定"""
 
     def test_homework_command(self) -> None:
-        """zhs homework -c ABC123"""
+        """zhs homework -c 1000008156 → 按 courseId 匹配知到课程"""
 
     def test_exam_command_requires_ai(self) -> None:
         """zhs exam 无 --type ai 或 --ai-course → 报错"""

@@ -1,6 +1,6 @@
 """cli/services/homework_service.py 单元测试
 
-覆盖 run_homework_from_url / run_zhidao_homework_by_course / run_zhidao_homework /
+覆盖 run_homework_from_url  / run_zhidao_homework /
 run_all_zhidao_homework / run_ai_homework / run_ai_homework_by_str / run_all_homework。
 """
 
@@ -15,7 +15,6 @@ from zhs.cli.services.homework_service import (
     run_all_zhidao_homework,
     run_homework_from_url,
     run_zhidao_homework,
-    run_zhidao_homework_by_course,
 )
 
 
@@ -24,7 +23,7 @@ def _make_config() -> MagicMock:
     config = MagicMock()
     config.homework.threshold = 100
     config.ai.enabled = True
-    config.ai.use_zhidao_ai = True
+    config.ai.use_builtin_ai = True
     config.video.ai_speed = 1.5
     return config
 
@@ -69,98 +68,6 @@ class TestRunAiHomeworkByStr:
         with patch("zhs.cli.services.homework_service.run_ai_homework") as mock_run:
             run_ai_homework_by_str(session, config, "invalid")
         mock_run.assert_not_called()
-
-
-class TestRunZhidaoHomeworkByCourse:
-    """run_zhidao_homework_by_course"""
-
-    @patch("zhs.cli.services.homework_service.run_zhidao_homework")
-    @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_finds_recruit_id_and_runs(
-        self,
-        mock_mgr_cls: MagicMock,
-        mock_run_zhidao: MagicMock,
-    ) -> None:
-        """找到 recruit_id 后调用 run_zhidao_homework
-
-        通过 secret 匹配课程，使用课程模型的 course_id（int）。
-        """
-        session = MagicMock()
-        config = _make_config()
-        mock_course = MagicMock()
-        mock_course.secret = "12345"  # 必须与传入的 course_id 一致
-        mock_course.recruit_id = 67890
-        mock_course.course_id = 12345
-        mock_course.course_name = "测试课程"
-        mock_mgr = MagicMock()
-        mock_mgr_cls.return_value = mock_mgr
-        mock_mgr.get_course_list.return_value = [mock_course]
-
-        run_zhidao_homework_by_course(session, config, "12345")
-
-        mock_run_zhidao.assert_called_once()
-        call_args = mock_run_zhidao.call_args
-        # call_args[0] 是位置参数: (session, config, recruit_id, course_id, depth)
-        assert call_args[0][2] == "67890"  # recruit_id 转为 str
-        assert call_args[0][3] == 12345  # course_id 来自课程模型
-
-    @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_no_recruit_id_prints_error(
-        self,
-        mock_mgr_cls: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """未找到 recruit_id 打印错误"""
-        session = MagicMock()
-        config = _make_config()
-        mock_course = MagicMock()
-        mock_course.secret = "OTHER"
-        mock_course.recruit_id = None
-        mock_mgr = MagicMock()
-        mock_mgr_cls.return_value = mock_mgr
-        mock_mgr.get_course_list.return_value = [mock_course]
-
-        run_zhidao_homework_by_course(session, config, "ABC123")
-        captured = capsys.readouterr()
-        assert "未找到课程" in captured.out
-        assert "recruitId" in captured.out
-
-    @patch("zhs.cli.services.homework_service.run_zhidao_homework")
-    @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_non_digit_course_id_uses_model_course_id(
-        self,
-        mock_mgr_cls: MagicMock,
-        mock_run_zhidao: MagicMock,
-    ) -> None:
-        """非数字 course_id（secret 字符串）使用课程模型的 course_id，不再静默传 0"""
-        session = MagicMock()
-        config = _make_config()
-        mock_course = MagicMock()
-        mock_course.secret = "ABC123"
-        mock_course.recruit_id = 12345
-        mock_course.course_id = 99999
-        mock_course.course_name = "测试课程"
-        mock_mgr = MagicMock()
-        mock_mgr_cls.return_value = mock_mgr
-        mock_mgr.get_course_list.return_value = [mock_course]
-
-        run_zhidao_homework_by_course(session, config, "ABC123")
-
-        call_args = mock_run_zhidao.call_args
-        assert call_args[0][3] == 99999  # course_id 来自课程模型，不再传 0
-
-    @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_calls_exam_sso_login(self, mock_mgr_cls: MagicMock) -> None:
-        """调用 session.exam_sso_login"""
-        session = MagicMock()
-        config = _make_config()
-        mock_mgr = MagicMock()
-        mock_mgr_cls.return_value = mock_mgr
-        mock_mgr.get_course_list.return_value = []
-
-        run_zhidao_homework_by_course(session, config, "ABC123")
-
-        session.exam_sso_login.assert_called_once()
 
 
 class TestRunZhidaoHomework:

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from zhs.cli.bootstrap import (
+    check_ai_provider,
     do_login,
     init_llm,
     init_question_bank,
@@ -27,7 +28,7 @@ def _make_config() -> AppConfig:
     config.save_cookies = True
     config.display.log_level = "INFO"
     config.ai.enabled = False
-    config.ai.use_zhidao_ai = False
+    config.ai.use_builtin_ai = False
     config.ai.api_key = ""
     config.qr.image_path = ""
     return config
@@ -319,11 +320,11 @@ class TestInitLlm:
         config.ai.enabled = False
         assert init_llm(config) is None
 
-    def test_use_zhidao_ai_ignored_returns_provider(self) -> None:
-        """use_zhidao_ai 在知到作业中被忽略（仅 AI 智慧课程生效），有 api_key 则用 OpenAI"""
+    def test_use_builtin_ai_ignored_returns_provider(self) -> None:
+        """知到作业始终使用自定义 API Key（use_builtin_ai 仅作用于 AI 智慧课程）"""
         config = _make_config()
         config.ai.enabled = True
-        config.ai.use_zhidao_ai = True
+        config.ai.use_builtin_ai = True
         config.ai.api_key = "test-key"
         config.ai.base_url = "https://api.openai.com/v1"
         config.ai.model = "gpt-4o-mini"
@@ -335,11 +336,11 @@ class TestInitLlm:
 
         assert isinstance(provider, OpenAIProvider)
 
-    def test_use_zhidao_ai_no_api_key_returns_none(self) -> None:
-        """use_zhidao_ai=True 且无 api_key 时返回 None（zhidao_ai 被忽略，回退到 api_key 检查）"""
+    def test_use_builtin_ai_no_api_key_returns_none(self) -> None:
+        """知到作业无 api_key 时返回 None（内置 AI 不可用于知到作业）"""
         config = _make_config()
         config.ai.enabled = True
-        config.ai.use_zhidao_ai = True
+        config.ai.use_builtin_ai = True
         config.ai.api_key = ""
         assert init_llm(config) is None
 
@@ -347,7 +348,7 @@ class TestInitLlm:
         """ai.api_key 为空返回 None"""
         config = _make_config()
         config.ai.enabled = True
-        config.ai.use_zhidao_ai = False
+        config.ai.use_builtin_ai = False
         config.ai.api_key = ""
         assert init_llm(config) is None
 
@@ -355,7 +356,7 @@ class TestInitLlm:
         """有效配置返回 OpenAIProvider"""
         config = _make_config()
         config.ai.enabled = True
-        config.ai.use_zhidao_ai = False
+        config.ai.use_builtin_ai = False
         config.ai.api_key = "test-key"
         config.ai.base_url = "https://api.openai.com/v1"
         config.ai.model = "gpt-4o-mini"
@@ -420,6 +421,57 @@ class TestInitQuestionBank:
         finally:
             if client is not None:
                 client.close()
+
+
+class TestCheckAiProvider:
+    """check_ai_provider"""
+
+    def test_warns_when_zhidao_ai_and_api_key(self) -> None:
+        """use_builtin_ai=True 且配置了 api_key 时提示 AI 智慧课程将使用智慧树内置 AI"""
+        config = _make_config()
+        config.ai.enabled = True
+        config.ai.use_builtin_ai = True
+        config.ai.api_key = "sk-test"
+        with patch("zhs.cli.bootstrap.logger") as mock_logger:
+            check_ai_provider(config)
+
+        mock_logger.warning.assert_called_once()
+        message = mock_logger.warning.call_args[0][0]
+        assert "use_builtin_ai=false" in message
+        assert "智慧树内置 AI" in message
+
+    def test_no_warning_without_api_key(self) -> None:
+        """use_builtin_ai=True 但未配置 api_key 时不提示"""
+        config = _make_config()
+        config.ai.enabled = True
+        config.ai.use_builtin_ai = True
+        config.ai.api_key = ""
+        with patch("zhs.cli.bootstrap.logger") as mock_logger:
+            check_ai_provider(config)
+
+        mock_logger.warning.assert_not_called()
+
+    def test_no_warning_when_using_custom_llm(self) -> None:
+        """use_builtin_ai=False（使用自定义 LLM）时不提示"""
+        config = _make_config()
+        config.ai.enabled = True
+        config.ai.use_builtin_ai = False
+        config.ai.api_key = "sk-test"
+        with patch("zhs.cli.bootstrap.logger") as mock_logger:
+            check_ai_provider(config)
+
+        mock_logger.warning.assert_not_called()
+
+    def test_no_warning_when_ai_disabled(self) -> None:
+        """ai.enabled=False 时不提示"""
+        config = _make_config()
+        config.ai.enabled = False
+        config.ai.use_builtin_ai = True
+        config.ai.api_key = "sk-test"
+        with patch("zhs.cli.bootstrap.logger") as mock_logger:
+            check_ai_provider(config)
+
+        mock_logger.warning.assert_not_called()
 
 
 class TestLoadConfigAndSession:
@@ -505,3 +557,19 @@ class TestLoadConfigAndSession:
             load_config_and_session(debug=True, console_log=True, proxy=None)
 
         mock_setup.assert_called_once_with(mock_config, True, True)
+
+    def test_calls_check_ai_provider(self, tmp_path: Path) -> None:
+        """启动时调用 check_ai_provider 提示 AI 提供方选择"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.cli.bootstrap.check_ai_provider") as mock_check,
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_config = _make_config()
+            mock_mgr_cls.return_value.load.return_value = mock_config
+            load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        mock_check.assert_called_once_with(mock_config)

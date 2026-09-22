@@ -310,3 +310,68 @@ API 参考：`.temp/questions_bank.md`
 - `pytest tests/zhidao/exam/test_worker.py tests/api/test_zhidao_exam_api.py`: 36 passed ✅
 - `ruff check` + `format --check` + `mypy`: 全绿 ✅
 
+
+### Task 28 — 知到视频开播预检（提前发现验证码/时长上限）✅
+- Red: \	ests/zhidao/test_video.py::TestStartPrecheck\（4 用例）
+  - 预检在 _main_loop 前调用 _report_progress_v2(initial=True)，顺序 report → loop
+  - 预检返回 -12 → CaptchaRequired，不进观看循环、不启动视频流线程
+  - _report_progress_v2 遇 code -9 → TimeLimitExceeded（不再静默失败继续白看）
+  - play_course 遇 TimeLimitExceeded 停止课程（不继续播放后续视频）
+- Green: \src/zhs/zhidao/video.py\
+  - 新增 \_precheck(rac_id, video_id, ctx, played_time, token_id)\：initial=True 补报格式，复刻网页端 getqueryCourse 进页补报行为，服务端风控在此响应即返回 -12/-9 判定
+  - \play_video\ 在 \_start_watch_thread\ 之前调用 _precheck（时间限制本地跳过逻辑优先，避免无效请求）
+  - \_report_progress_v2\ 捕获 ApiError(code=-9) 转 TimeLimitExceeded（from exc 链式）
+  - \play_course\ 新增 except TimeLimitExceeded 分支：清进度条 + 提示"学习时间已达上限，停止课程" + return
+- 背景：网页端逆向结论——验证码弹出完全由服务端 code -12 判定（学习时长心跳/进页补报响应），客户端无本地判定；网页端进页面即补报本地 saveDataKey 数据，未播放也能触发验证码
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1147 passed
+- 修正（实测）：initial=True 补报不触发服务端风控（返回 code 0），-12/-9 仅在常规心跳格式（initial=False）上返回。_precheck 改为 delta=0 的常规心跳（last_submit=played_time，不虚报进度），预检格式断言同步更新。浏览器端进页即弹验证码走的是另一条入口检测链路（cheat/exceptionActionDetail 为处罚/锁定弹窗，非验证码），CLI 预检以可触发风控评估的心跳端点为准。
+
+### Task 29 — AI 提供方选择可见性提示 ✅
+- 背景：`use_builtin_ai`（默认 true）优先级高于 `api_key`。两者同时配置时，AI 智慧课程（AI 作业/AI 考试）静默走智慧树内置 AI，`api_key`/`base_url`/`model` 完全失效且无任何日志，用户易误以为在用自定义模型（知到作业/考试链路的 `init_llm` 忽略该开关、始终用 `api_key`，两条链路规则相反）
+- Green: `src/zhs/cli/bootstrap.py`
+  - 新增 `check_ai_provider(config)`：`ai.enabled` 且 `use_builtin_ai=true` 且 `api_key` 非空时 warning——"检测到已配置自定义 API Key 但 use_builtin_ai=true，AI 智慧课程将使用智慧树内置 AI；如需 AI 智慧课程也用自定义模型请设 use_builtin_ai=false（知到作业/考试没有内置 AI，仍会使用该 API Key）"
+  - `load_config_and_session` 在 `setup_logger` 之后调用，覆盖 play/homework/exam/fetch 全部命令的公共启动路径（`zhs login` 不涉及 AI 调用，未接入）
+  - 仅增加可见性，不改变优先级行为（字段名与文案随 Task 30 更新为 `use_builtin_ai`）
+- Test: `tests/cli/test_bootstrap.py` 新增 `TestCheckAiProvider`（4 用例：命中提示 / 无 api_key 不提示 / use_builtin_ai=false 不提示 / ai 关闭不提示）+ `TestLoadConfigAndSession::test_calls_check_ai_provider`
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1152 passed
+
+### Task 30 — 配置项更名 use_zhidao_ai → use_builtin_ai（消除语义歧义）✅
+- 起因：旧名 `use_zhidao_ai` 字面像"全局使用知到 AI"，实际只影响 AI 智慧课程；知到作业/考试**没有内置 AI**、只能用自定义 `api_key`。两条链路规则相反，用户无法判断实际在用哪个模型
+- 实测证据（只读验证，账号内 1 门知到课程、0 门 AI 智慧课程）
+  - 知到课程 courseId=1000008156 调 `get-course-mapUid` → `code=500`（非 AI 课程拿不到内置 AI 所需参数）
+  - 账号内 AI 智慧课程数 = 0 → 内置 AI 实际不可用
+  - 结论：内置 AI 无法覆盖知到作业，"开关为 true 却静默改用 api_key"就是歧义根源
+- Green（改名 + 文档，不保留旧名）
+  - `src/zhs/config.py`：`use_builtin_ai: bool = True`，描述注明"仅 AI 智慧课程；false 则改用自定义 API Key；知到作业/考试没有内置 AI，只能用自定义 API Key"
+  - `src/zhs/llm/factory.py`：`create()` 改读 `use_builtin_ai`，docstring 标注"仅 AI 智慧课程"
+  - `src/zhs/cli/bootstrap.py`：`check_ai_provider` 提示语、`init_llm` docstring、题库告警文案同步改写（均明确 `api_key` 是通用自定义 LLM 配置，`use_builtin_ai=false` 时 AI 智慧课程也会使用它，避免"只服务知到作业"的误读）
+  - 文档：`config.toml.example`、`README.md`、`README_zh.md`、`docs/spec.md`、`docs/design.md`、`docs/tutorial.md`、`docs/test.md`（教程改为"两条链路"对照表）
+  - 测试：`tests/llm/test_factory.py`、`tests/cli/test_bootstrap.py`、`tests/cli/test_main.py`、`tests/cli/services/test_homework_service.py`、`tests/test_config.py`
+- 迁移说明：旧键 `use_zhidao_ai` 已移除（不设兼容别名），旧配置中的该键会被 pydantic 忽略，请改用 `use_builtin_ai`；本机 `.zhs/config.toml` 已同步更新
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1152 passed
+
+### Task 31 — LLM 失败可见性 + 4xx 不重试（知到作业）✅
+- 现象（实测日志 20:56）：DeepSeek 返回 `402 Insufficient Balance` → 每题 3 次重试全败 → `_generate_answer_with_llm` 静默 `_random_answer`，但 `_generate_answer_with_source` 仍标注来源 `LLM`/`缓存排除AI`、日志写"LLM 返回答案" → 用户以为在用 AI，实际提交的是随机答案（同期题库配额也为 0，正确率完全等于随机）
+- Green
+  - `src/zhs/zhidao/homework/worker.py`
+    - 新增实例状态 `_llm_degraded`（None / `failed` / `exhausted`）：`_generate_answer_with_llm` 每次调用先复位，LLM 抛错与重试耗尽分别置位
+    - `_generate_answer_with_source` 按真实来源标注 `LLM失败随机` / `LLM重试耗尽随机`（不再把随机答案记成 LLM），日志按级别区分（error/warning）
+    - `do_homework` 首次遇到 `LLM失败随机` 时在控制台提示一次"后续题目将降级为随机答案（正确率会明显下降），请检查 api_key/余额/网络"
+    - `_style_source`：两个新来源标签分别用红/黄着色，控制台一眼可辨
+  - `src/zhs/llm/openai.py`
+    - 新增显式集合 `NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404, 405, 409, 413, 422}`：命中即不重试、直接抛 `ZhsError`（每题省下约 2.3s 无效等待）；集合外的错误（408 超时、429 限流、5xx、网络异常、未列入的 4xx）仍按原策略重试，不做 4xx 一刀切
+- Test: `tests/zhidao/homework/test_worker.py::TestLlmFailureVisibility`（3 用例：失败标注 / 成功仍标 LLM / 控制台只提示一次）+ `tests/llm/test_openai.py::TestOpenAIRetryPolicy`（4 用例：402 不重试 / 429 仍重试 / 未列入集合的 4xx（418）仍重试 / 无状态码错误仍重试）
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1158 passed
+
+### Task 32 — 提前终止后关闭流（消除 chunk_queue 丢弃与连接泄漏）✅
+- 现象（实测 `.zhs/logs/zhs_2026-09-22.log`）：单日 `chunk_queue 满，丢弃 chunk` **128 次**；按 reader 线程分组，相邻丢包间隔**恒为 5.00~5.02s**（= `put(timeout=5.0)` 超时）→ 证明是「主线程提前终止后无人消费」，而非 chunk 到达过密
+- 影响：每条被抛弃的流在无消费者时每 5s 丢一个 chunk，128 次 ≈ **10.7 分钟**白读（白烧 token/流量/连接）；若丢弃发生在找到标记之前则会丢答案内容
+- Green: `src/zhs/llm/openai.py`
+  - 新增 `stop_event`（`threading.Event`）+ `_close_stream()`：主线程离开的三条路径（找到标记 `return` / 流式超时 / 流内异常）统一由 `try/finally` 触发 `stop_event.set()` 与 `stream.close()`
+  - `_reader`：每次迭代前检查停止标记；空 delta 不再入队；`put(timeout=5.0)` → `put_nowait`（丢弃改为计数）；丢弃在 reader 退出时汇总为**一条** warning
+- Test: `tests/llm/test_openai.py::TestStreamEarlyTermination`（6 用例：提前终止后 reader 停止且关流 / 提前终止无丢包告警 / 标记末尾闭合返回完整文本 / 超时同样停流关流 / `close()` 抛异常不影响返回值 / **思考阶段只有空 delta 时不误杀**）
+- 修正（实现过程中踩到并修复的回归）：初版把"空 delta 不入队"当优化，但思考型模型（`deepseek-v4-flash` 等）在思考阶段只发 `reasoning_content`、`delta.content` 为空，这些空 delta 原本承担"刷新 30s 空闲超时"的 keepalive 作用；丢弃后 23:34:37 / 23:35:55 两次真实运行出现 `OpenAI 流式响应超时（30.0s 无数据），已收集 0 个 chunk`，重试后才成功（单题多花约 20 秒并白烧一次思考 token）。现明确：**空 delta 照常入队作为活跃信号**（不参与 `cache` 拼接），空闲阈值抽为 `STREAM_IDLE_TIMEOUT = 30.0`，语义为"这么久连一个 delta 都没收到"才算死连接；reader 退出时打印 `流式统计: 正文 chunk=N, 空 delta(含 thinking)=M` 便于确认 reasoning 阶段长度
+- 受益范围：`OpenAIProvider` 同时服务「知到作业/考试」与「AI 智慧课程 + `use_builtin_ai=false`」两条链路
+- 未做（实测评估为可忽略）：消费端全文正则 O(n²) —— 每 chunk 仅 1.5~3.6 µs（≈28~66 万 chunk/s），比 chunk 到达速率快 3 个数量级，与本次丢包**无因果关系**（依据见 `.temp/llm_stream_queue_fix.md` §3.3 / §9.4）
+- 修复文档：`.temp/llm_stream_queue_fix.md`（含根因、方案对比、测试计划、验收标准、证据附录）
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1165 passed

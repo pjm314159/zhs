@@ -21,7 +21,7 @@ import httpx
 from loguru import logger
 
 from zhs.crypto import WatchPoint, encode_ev
-from zhs.exceptions import CaptchaRequired
+from zhs.exceptions import ApiError, CaptchaRequired, TimeLimitExceeded
 from zhs.utils.display import course_tag, msg_done, msg_error, msg_skip, msg_warn, progress_bar, tree_print, wipe_line
 
 if TYPE_CHECKING:
@@ -85,6 +85,10 @@ class ZhidaoVideoPlayer:
                     except CaptchaRequired:
                         self._clear_progress()
                         tree_print(msg_warn("!! 需要验证码，停止课程"), depth=3, enabled=tv)
+                        return
+                    except TimeLimitExceeded:
+                        self._clear_progress()
+                        tree_print(msg_warn("!! 学习时间已达上限，停止课程"), depth=3, enabled=tv)
                         return
                     except KeyboardInterrupt:
                         raise
@@ -155,6 +159,10 @@ class ZhidaoVideoPlayer:
                     depth=3,
                     enabled=True,
                 )
+
+        # 开播预检：立即上报一次零进度心跳（与服务端风控评估的常规心跳同格式），
+        # 提前发现验证码(-12)/时长上限(-9)，避免进入观看循环后白等首个心跳(~30s)才发现
+        self._precheck(rac_id, video_id, ctx, played_time, token_id)
 
         # 启动视频流请求（反检测）
         self._start_watch_thread(video.video_id)
@@ -412,6 +420,23 @@ class ZhidaoVideoPlayer:
         with contextlib.suppress(Exception):
             self._session.zhidao_query(url, data)
 
+    def _precheck(self, rac_id: str, video_id: int, ctx: "ZhidaoContext", played_time: float, token_id: str) -> None:
+        """开播前预检上报：delta=0 的常规心跳格式，提前发现验证码/时长上限
+
+        实测：服务端风控仅在常规心跳（initial=False）上评估，
+        initial=True 补报不返回 -12/-9，故用 last_submit=played_time 的
+        零进度心跳预检，不虚报进度。
+
+        Raises:
+            CaptchaRequired: 服务端要求验证码（code -12）
+            TimeLimitExceeded: 学习时长已达上限（code -9）
+        """
+        watch_point = WatchPoint()
+        watch_point.add(int(played_time))
+        self._report_progress_v2(
+            rac_id, video_id, ctx, played_time, played_time, watch_point.get(), token_id, initial=False
+        )
+
     def _report_progress_v2(
         self,
         rac_id: str,
@@ -484,6 +509,10 @@ class ZhidaoVideoPlayer:
         except CaptchaRequired:
             raise
         except Exception as exc:
+            if isinstance(exc, ApiError) and exc.code == -9:
+                # 学习时长已达上限（当日封顶）：观看不再计进度，终止课程
+                # （网页端对应提示"学习时间已经结束, 观看视频将不再计进度"）
+                raise TimeLimitExceeded(f"学习时间已达上限: {exc.message}") from exc
             exc_msg = str(exc)
             if "-10" in exc_msg:
                 # 疑是多窗口观看：刷新 token 重试一次

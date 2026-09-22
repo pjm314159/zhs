@@ -63,6 +63,33 @@ class TestFetchCourseList:
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
+    def test_zhidao_course_id_zero_falls_back_to_course_info(
+        self,
+        mock_zhidao_cls: MagicMock,
+        mock_hike_cls: MagicMock,
+        mock_ai_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """知到顶层 courseId 为 0 时输出 courseInfo.courseId，不输出 0 给用户"""
+        mock_zhidao_course = MagicMock()
+        mock_zhidao_course.course_name = "知到课程1"
+        mock_zhidao_course.course_id = 0
+        mock_zhidao_course.course_info.course_id = 88888
+        mock_zhidao_cls.return_value.get_course_list.return_value = [mock_zhidao_course]
+        mock_hike_cls.return_value.get_course_list.return_value = []
+        mock_ai_cls.return_value.get_ai_course_list.return_value = []
+
+        session = MagicMock()
+
+        with patch("zhs.utils.path.get_data_dir", return_value=tmp_path):
+            fetch_course_list(session, fetch_type="all")
+
+        data = json.loads((tmp_path / "execution.json").read_text(encoding="utf-8"))
+        assert data["zhidao"][0]["courseId"] == 88888
+
+    @patch("zhs.ai.course.AiCourseManager")
+    @patch("zhs.hike.course.HikeCourseManager")
+    @patch("zhs.zhidao.course.ZhidaoCourseManager")
     def test_fetch_all_prints_course_counts(
         self,
         mock_zhidao_cls: MagicMock,

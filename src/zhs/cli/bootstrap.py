@@ -58,6 +58,22 @@ def parse_proxy(config: AppConfig, proxy: str) -> None:
         logger.error(f"不支持的代理类型: {schema}")
 
 
+def check_ai_provider(config: AppConfig) -> None:
+    """启动时提示 AI 智慧课程实际生效的提供方（仅提示，不改变行为）
+
+    `use_builtin_ai`（默认 true）只作用于 AI 智慧课程：为 true 时使用智慧树内置 AI，
+    此时已配置的自定义 api_key 不会被 AI 智慧课程使用（但知到作业/考试仍会用它，
+    因为它们没有内置 AI 可用）。
+    """
+    ai = config.ai
+    if ai.enabled and ai.use_builtin_ai and ai.api_key:
+        logger.warning(
+            "检测到已配置自定义 API Key 但 use_builtin_ai=true，AI 智慧课程将使用智慧树内置 AI；"
+            "如需 AI 智慧课程也用自定义模型请设 use_builtin_ai=false"
+            "（知到作业/考试没有内置 AI，仍会使用该 API Key）"
+        )
+
+
 def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -> tuple[AppConfig, ZhsSession] | None:
     """加载配置、创建 session、恢复 cookies。失败返回 None。"""
     config_mgr = ConfigManager()
@@ -67,6 +83,7 @@ def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -
         parse_proxy(config, proxy)
 
     setup_logger(config, debug, console_log)
+    check_ai_provider(config)
 
     session = ZhsSession(config)
 
@@ -152,10 +169,11 @@ def do_login(
 
 
 def init_llm(config: AppConfig) -> Any:
-    """初始化 LLM 提供者（知到作业专用）
+    """初始化 LLM 提供者（知到作业/知到考试专用）
 
-    知到作业不使用 zhidao_ai（zhidao_ai 仅在 AI 智慧课程生效，由 LLMProviderFactory
-    创建 ZhidaoAIProvider）。此处仅创建 OpenAI 兼容 provider；无 api_key 则返回 None。
+    智慧树内置 AI 仅用于 AI 智慧课程（由 LLMProviderFactory 创建 ZhidaoAIProvider），
+    知到作业/考试没有内置 AI 可用，只能用自定义 API Key（与 use_builtin_ai 无关）。
+    此处仅创建 OpenAI 兼容 provider；无 api_key 则返回 None。
 
     Returns:
         LLMProvider | None
@@ -202,7 +220,7 @@ def init_question_bank(config: AppConfig, scope: str, llm: Any = None) -> Any:
         print(msg_warn("题库已启用但 token 为空，题库不可用（请在配置中设置 token 或关闭题库功能）"))
         return None
     if llm is None:
-        logger.warning("题库功能依赖 LLM，但 LLM 未初始化（检查 api_key 或 use_zhidao_ai 配置），已禁用题库查询")
+        logger.warning("题库功能依赖 LLM，但 LLM 未初始化（请检查 ai.api_key 配置），已禁用题库查询")
         print(msg_warn("题库功能依赖 LLM，但 LLM 未初始化，已禁用题库查询"))
         return None
     if scope not in qb.scopes:

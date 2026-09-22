@@ -102,35 +102,6 @@ def run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> N
         tree_print(msg_warn(f"未达标: {target.exam_name} {score_rate:.1f}%"), depth=1, enabled=True)
 
 
-def run_zhidao_homework_by_course(session: ZhsSession, config: AppConfig, recruit_and_course_id: str) -> None:
-    """按 recruitAndCourseId 运行知到作业
-
-    Args:
-        recruit_and_course_id: 课程的 recruitAndCourseId（secret 字符串）
-    """
-    from zhs.zhidao.course import ZhidaoCourseManager
-
-    # CAS SSO
-    session.exam_sso_login()
-
-    # 通过 secret（recruitAndCourseId）匹配课程，获取 recruit_id 和数字 courseId
-    mgr = ZhidaoCourseManager(session)
-    courses = mgr.get_course_list()
-    matched = None
-    for c in courses:
-        if c.secret == recruit_and_course_id and c.recruit_id:
-            matched = c
-            break
-
-    if matched is None:
-        logger.error(f"未找到课程 {recruit_and_course_id}（recruitAndCourseId 未匹配到任何课程）")
-        print(f"未找到课程 {recruit_and_course_id} 的 recruitId")
-        return
-
-    logger.info(f"匹配到课程: {matched.course_name} (courseId={matched.course_id}, recruitId={matched.recruit_id})")
-    run_zhidao_homework(session, config, str(matched.recruit_id), matched.course_id)
-
-
 def run_zhidao_homework(
     session: ZhsSession,
     config: AppConfig,
@@ -203,6 +174,7 @@ def run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
     """全刷模式：扫描所有知到课程的作业"""
     from zhs.utils.display import course_tag, msg_error, msg_skip, tree_print
     from zhs.zhidao.course import ZhidaoCourseManager
+    from zhs.zhidao.models import extract_course_id
 
     # CAS SSO
     session.exam_sso_login()
@@ -216,8 +188,8 @@ def run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
             continue
         try:
             recruit_id = str(c.recruit_id)
-            # 优先使用直接的 courseId，如果为 0 则回退到 courseInfo.courseId
-            course_id = c.course_id if c.course_id > 0 else (c.course_info.course_id if c.course_info else 0)
+            # 统一口径：顶层 courseId 为 0 时回退 courseInfo.courseId，取不到则为 0
+            course_id = extract_course_id(c)
             if course_id == 0:
                 tree_print(msg_skip(f"跳过(无课程ID): {c.course_name}"), depth=1, enabled=True)
                 continue
@@ -322,5 +294,4 @@ __all__ = [
     "run_all_zhidao_homework",
     "run_homework_from_url",
     "run_zhidao_homework",
-    "run_zhidao_homework_by_course",
 ]

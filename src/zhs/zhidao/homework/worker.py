@@ -57,6 +57,9 @@ class HomeworkWorker:
         self._reporter = reporter or ConsoleReporter()
         self._analyzer = HomeworkAnalyzer(session, config, cache)
         self._question_bank = question_bank
+        # 上一次 LLM 答题是否降级：None=正常；"failed"=调用失败；"exhausted"=重试耗尽
+        # 供 _generate_answer_with_source 如实标注来源，避免把随机答案记成 LLM
+        self._llm_degraded: str | None = None
 
     def run_homework(self, item: HomeworkItem, recruit_id: str, school_id: str) -> float:
         """运行完整作业流程（做 → 提交 → 检查 → 重做循环），返回最终得分率
@@ -188,6 +191,7 @@ class HomeworkWorker:
         self._reporter.print()
         self._reporter.print(msg_info("开始答题..."))
         answer_count = 0
+        llm_degraded_notified = False
         for i, question in enumerate(questions, 1):
             # 保存选项到缓存
             self._save_options_to_cache(question, item)
@@ -217,6 +221,10 @@ class HomeworkWorker:
                 f"  {progress_bar(i, len(questions), width=30)} [{styled(qt_name, _C.CYAN)}] {question_text}"
             )
             self._reporter.print(f"    来源: {source_styled}, 答案: {styled(answer_display, _C.BRIGHT_CYAN)}")
+            if source.startswith("LLM失败") and not llm_degraded_notified:
+                llm_degraded_notified = True
+                warn_text = "LLM 调用失败，后续题目将降级为随机答案（正确率会明显下降），请检查 api_key/余额/网络"
+                self._reporter.print(f"    {msg_warn(warn_text)}")
 
             # 保存答案
             try:
@@ -316,6 +324,7 @@ class HomeworkWorker:
             wrong_options: 已知错误选择方式列表（选择题为 list[int]，填空题为 str）
             ai_analysis: 缓存中的 AI 解析内容
         """
+        self._llm_degraded = None
         qt = question.question_type
         question_text = extract_text(question.name)
         all_options = question.question_options
@@ -454,10 +463,12 @@ class HomeworkWorker:
                     return self._random_answer(question, wrong_options)
             except Exception as e:
                 logger.error(f"LLM 生成答案失败: {e}")
+                self._llm_degraded = "failed"
                 return self._random_answer(question, wrong_options)
 
         # 多选题/填空题尝试次数用尽
         logger.error(f"尝试 {max_retries} 次后仍匹配错误组合，使用随机选择")
+        self._llm_degraded = "exhausted"
         return self._random_answer(question, wrong_options)
 
     def _random_answer(
@@ -735,10 +746,17 @@ class HomeworkWorker:
             question, item, wrong_options=wrong, ai_analysis=ai_analysis, bank_hint=bank_hint
         )
         if answer is not None:
-            logger.debug(f"LLM 返回答案: {answer}")
             bank_suffix = "+题库" if bank_hint else ""
             if self._llm is None:
+                logger.debug(f"无 LLM，随机答案: {answer}")
                 return answer, f"无LLM随机{bank_suffix}"
+            if self._llm_degraded == "failed":
+                logger.error(f"LLM 调用失败，本题降级为随机答案: {answer}")
+                return answer, f"LLM失败随机{bank_suffix}"
+            if self._llm_degraded == "exhausted":
+                logger.warning(f"LLM 重试耗尽（始终命中错误选项），本题降级为随机答案: {answer}")
+                return answer, f"LLM重试耗尽随机{bank_suffix}"
+            logger.debug(f"LLM 返回答案: {answer}")
             if wrong:
                 return answer, f"缓存排除AI{bank_suffix}"
             return answer, f"LLM{bank_suffix}"
@@ -791,6 +809,10 @@ class HomeworkWorker:
         if base_source == "缓存正确":
             return styled(base_source, _C.GREEN) + bank_suffix
         elif base_source in ("缓存排除直接", "缓存排除AI"):
+            return styled(base_source, _C.YELLOW) + bank_suffix
+        elif base_source.startswith("LLM失败"):
+            return styled(base_source, _C.RED) + bank_suffix
+        elif base_source.startswith("LLM重试耗尽"):
             return styled(base_source, _C.YELLOW) + bank_suffix
         elif base_source == "LLM":
             return styled(base_source, _C.BRIGHT_MAGENTA) + bank_suffix

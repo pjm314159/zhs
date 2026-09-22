@@ -413,7 +413,7 @@ class TestConfigManagerMigrate:
             "image_path": "",
             "ai": {
                 "enabled": True,
-                "use_zhidao_ai": True,
+                "use_builtin_ai": True,
                 "openai": {
                     "api_base": "https://api.deepseek.com",
                     "api_key": "sk-test",
@@ -435,7 +435,7 @@ class TestConfigManagerMigrate:
         legacy = {
             "ai": {
                 "enabled": True,
-                "use_zhidao_ai": False,
+                "use_builtin_ai": False,
                 "openai": {
                     "api_base": "https://api.deepseek.com",
                     "api_key": "sk-abc123",

@@ -130,7 +130,7 @@ zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 ```
 
 > **--url 与 -c 互斥**。`--url` 自动从浏览器复制的 URL 中解析课程参数：
-> - 知到视频页（`recruitAndCourseId=`）→ 扫描模式全刷
+> - 知到视频页（`recruitAndCourseId=`）→ 只刷该课程（该课程全部章节视频）
 > - AI 学习页（`learnPage/{courseId}/{nodeUid}/{classId}`）→ 直接模式，只刷该知识点
 > - AI 课程页（`knowledgeStudy/{courseId}/{classId}`）→ 扫描模式全刷
 
@@ -225,8 +225,8 @@ image_path = ""          # 二维码保存路径（留空使用默认目录）
 
 [ai]
 enabled = true
-use_zhidao_ai = true     # 默认使用智慧树内置 AI
-api_key = ""             # OpenAI 兼容 API Key
+use_builtin_ai = true    # 仅 AI 智慧课程：true=智慧树内置 AI
+api_key = ""             # OpenAI 兼容 API Key（AI 智慧课程在 use_builtin_ai=false 时使用；知到作业/考试必填）
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
@@ -235,7 +235,7 @@ max_token = 27900
 [urls]                   # API URL（一般无需修改）
 ```
 
-> **AI 答题**：默认使用智慧树内置 AI，无需任何 API Key。**前提是有ai智慧课程**，内置的AI性能低下，建议是使用自定义的。如需使用自定义 LLM，将 `use_zhidao_ai = false` 并填写 `api_key` 与 `base_url`。
+> **AI 答题**：**AI 智慧课程**默认使用智慧树内置 AI，无需任何 API Key，**前提是你有 AI 智慧课程**。内置 AI 性能低下，建议使用自定义的：将 `use_builtin_ai = false` 并填写 `api_key` 与 `base_url`。该 `api_key` 并非只服务知到作业/考试：`use_builtin_ai = false` 时 AI 智慧课程也用它；而**知到作业 / 知到考试没有内置 AI 可用，必须配置 `api_key`**。
 
 ## 数据目录
 

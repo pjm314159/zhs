@@ -306,7 +306,7 @@ class UrlConfig(BaseModel):
 class AIConfig(BaseModel):
     """AI 配置"""
     enabled: bool = True
-    use_zhidao_ai: bool = True
+    use_builtin_ai: bool = True
     api_key: str = ""
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
@@ -414,7 +414,7 @@ newbase = "https://newbase.zhihuishu.com"
 
 [ai]
 enabled = true
-use_zhidao_ai = true
+use_builtin_ai = true
 api_key = ""
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
@@ -1590,9 +1590,10 @@ class LLMProvider(ABC):
 class LLMProviderFactory:
     """LLM 提供者工厂
 
-    根据 AIConfig 创建对应的 LLMProvider 实例：
+    根据 AIConfig 创建对应的 LLMProvider 实例（仅 AI 智慧课程；知到作业/考试由
+    cli.bootstrap.init_llm 创建，没有内置 AI、只能用自定义 api_key）：
     - AI 禁用 → None
-    - use_zhidao_ai=True → ZhidaoAIProvider
+    - use_builtin_ai=True → ZhidaoAIProvider
     - 有 api_key → OpenAIProvider
     - 其他 → None
     """
@@ -1986,17 +1987,18 @@ flowchart TD
     CheckCourse -->|是| CourseLoop[遍历课程]
     CourseLoop --> DetectType{检测类型}
     DetectType -->|ai| AiHWByStr[_run_ai_homework_by_str]
-    DetectType -->|zhidao| ZhidaoHW[_run_zhidao_homework_by_course: CAS SSO + 扫描 + 做题]
+    DetectType -->|zhidao| ZhidaoHW[_run_zhidao_homework: CAS SSO + 扫描 + 做题]
     DetectType -->|hike| SkipHike[暂不支持]
     CheckCourse -->|否| AllHW[_run_all_homework: 知到 + AI]
 ```
 
 **课程类型检测说明**：
-- `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai`/`auto` 时直接路由
-- 自动检测规则（`detect_course_type`）：
+- `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai` 时直接路由；`auto` 视为自动检测
+- `-c/--course` 只接受课程 ID，自动检测规则（`detect_course` / `detect_course_type`）：
   - 含冒号（`courseId:classId`）→ AI 课程
-  - 含字母 → 知到（zhidao）
-  - 纯数字 → 传入 `session` 反查知到课程列表，命中则知到，否则 Hike
+  - 纯数字 → 传入 `session` 时经 `ZhidaoCourseManager.find_course()` 匹配知到课程列表，命中则知到，否则 Hike
+  - 含字母（`recruitAndCourseId`）→ 报错并提示改用 `--url`
+  - 知到列表拉取失败 → 报错并提示用 `--type` 显式指定（不静默回退 Hike）
 - `--type auto` 等同于不指定，执行全刷模式
 - `play`/`homework`/`exam` 支持 `--url` 参数（与 `-c` 互斥），由 `cli/url_parser.py` 按命令分层解析
 
@@ -2053,36 +2055,46 @@ def parse_exam_url(url: str) -> ParsedExamUrl: ...
 ```python
 @dataclass
 class ResolvedCourse:
-    course_id: int | str
-    course_type: str    # zhidao / hike / ai
-    class_id: str | None = None
-    rac_id: str | None = None  # 知到 recruitAndCourseId
+    type: str                      # zhidao / hike / ai
+    course_id: int
+    class_id: int | None = None    # AI 专用
+    rac_id: str | None = None      # 知到 recruitAndCourseId
+    recruit_id: int | None = None  # 知到 recruitId（作业/考试需要）
 
 def resolve_course_id(
-    course_str: str,
-    course_type: str = "auto",
-    session: ZhsSession | None = None,
+    course_id_str: str,
+    course_type: str | None = None,
+    session: object | None = None,
 ) -> ResolvedCourse: ...
 ```
 
 **设计要点**：
-- 统一处理 `-c` 参数：纯数字、含字母、`courseId:classId` 格式
-- `auto` 模式下纯数字 ID 调用 `_find_rac_by_course_id` 反查知到课程列表
+- 统一处理 `-c` 参数：`courseId`（纯数字）或 `courseId:classId`（AI）
+- 含字母的 `recruitAndCourseId` 报错并提示改用 `--url`
+- 纯数字 ID 经 `detect_course` 调 `ZhidaoCourseManager.find_course()` 匹配知到课程列表（一次查询同时得到类型与课程）
+- 知到的 `rac_id` / `recruit_id` 均取自同一次匹配结果，刷课与作业/考试共用
 - AI 课程从 `courseId:classId` 格式解析出 `course_id` 与 `class_id`
 
 #### 2.14.3 course_type.py — 课程类型检测
 
 ```python
-def detect_course_type(
-    course_str: str,
+def detect_course(
+    course_id: str,
+    course_type: str | None = None,
     session: ZhsSession | None = None,
-) -> str:  # "zhidao" / "hike" / "ai"
+) -> tuple[str, ZhidaoCourse | None]:  # ("zhidao"/"hike"/"ai", 匹配到的知到课程)
+
+def detect_course_type(...) -> str:  # 只取类型；显式 --type 时零查询
 ```
 
 **检测规则**：
-1. 含冒号 → `ai`（`courseId:classId` 格式）
-2. 含字母 → `zhidao`
-3. 纯数字 → 传入 `session` 时反查知到课程列表，命中则 `zhidao`，否则 `hike`；无 `session` 时默认 `hike`
+1. 显式 `--type`（非 `auto`）→ 直接返回
+2. 含冒号 → `ai`（`courseId:classId` 格式）
+3. 显式 `hike` → `hike`（courseId 须为纯数字且 > 0）
+4. 显式 `zhidao` / 纯数字自动检测 → 传入 `session` 时用 `find_course()` 查一次课程列表：
+   命中 → `("zhidao", course)`；未命中且显式 `zhidao` → 报错；否则 → `("hike", None)`；无 `session` 时默认 `hike`
+5. 列表拉取失败 → 报错提示用 `--type` 显式指定（不静默回退 `hike`）
+6. 非数字（含字母）→ 报错提示 `recruitAndCourseId` 改用 `--url`
 
 ---
 

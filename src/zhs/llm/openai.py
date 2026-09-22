@@ -4,7 +4,7 @@ import contextlib
 import re
 import time
 from queue import Empty, Full, Queue
-from threading import Thread
+from threading import Event, Thread
 from typing import Any
 
 from loguru import logger
@@ -12,6 +12,10 @@ from openai import OpenAI
 
 from zhs.exceptions import ZhsError
 from zhs.llm.base import LLMProvider
+
+# 流式空闲超时（秒）：这么久「连一个 delta 都没收到」才判定连接已死（正常再重试）。
+# 注意思考型模型会长时间只发 reasoning_content（delta.content 为空），此时空 delta 也是活跃信号。
+STREAM_IDLE_TIMEOUT = 30.0
 
 
 class OpenAIProvider(LLMProvider):
@@ -46,7 +50,11 @@ class OpenAIProvider(LLMProvider):
         aim_start: str = "```answer",
         aim_end: str = "```",
     ) -> str:
-        """调用 OpenAI 兼容接口获取补全结果（含重试和流式提前终止）"""
+        """调用 OpenAI 兼容接口获取补全结果（含重试和流式提前终止）
+
+        命中 NON_RETRYABLE_STATUS 的错误（如 402 余额不足、401 无效 Key）重试不可能成功，
+        直接失败，避免每题白等数秒；其它错误（408/429/5xx/网络异常）仍按原策略重试。
+        """
         # Token 截断
         prompt = self._truncate_prompt(prompt)
 
@@ -54,6 +62,9 @@ class OpenAIProvider(LLMProvider):
             try:
                 return self._stream_completion(prompt, aim_start, aim_end)
             except Exception as e:
+                if _is_non_retryable(e):
+                    logger.error(f"OpenAI 调用失败（HTTP {_status_code(e)}，不重试）: {e}")
+                    raise ZhsError(f"OpenAI API error (non-retryable, HTTP {_status_code(e)}): {e}") from e
                 logger.error(f"OpenAI attempt {attempt + 1}/{self._max_retries} failed: {e}")
                 if attempt < self._max_retries - 1:
                     time.sleep(self._retry_delay)
@@ -66,6 +77,14 @@ class OpenAIProvider(LLMProvider):
 
         使用后台线程读取 stream chunks，主线程通过 Queue.get(timeout) 实现真正的超时。
         即使 OpenAI SDK 的 __next__() 阻塞，主线程也能在 timeout 后超时退出。
+
+        主线程一旦离开（找到答案标记 / 超时 / 流内异常）都会置位 stop_event 并关闭 stream：
+        否则后台 reader 会继续读取已被抛弃的响应，而队列再无人消费，
+        每次 put 白等 5 秒才超时丢一个 chunk（同时白烧 token / 流量 / 连接）。
+
+        空闲超时（`get` 的 30s）语义是"**连一个 delta 都没收到**"：思考型模型只发
+        `reasoning_content`（`delta.content` 为空）时，空 delta 也会入队作为活跃信号，
+        避免长思考被误判为连接已死。
         """
         stream = self._client.chat.completions.create(
             model=self._model_name,
@@ -78,20 +97,41 @@ class OpenAIProvider(LLMProvider):
         # 后台线程读取 chunks，通过 Queue 传递给主线程
         # Queue item: str = content delta, None = 流结束, Exception = 错误
         chunk_queue: Queue[str | None | Exception] = Queue(maxsize=100)
+        stop_event = Event()
+        dropped = 0
+        content_chunks = 0
+        empty_deltas = 0
 
         def _reader() -> None:
+            nonlocal dropped, content_chunks, empty_deltas
             try:
                 for chunk in stream:
+                    if stop_event.is_set():
+                        logger.debug("reader 收到停止信号，停止读取流")
+                        return
                     delta = chunk.choices[0].delta
-                    content = delta.content if delta.content else ""
+                    content = delta.content or ""
+                    if content:
+                        content_chunks += 1
+                    else:
+                        # 空 delta（典型：思考型模型只发 reasoning_content）必须照样入队：
+                        # 主线程靠"收到队列项"刷新空闲超时，丢掉它会让长思考被误判为连接已死。
+                        empty_deltas += 1
                     try:
-                        chunk_queue.put(content, timeout=5.0)
+                        chunk_queue.put_nowait(content)
                     except Full:
-                        logger.warning("chunk_queue 满，丢弃 chunk")
-                chunk_queue.put(None, timeout=5.0)  # 流结束信号
+                        dropped += 1
+                if not stop_event.is_set():
+                    with contextlib.suppress(Full):
+                        chunk_queue.put_nowait(None)  # 流结束信号
             except Exception as e:
-                with contextlib.suppress(Full):
-                    chunk_queue.put(e, timeout=5.0)
+                if not stop_event.is_set():
+                    with contextlib.suppress(Full):
+                        chunk_queue.put_nowait(e)
+            finally:
+                if dropped:
+                    logger.warning(f"chunk_queue 满，丢弃 {dropped} 个 chunk（消费者滞后）")
+                logger.debug(f"流式统计: 正文 chunk={content_chunks}, 空 delta(含 thinking)={empty_deltas}")
 
         reader_thread = Thread(target=_reader, daemon=True)
         reader_thread.start()
@@ -101,35 +141,40 @@ class OpenAIProvider(LLMProvider):
         cache: str = ""
         start_time = time.monotonic()
 
-        while True:
-            remaining = self._timeout - (time.monotonic() - start_time)
-            if remaining <= 0:
-                logger.error(f"OpenAI 流式响应超时（>{self._timeout}s），已收集 {len(collected)} 个 chunk")
-                raise ZhsError(f"OpenAI stream timeout after {self._timeout}s")
+        try:
+            while True:
+                remaining = self._timeout - (time.monotonic() - start_time)
+                if remaining <= 0:
+                    logger.error(f"OpenAI 流式响应超时（>{self._timeout}s），已收集 {len(collected)} 个 chunk")
+                    raise ZhsError(f"OpenAI stream timeout after {self._timeout}s")
 
-            try:
-                item = chunk_queue.get(timeout=min(remaining, 30.0))
-            except Empty:
-                # 超时未收到 chunk
-                elapsed = time.monotonic() - start_time
-                logger.error(f"OpenAI 流式响应超时（{elapsed:.1f}s 无数据），已收集 {len(collected)} 个 chunk")
-                raise ZhsError(f"OpenAI stream timeout after {elapsed:.1f}s") from None
+                try:
+                    item = chunk_queue.get(timeout=min(remaining, STREAM_IDLE_TIMEOUT))
+                except Empty:
+                    # 超时未收到 chunk
+                    elapsed = time.monotonic() - start_time
+                    logger.error(f"OpenAI 流式响应超时（{elapsed:.1f}s 无数据），已收集 {len(collected)} 个 chunk")
+                    raise ZhsError(f"OpenAI stream timeout after {elapsed:.1f}s") from None
 
-            if item is None:
-                # 流结束
-                break
-            if isinstance(item, Exception):
-                raise ZhsError(f"OpenAI stream error: {item}") from item
+                if item is None:
+                    # 流结束
+                    break
+                if isinstance(item, Exception):
+                    raise ZhsError(f"OpenAI stream error: {item}") from item
 
-            content = item
-            if content:
-                collected.append(content)
-                cache += content
-                # 检测到答案标记后提前终止
-                match = re.search(f"{re.escape(aim_start)}(.*?){re.escape(aim_end)}", cache, re.DOTALL)
-                if match:
-                    logger.info("检测到答案标记，提前终止 OpenAI 流")
-                    return cache
+                content = item
+                if content:
+                    collected.append(content)
+                    cache += content
+                    # 检测到答案标记后提前终止
+                    match = re.search(f"{re.escape(aim_start)}(.*?){re.escape(aim_end)}", cache, re.DOTALL)
+                    if match:
+                        logger.info("检测到答案标记，提前终止 OpenAI 流")
+                        return cache
+        finally:
+            # 提前终止/超时/异常都要停流：否则 reader 继续读被抛弃的响应，白烧 token 与连接
+            stop_event.set()
+            _close_stream(stream)
 
         # 流结束但未找到答案标记
         result = "".join(collected)
@@ -146,3 +191,49 @@ class OpenAIProvider(LLMProvider):
             prompt = prompt[-max_chars:]
             logger.warning(f"Prompt 过长，已截断至约 {self._max_token} tokens")
         return prompt
+
+
+# 明确不重试的 HTTP 状态码：请求本身有问题，重试不可能成功
+# 未列入的错误（408 超时、429 限流、5xx、网络异常、其它 4xx）仍按原策略重试
+NON_RETRYABLE_STATUS: frozenset[int] = frozenset(
+    {
+        400,  # 请求参数错误
+        401,  # 鉴权失败（api_key 无效）
+        402,  # 余额/配额不足
+        403,  # 无权限
+        404,  # 模型或接口不存在
+        405,  # 方法不允许
+        409,  # 请求冲突
+        413,  # 请求体过大（prompt 超出模型上限）
+        422,  # 参数校验失败
+    }
+)
+
+
+def _status_code(exc: Exception) -> int | None:
+    """取异常携带的 HTTP 状态码（仅 SDK 的 APIStatusError 系列有）"""
+    code = getattr(exc, "status_code", None)
+    return code if isinstance(code, int) else None
+
+
+def _is_non_retryable(exc: Exception) -> bool:
+    """是否为「重试也无用」的错误（见 NON_RETRYABLE_STATUS）
+
+    不在集合内的错误（含其它 4xx）一律按可重试处理，避免误判后直接放弃。
+    """
+    code = _status_code(exc)
+    return code is not None and code in NON_RETRYABLE_STATUS
+
+
+def _close_stream(stream: Any) -> None:
+    """尽力关闭 SDK 流，避免提前终止后响应体继续被读取
+
+    不关闭的后果：后台 reader 会一直读取已被抛弃的响应，而队列无人消费，
+    每次 put 白等超时后丢弃一个 chunk，同时白烧 token / 流量 / 连接。
+    不同兼容网关的实现略有差异，关闭失败只记 debug，不影响已拿到的结果。
+    """
+    try:
+        stream.close()
+        logger.debug("OpenAI stream 已关闭")
+    except Exception as exc:
+        logger.debug(f"关闭 OpenAI stream 失败（忽略）: {exc}")

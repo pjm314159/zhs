@@ -17,6 +17,7 @@ from zhs.zhidao.models import (
     VideoSmallLesson,
     ZhidaoContext,
     ZhidaoCourse,
+    extract_course_id,
 )
 
 
@@ -26,9 +27,17 @@ class ZhidaoCourseManager:
     def __init__(self, session: ZhsSession) -> None:
         self._session = session
         self._context_cache: dict[str, ZhidaoContext] = {}
+        self._courses: list[ZhidaoCourse] | None = None
 
-    def get_course_list(self) -> list[ZhidaoCourse]:
-        """获取知到共享课程列表（分页）"""
+    def get_course_list(self, force: bool = False) -> list[ZhidaoCourse]:
+        """获取知到共享课程列表（分页）
+
+        Args:
+            force: 强制刷新，忽略实例内缓存
+        """
+        if self._courses is not None and not force:
+            return self._courses
+
         url = f"{self._session.urls.base}/gateway/t/v1/student/course/share/queryShareCourseInfo"
         page = 1
         page_size = 5
@@ -46,7 +55,28 @@ class ZhidaoCourseManager:
             more = result.get("result", {}).get("courseOpenDtos") or []
             courses.extend(ZhidaoCourse.model_validate(c) for c in more)
 
+        self._courses = courses
         return courses
+
+    def find_course(self, course_id: int, *, require_recruit_id: bool = False) -> ZhidaoCourse | None:
+        """按数字 courseId 查找课程（复用 get_course_list 缓存）
+
+        Args:
+            course_id: 数字 courseId，<= 0 时直接返回 None
+            require_recruit_id: 为 True 时跳过没有 recruitId 的课程（作业/考试需要）
+
+        Returns:
+            匹配到的课程；未找到返回 None
+        """
+        if course_id <= 0:
+            return None
+        for c in self.get_course_list():
+            if require_recruit_id and not c.recruit_id:
+                continue
+            # extract_course_id 返回 0 表示该课程取不到有效 ID，不参与匹配
+            if extract_course_id(c) == course_id:
+                return c
+        return None
 
     def get_context(self, rac_id: str, force: bool = False) -> ZhidaoContext:
         """获取知到课程上下文

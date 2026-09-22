@@ -22,6 +22,7 @@ import respx
 
 from zhs.config import AppConfig
 from zhs.crypto import WatchPoint, encode_ev
+from zhs.exceptions import ApiError, CaptchaRequired, TimeLimitExceeded
 from zhs.session import ZhsSession
 from zhs.zhidao.models import (
     CourseInfo,
@@ -575,3 +576,97 @@ class TestReportFailureNoLastSubmitUpdate:
             # 但我们设置 end_threshold=1.0 让循环快速结束
             player.end_threshold = 0.05  # end_time=90
             player.play_video("ABC123", 100, ctx)
+
+
+class TestStartPrecheck:
+    """开播预检：进入观看循环前立即上报，提前发现验证码/时长上限
+
+    实测结论：服务端风控仅在常规心跳格式（initial=False）的
+    saveDatabaseIntervalTimeV2 上评估，initial=True 补报不返回 -12/-9。
+    故预检用 delta=0 的常规心跳（last_submit=played_time），提前到 t=0 发出。
+    """
+
+    def test_precheck_called_before_main_loop(self, mock_session: ZhsSession) -> None:
+        """play_video 在 _main_loop 之前调用 _report_progress_v2（常规心跳格式）"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        manager = MagicMock()
+        with (
+            patch.object(player, "_main_loop") as mock_loop,
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_report_progress_v2", return_value=(0.0, True)) as mock_report,
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.time.sleep"),
+        ):
+            manager.attach_mock(mock_report, "report")
+            manager.attach_mock(mock_loop, "loop")
+            player.play_video("ABC123", 100, ctx)
+            calls = [name for name, _args, _kwargs in manager.mock_calls]
+            assert calls == ["report", "loop"]
+            assert mock_report.call_args.kwargs.get("initial") is False
+            # delta=0：last_submit 与 played_time 相同，不虚报进度
+            args = mock_report.call_args.args
+            assert args[4] == args[3]
+
+    def test_precheck_captcha_before_loop(self, mock_session: ZhsSession) -> None:
+        """预检发现 -12 → CaptchaRequired，不进入观看循环、不启动视频流线程"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(player, "_main_loop") as mock_loop,
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_report_progress_v2", side_effect=CaptchaRequired("服务端要求验证码")),
+            patch.object(player, "_start_watch_thread") as mock_watch,
+            patch.object(player, "_three_dimensional_course_ware"),
+        ):
+            with pytest.raises(CaptchaRequired):
+                player.play_video("ABC123", 100, ctx)
+            mock_loop.assert_not_called()
+            mock_watch.assert_not_called()
+
+    def test_report_v2_minus9_raises_time_limit(self, mock_session: ZhsSession) -> None:
+        """_report_progress_v2 遇到 code -9 → TimeLimitExceeded（不再静默失败继续白看）"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(player._session, "zhidao_query", side_effect=ApiError(-9, "学习时间已经结束")),
+            pytest.raises(TimeLimitExceeded),
+        ):
+            player._report_progress_v2(
+                "ABC123",
+                100,
+                ctx,
+                played_time=100.0,
+                last_submit=70.0,
+                watch_point="0,1",
+                token_id="dG9rZW4=",
+                initial=False,
+            )
+
+    def test_play_course_stops_on_time_limit(self, mock_session: ZhsSession) -> None:
+        """play_course 遇到 TimeLimitExceeded 停止课程且不继续播放后续视频"""
+        ctx = _make_context()
+        # 追加第二个视频，验证是"停止课程"而非"跳过继续"
+        video2 = VideoSmallLesson(
+            video_id=101,
+            id=201,
+            name="1.2",
+            lesson_id=10,
+            chapter_id=1,
+            video_sec=600,
+            watch_state=0,
+        )
+        ctx.chapters[0].video_lessons[0].video_small_lessons.append(video2)
+        ctx.videos[101] = video2
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(player, "play_video", side_effect=TimeLimitExceeded("学习时间已达上限")) as mock_play,
+            patch("zhs.zhidao.video.tree_print"),
+            patch("zhs.zhidao.video.wipe_line"),
+            patch("zhs.zhidao.video.print"),
+        ):
+            player.play_course("ABC123", ctx)
+            mock_play.assert_called_once()

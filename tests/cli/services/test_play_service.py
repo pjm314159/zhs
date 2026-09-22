@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from zhs.cli.course_resolver import ResolvedCourse
 from zhs.cli.services.play_service import (
     run_ai,
     run_ai_by_str,
@@ -33,18 +34,30 @@ class TestRunCourses:
     """run_courses"""
 
     def test_zhidao_course_routed(self) -> None:
-        """含字母的课程路由到 run_zhidao"""
+        """-c 传 courseId → 反查出 rac_id 后路由到 run_zhidao"""
         session = MagicMock()
         config = _make_config()
-        with patch("zhs.cli.services.play_service.run_zhidao") as mock_run:
-            run_courses(session, config, ["ABC123"], None)
-        mock_run.assert_called_once_with(session, config, "ABC123")
+        with (
+            patch(
+                "zhs.cli.course_resolver.resolve_course_id",
+                return_value=ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc"),
+            ),
+            patch("zhs.cli.services.play_service.run_zhidao") as mock_run,
+        ):
+            run_courses(session, config, ["1000008156"], None)
+        mock_run.assert_called_once_with(session, config, "rac_abc")
 
     def test_hike_course_routed(self) -> None:
         """纯数字课程路由到 run_hike"""
         session = MagicMock()
         config = _make_config()
-        with patch("zhs.cli.services.play_service.run_hike") as mock_run:
+        with (
+            patch(
+                "zhs.cli.course_resolver.resolve_course_id",
+                return_value=ResolvedCourse(type="hike", course_id=12345),
+            ),
+            patch("zhs.cli.services.play_service.run_hike") as mock_run,
+        ):
             run_courses(session, config, ["12345"], None)
         mock_run.assert_called_once_with(session, config, "12345")
 
@@ -52,7 +65,13 @@ class TestRunCourses:
         """--type ai 路由到 run_ai_by_str"""
         session = MagicMock()
         config = _make_config()
-        with patch("zhs.cli.services.play_service.run_ai_by_str") as mock_run:
+        with (
+            patch(
+                "zhs.cli.course_resolver.resolve_course_id",
+                return_value=ResolvedCourse(type="ai", course_id=100, class_id=200),
+            ),
+            patch("zhs.cli.services.play_service.run_ai_by_str") as mock_run,
+        ):
             run_courses(session, config, ["100:200"], "ai")
         mock_run.assert_called_once_with(session, config, "100:200")
 
@@ -61,11 +80,18 @@ class TestRunCourses:
         session = MagicMock()
         config = _make_config()
         with (
+            patch(
+                "zhs.cli.course_resolver.resolve_course_id",
+                side_effect=[
+                    ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc"),
+                    ResolvedCourse(type="hike", course_id=12345),
+                ],
+            ),
             patch("zhs.cli.services.play_service.run_zhidao") as mock_zhidao,
             patch("zhs.cli.services.play_service.run_hike") as mock_hike,
         ):
-            run_courses(session, config, ["ABC123", "12345"], None)
-        mock_zhidao.assert_called_once_with(session, config, "ABC123")
+            run_courses(session, config, ["1000008156", "12345"], None)
+        mock_zhidao.assert_called_once_with(session, config, "rac_abc")
         mock_hike.assert_called_once_with(session, config, "12345")
 
     def test_course_exception_does_not_stop_loop(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -73,10 +99,17 @@ class TestRunCourses:
         session = MagicMock()
         config = _make_config()
         with (
+            patch(
+                "zhs.cli.course_resolver.resolve_course_id",
+                side_effect=[
+                    ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc"),
+                    ResolvedCourse(type="hike", course_id=12345),
+                ],
+            ),
             patch("zhs.cli.services.play_service.run_zhidao", side_effect=Exception("err")),
             patch("zhs.cli.services.play_service.run_hike") as mock_hike,
         ):
-            run_courses(session, config, ["ABC123", "12345"], None)
+            run_courses(session, config, ["1000008156", "12345"], None)
         # 第二个课程仍应被处理
         mock_hike.assert_called_once()
         captured = capsys.readouterr()
@@ -86,8 +119,10 @@ class TestRunCourses:
         """未知类型打印警告并跳过"""
         session = MagicMock()
         config = _make_config()
-        # 通过 mock detect_course_type 返回未知类型
-        with patch("zhs.cli.services.play_service.detect_course_type", return_value="unknown"):
+        with patch(
+            "zhs.cli.course_resolver.resolve_course_id",
+            return_value=ResolvedCourse(type="unknown", course_id=1),
+        ):
             run_courses(session, config, ["test"], None)
         captured = capsys.readouterr()
         assert "未知的课程类型" in captured.out
