@@ -38,7 +38,7 @@ def _make_mock_config() -> MagicMock:
 
     mock_config.ai = MagicMock()
     mock_config.ai.enabled = True
-    mock_config.ai.use_zhidao_ai = True
+    mock_config.ai.use_builtin_ai = True
 
     mock_config.question_bank = MagicMock()
     mock_config.question_bank.enabled = True

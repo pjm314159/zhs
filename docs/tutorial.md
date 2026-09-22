@@ -104,7 +104,7 @@ image_path = ""                  # 二维码图片保存路径（留空则使用
 # ===== AI 配置 =====
 [ai]
 enabled = true                   # 是否启用 AI 功能
-use_zhidao_ai = true             # 是否使用智慧树内置 AI（无需 API Key）
+use_builtin_ai = true            # 仅 AI 智慧课程：是否使用智慧树内置 AI（无需 API Key）
 api_key = ""                     # OpenAI 兼容 API Key（自定义 AI 时需要）
 base_url = "https://api.openai.com/v1"  # API 地址
 model = "gpt-4o-mini"            # 模型名称
@@ -144,15 +144,15 @@ newbase = "https://newbase.zhihuishu.com"
 
 ### 2.3 AI 配置说明
 
-ZHS 支持两种 AI 答题模式：
+ZHS 的 AI 答题按课程类型分成两条链路：
 
-| 模式 | 配置 | 适用场景 |
+| 课程类型 | 使用的 AI | 说明 |
 |------|------|----------|
-| **智慧树内置 AI**（默认） | `use_zhidao_ai = true` | 无需 API Key，使用智慧树官方 AI 接口 |
-| **自定义 LLM** | `use_zhidao_ai = false` + `api_key` | OpenAI / DeepSeek / MoonShot 等兼容接口 |
+| **AI 智慧课程**（`learnPage` / AI 考试） | `use_builtin_ai = true`（默认）→ 智慧树内置 AI；`false` → 自定义 LLM | 内置 AI 无需 API Key，但**前提是账号里有 AI 智慧课程** |
+| **知到作业 / 知到考试** | **只能用自定义 LLM** | 没有内置 AI 可用，必须配置 `api_key`（+ `base_url`）；`use_builtin_ai` 对其不生效 |
 
-> 默认使用智慧树内置 AI，无需配置任何 API Key 即可使用 AI 答题功能。这个只适用于你有ai智慧课程才可用，且由于这个built-in AI比较烂，指令遵从性较差  
-> 如需使用自定义 LLM，将 `use_zhidao_ai` 设为 `false` 并填写 `api_key` 和 `base_url`。
+> 智慧树内置 AI 只服务 AI 智慧课程，且指令遵从性较差，建议使用自定义 LLM：`use_builtin_ai = false` + `api_key` + `base_url`。
+> 知到作业/考试没有内置 AI 可用（非 AI 课程的 `get-course-mapUid` 实测返回 500），未配置 `api_key` 时只会用题库/随机答案。
 
 ---
 
@@ -550,8 +550,8 @@ zhs play -c 1001:2001 --type ai         # 强制按 AI 处理
 
 ### Q3: AI 答题报错？
 
-- 默认使用智慧树内置 AI，无需额外配置
-- 如需自定义 LLM，在 `config.toml` 中设置 `ai.use_zhidao_ai = false` 并填写 `api_key` 和 `base_url`
+- **知到作业/考试**：必须配置 `ai.api_key`（+ `base_url`），没有内置 AI 可用；未配置时只用题库/随机答案
+- **AI 智慧课程**：默认使用智慧树内置 AI（需账号内有 AI 智慧课程）；想用自己的模型请设 `ai.use_builtin_ai = false`
 - 完全禁用 AI（随机答题）：`zhs homework -c 1000008156 --no-ai`
 
 ### Q4: 视频播放卡住？

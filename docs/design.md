@@ -306,7 +306,7 @@ class UrlConfig(BaseModel):
 class AIConfig(BaseModel):
     """AI 配置"""
     enabled: bool = True
-    use_zhidao_ai: bool = True
+    use_builtin_ai: bool = True
     api_key: str = ""
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
@@ -414,7 +414,7 @@ newbase = "https://newbase.zhihuishu.com"
 
 [ai]
 enabled = true
-use_zhidao_ai = true
+use_builtin_ai = true
 api_key = ""
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
@@ -1590,9 +1590,10 @@ class LLMProvider(ABC):
 class LLMProviderFactory:
     """LLM 提供者工厂
 
-    根据 AIConfig 创建对应的 LLMProvider 实例：
+    根据 AIConfig 创建对应的 LLMProvider 实例（仅 AI 智慧课程；知到作业/考试由
+    cli.bootstrap.init_llm 创建，没有内置 AI、只能用自定义 api_key）：
     - AI 禁用 → None
-    - use_zhidao_ai=True → ZhidaoAIProvider
+    - use_builtin_ai=True → ZhidaoAIProvider
     - 有 api_key → OpenAIProvider
     - 其他 → None
     """

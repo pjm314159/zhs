@@ -13,11 +13,14 @@ from zhs.session import ZhsSession
 class LLMProviderFactory:
     """LLM 提供者工厂
 
-    根据 AIConfig 创建对应的 LLMProvider 实例：
+    根据 AIConfig 创建对应的 LLMProvider 实例（仅 AI 智慧课程使用）：
     - AI 禁用 → None
-    - use_zhidao_ai=True → ZhidaoAIProvider
+    - use_builtin_ai=True → ZhidaoAIProvider（智慧树内置 AI，需 session/course 上下文）
     - 有 api_key → OpenAIProvider
     - 其他 → None
+
+    知到作业/知到考试不走此工厂（由 cli.bootstrap.init_llm 创建）：它们没有内置 AI，
+    只能用自定义 api_key（`use_builtin_ai` 仅作用于 AI 智慧课程）。
     """
 
     @staticmethod
@@ -40,7 +43,7 @@ class LLMProviderFactory:
         """
         if not ai_config.enabled:
             return None
-        if ai_config.use_zhidao_ai:
+        if ai_config.use_builtin_ai:
             if session is None:
                 return None
             return ZhidaoAIProvider(

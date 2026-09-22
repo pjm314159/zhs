@@ -23,7 +23,7 @@ def _make_config() -> MagicMock:
     config = MagicMock()
     config.homework.threshold = 100
     config.ai.enabled = True
-    config.ai.use_zhidao_ai = True
+    config.ai.use_builtin_ai = True
     config.video.ai_speed = 1.5
     return config
 

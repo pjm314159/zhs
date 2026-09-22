@@ -116,7 +116,11 @@ class AIConfig(BaseModel):
     """AI 配置"""
 
     enabled: bool = Field(default=True, description="是否启用 AI 功能")
-    use_zhidao_ai: bool = Field(default=True, description="是否使用智慧树内置 AI")
+    use_builtin_ai: bool = Field(
+        default=True,
+        description="AI 智慧课程是否使用智慧树内置 AI（false 则改用自定义 API Key）；"
+        "知到作业/考试没有内置 AI，只能使用自定义 API Key",
+    )
     api_key: str = Field(default="", description="OpenAI 兼容 API Key")
     base_url: str = Field(default="https://api.openai.com/v1", description="API Base URL")
     model: str = Field(default="gpt-4o-mini", description="模型名称")

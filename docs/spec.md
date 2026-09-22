@@ -299,9 +299,10 @@ src/zhs/
 
 #### 3.6.1 LLMProviderFactory（统一工厂）
 
-- 静态方法 `create(ai_config, session)` 根据 `ai_config.use_zhidao_ai` 返回对应 Provider
-- `use_zhidao_ai=True` → `ZhidaoAIProvider`（无需 API Key）
-- `use_zhidao_ai=False` → `OpenAIProvider`（需 `api_key` + `base_url`）
+- 静态方法 `create(ai_config, session)` 根据 `ai_config.use_builtin_ai` 返回对应 Provider（**仅 AI 智慧课程**）
+- `use_builtin_ai=True` → `ZhidaoAIProvider`（智慧树内置 AI，需 session/course 上下文）
+- `use_builtin_ai=False` → `OpenAIProvider`（需 `api_key` + `base_url`）
+- 知到作业/考试**不走此工厂**（由 `cli.bootstrap.init_llm` 创建）：没有内置 AI 可用，只能用自定义 `api_key`
 - 消除 `HomeworkCtx` / `ExamCtx` 中的重复初始化代码
 - 由 `AiExamBase.__init__` 调用，子类无需自行创建 Provider
 

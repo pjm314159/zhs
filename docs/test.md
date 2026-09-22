@@ -688,7 +688,7 @@ zhidao_speed = 2.0
 [homework]
 threshold = 80
 [ai]
-use_zhidao_ai = false
+use_builtin_ai = false
 api_key = "sk-test"
 """
         )
@@ -697,7 +697,7 @@ api_key = "sk-test"
         assert cfg.save_cookies is False
         assert cfg.video.zhidao_speed == 2.0
         assert cfg.homework.threshold == 80
-        assert cfg.ai.use_zhidao_ai is False
+        assert cfg.ai.use_builtin_ai is False
         assert cfg.ai.api_key == "sk-test"
 
     def test_migrate_legacy_json(self, tmp_path: Path) -> None:
@@ -1427,23 +1427,23 @@ class TestPrompts:
 
 ```python
 class TestLLMProviderFactory:
-    def test_create_zhidao_ai_when_use_zhidao_ai_true(self) -> None:
-        """use_zhidao_ai=True → 返回 ZhidaoAIProvider"""
+    def test_create_zhidao_ai_when_use_builtin_ai_true(self) -> None:
+        """use_builtin_ai=True → 返回 ZhidaoAIProvider"""
         from zhs.config import AIConfig
         from zhs.llm.factory import LLMProviderFactory
         from zhs.llm.zhidao import ZhidaoAIProvider
 
-        config = AIConfig(use_zhidao_ai=True)
+        config = AIConfig(use_builtin_ai=True)
         provider = LLMProviderFactory.create(config, session=...)
         assert isinstance(provider, ZhidaoAIProvider)
 
-    def test_create_openai_when_use_zhidao_ai_false(self) -> None:
-        """use_zhidao_ai=False → 返回 OpenAIProvider"""
+    def test_create_openai_when_use_builtin_ai_false(self) -> None:
+        """use_builtin_ai=False → 返回 OpenAIProvider"""
         from zhs.config import AIConfig
         from zhs.llm.factory import LLMProviderFactory
         from zhs.llm.openai import OpenAIProvider
 
-        config = AIConfig(use_zhidao_ai=False, api_key="sk-test")
+        config = AIConfig(use_builtin_ai=False, api_key="sk-test")
         provider = LLMProviderFactory.create(config, session=...)
         assert isinstance(provider, OpenAIProvider)
 

@@ -110,23 +110,25 @@ https = ""
 image_path = ""
 
 # ============================================================
-# AI 配置（用于 AI 课程自动答题）
+# AI 配置
+# - use_builtin_ai 仅决定 AI 智慧课程用哪种 AI
+# - 知到作业 / 知到考试没有内置 AI，只能用下方自定义 API Key
 # ============================================================
 
 [ai]
-# ai智慧课程可使用的智慧树内置 AI
-# 是否使用智慧树内置 AI（默认开启）
-# 设为 false 则使用下方自定义 OpenAI 兼容接口
-use_zhidao_ai = true
+# AI 智慧课程是否使用智慧树内置 AI（默认开启，需要账号内有 AI 智慧课程）
+# 设为 false 则 AI 智慧课程也使用下方自定义 OpenAI 兼容接口
+use_builtin_ai = true
 
-# OpenAI 兼容 API Key（仅 use_zhidao_ai = false 时需要）
+# OpenAI 兼容 API Key：AI 智慧课程在 use_builtin_ai = false 时使用；
+# 知到作业/考试没有内置 AI，必须配置
 # 支持 DeepSeek 等兼容接口
 api_key = ""
 
-# API Base URL（仅 use_zhidao_ai = false 时生效）
+# API Base URL（AI 智慧课程仅在 use_builtin_ai = false 时使用）
 base_url = "https://api.openai.com/v1"
 
-# 模型名称（仅 use_zhidao_ai = false 时生效）
+# 模型名称（同上）
 model = "gpt-4o-mini"
 
 # 最大 Token 数

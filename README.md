@@ -227,8 +227,8 @@ image_path = ""          # QR code save path (empty for default directory)
 
 [ai]
 enabled = true
-use_zhidao_ai = true     # Use Zhihuishu built-in AI by default
-api_key = ""             # OpenAI-compatible API Key
+use_builtin_ai = true    # AI smart courses only: use Zhihuishu built-in AI
+api_key = ""             # OpenAI-compatible API Key (used by AI courses when use_builtin_ai = false; required for Zhidao homework/exam)
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
@@ -237,7 +237,7 @@ max_token = 27900
 [urls]                   # API URLs (generally no modification needed)
 ```
 
-> **AI Answering**: Default uses Zhihuishu built-in AI, no API key required. **Prerequisite: AI smart course must exist**. The built-in AI has low performance; custom AI is recommended. To use custom LLM, set `use_zhidao_ai = false` and fill in `api_key` and `base_url`.
+> **AI Answering**: For **AI smart courses**, the built-in Zhihuishu AI is used by default (no API key required). **Prerequisite: an AI smart course must exist**. The built-in AI performs poorly; a custom LLM is recommended — set `use_builtin_ai = false` and fill in `api_key` and `base_url`. The API key is not limited to that case: AI smart courses also use it when `use_builtin_ai = false`, while **Zhidao homework/exam have no built-in AI and require `api_key`**.
 
 ## Data Directory
 

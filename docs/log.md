@@ -325,3 +325,27 @@ API 参考：`.temp/questions_bank.md`
 - 背景：网页端逆向结论——验证码弹出完全由服务端 code -12 判定（学习时长心跳/进页补报响应），客户端无本地判定；网页端进页面即补报本地 saveDataKey 数据，未播放也能触发验证码
 - Refactor: ruff check/format + mypy 通过；pytest 全量 1147 passed
 - 修正（实测）：initial=True 补报不触发服务端风控（返回 code 0），-12/-9 仅在常规心跳格式（initial=False）上返回。_precheck 改为 delta=0 的常规心跳（last_submit=played_time，不虚报进度），预检格式断言同步更新。浏览器端进页即弹验证码走的是另一条入口检测链路（cheat/exceptionActionDetail 为处罚/锁定弹窗，非验证码），CLI 预检以可触发风控评估的心跳端点为准。
+
+### Task 29 — AI 提供方选择可见性提示 ✅
+- 背景：`use_builtin_ai`（默认 true）优先级高于 `api_key`。两者同时配置时，AI 智慧课程（AI 作业/AI 考试）静默走智慧树内置 AI，`api_key`/`base_url`/`model` 完全失效且无任何日志，用户易误以为在用自定义模型（知到作业/考试链路的 `init_llm` 忽略该开关、始终用 `api_key`，两条链路规则相反）
+- Green: `src/zhs/cli/bootstrap.py`
+  - 新增 `check_ai_provider(config)`：`ai.enabled` 且 `use_builtin_ai=true` 且 `api_key` 非空时 warning——"检测到已配置自定义 API Key 但 use_builtin_ai=true，AI 智慧课程将使用智慧树内置 AI；如需 AI 智慧课程也用自定义模型请设 use_builtin_ai=false（知到作业/考试没有内置 AI，仍会使用该 API Key）"
+  - `load_config_and_session` 在 `setup_logger` 之后调用，覆盖 play/homework/exam/fetch 全部命令的公共启动路径（`zhs login` 不涉及 AI 调用，未接入）
+  - 仅增加可见性，不改变优先级行为（字段名与文案随 Task 30 更新为 `use_builtin_ai`）
+- Test: `tests/cli/test_bootstrap.py` 新增 `TestCheckAiProvider`（4 用例：命中提示 / 无 api_key 不提示 / use_builtin_ai=false 不提示 / ai 关闭不提示）+ `TestLoadConfigAndSession::test_calls_check_ai_provider`
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1152 passed
+
+### Task 30 — 配置项更名 use_zhidao_ai → use_builtin_ai（消除语义歧义）✅
+- 起因：旧名 `use_zhidao_ai` 字面像"全局使用知到 AI"，实际只影响 AI 智慧课程；知到作业/考试**没有内置 AI**、只能用自定义 `api_key`。两条链路规则相反，用户无法判断实际在用哪个模型
+- 实测证据（只读验证，账号内 1 门知到课程、0 门 AI 智慧课程）
+  - 知到课程 courseId=1000008156 调 `get-course-mapUid` → `code=500`（非 AI 课程拿不到内置 AI 所需参数）
+  - 账号内 AI 智慧课程数 = 0 → 内置 AI 实际不可用
+  - 结论：内置 AI 无法覆盖知到作业，"开关为 true 却静默改用 api_key"就是歧义根源
+- Green（改名 + 文档，不保留旧名）
+  - `src/zhs/config.py`：`use_builtin_ai: bool = True`，描述注明"仅 AI 智慧课程；false 则改用自定义 API Key；知到作业/考试没有内置 AI，只能用自定义 API Key"
+  - `src/zhs/llm/factory.py`：`create()` 改读 `use_builtin_ai`，docstring 标注"仅 AI 智慧课程"
+  - `src/zhs/cli/bootstrap.py`：`check_ai_provider` 提示语、`init_llm` docstring、题库告警文案同步改写（均明确 `api_key` 是通用自定义 LLM 配置，`use_builtin_ai=false` 时 AI 智慧课程也会使用它，避免"只服务知到作业"的误读）
+  - 文档：`config.toml.example`、`README.md`、`README_zh.md`、`docs/spec.md`、`docs/design.md`、`docs/tutorial.md`、`docs/test.md`（教程改为"两条链路"对照表）
+  - 测试：`tests/llm/test_factory.py`、`tests/cli/test_bootstrap.py`、`tests/cli/test_main.py`、`tests/cli/services/test_homework_service.py`、`tests/test_config.py`
+- 迁移说明：旧键 `use_zhidao_ai` 已移除（不设兼容别名），旧配置中的该键会被 pydantic 忽略，请改用 `use_builtin_ai`；本机 `.zhs/config.toml` 已同步更新
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1152 passed
