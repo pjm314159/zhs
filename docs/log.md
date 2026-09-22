@@ -310,3 +310,18 @@ API 参考：`.temp/questions_bank.md`
 - `pytest tests/zhidao/exam/test_worker.py tests/api/test_zhidao_exam_api.py`: 36 passed ✅
 - `ruff check` + `format --check` + `mypy`: 全绿 ✅
 
+
+### Task 28 — 知到视频开播预检（提前发现验证码/时长上限）✅
+- Red: \	ests/zhidao/test_video.py::TestStartPrecheck\（4 用例）
+  - 预检在 _main_loop 前调用 _report_progress_v2(initial=True)，顺序 report → loop
+  - 预检返回 -12 → CaptchaRequired，不进观看循环、不启动视频流线程
+  - _report_progress_v2 遇 code -9 → TimeLimitExceeded（不再静默失败继续白看）
+  - play_course 遇 TimeLimitExceeded 停止课程（不继续播放后续视频）
+- Green: \src/zhs/zhidao/video.py\
+  - 新增 \_precheck(rac_id, video_id, ctx, played_time, token_id)\：initial=True 补报格式，复刻网页端 getqueryCourse 进页补报行为，服务端风控在此响应即返回 -12/-9 判定
+  - \play_video\ 在 \_start_watch_thread\ 之前调用 _precheck（时间限制本地跳过逻辑优先，避免无效请求）
+  - \_report_progress_v2\ 捕获 ApiError(code=-9) 转 TimeLimitExceeded（from exc 链式）
+  - \play_course\ 新增 except TimeLimitExceeded 分支：清进度条 + 提示"学习时间已达上限，停止课程" + return
+- 背景：网页端逆向结论——验证码弹出完全由服务端 code -12 判定（学习时长心跳/进页补报响应），客户端无本地判定；网页端进页面即补报本地 saveDataKey 数据，未播放也能触发验证码
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1147 passed
+- 修正（实测）：initial=True 补报不触发服务端风控（返回 code 0），-12/-9 仅在常规心跳格式（initial=False）上返回。_precheck 改为 delta=0 的常规心跳（last_submit=played_time，不虚报进度），预检格式断言同步更新。浏览器端进页即弹验证码走的是另一条入口检测链路（cheat/exceptionActionDetail 为处罚/锁定弹窗，非验证码），CLI 预检以可触发风控评估的心跳端点为准。
