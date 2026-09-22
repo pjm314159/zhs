@@ -18,6 +18,7 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
     from zhs.utils.display import course_tag
     from zhs.utils.path import get_data_dir
     from zhs.zhidao.course import ZhidaoCourseManager
+    from zhs.zhidao.models import extract_course_id
 
     zhidao_ids: list[dict[str, Any]] = []
     hike_ids: list[dict[str, Any]] = []
@@ -28,7 +29,8 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
         hike_mgr = HikeCourseManager(session)
         ai_mgr = AiCourseManager(session)
 
-        zhidao_ids = [{"name": c.course_name, "courseId": c.course_id} for c in zhidao_mgr.get_course_list()]
+        # extract_course_id：顶层 courseId 为 0 时回退 courseInfo.courseId，避免输出 0 给用户
+        zhidao_ids = [{"name": c.course_name, "courseId": extract_course_id(c)} for c in zhidao_mgr.get_course_list()]
         hike_ids = [{"name": c.course_name, "courseId": str(c.course_id)} for c in hike_mgr.get_course_list()]
         ai_ids = [
             {

@@ -201,27 +201,22 @@ def run_zhidao_exam_by_course(
     from zhs.utils.display import msg_error
     from zhs.zhidao.course import ZhidaoCourseManager
 
-    # 解析 courseId
+    # 解析 courseId（recruitAndCourseId 只能走 --url）
     try:
         target_course_id = int(course_id_str)
     except ValueError:
-        print(msg_error(f"课程 ID 必须为数字: {course_id_str}"))
+        print(msg_error(f"知到课程 ID 必须为纯数字 courseId: {course_id_str}；recruitAndCourseId 请通过 --url 传入"))
+        return
+    if target_course_id <= 0:
+        print(msg_error(f"知到课程 ID 必须为正整数，实际: {course_id_str}"))
         return
 
     # CAS SSO
     session.exam_sso_login()
 
-    # 通过 courseId 匹配课程，获取 recruit_id
+    # 通过 courseId 匹配课程（需要 recruitId），获取 recruit_id
     mgr = ZhidaoCourseManager(session)
-    courses = mgr.get_course_list()
-    matched = None
-    for c in courses:
-        if not c.recruit_id:
-            continue
-        c_id = c.course_id if c.course_id > 0 else (c.course_info.course_id if c.course_info else 0)
-        if c_id == target_course_id:
-            matched = c
-            break
+    matched = mgr.find_course(target_course_id, require_recruit_id=True)
 
     if matched is None:
         logger.error(f"未找到课程 courseId={target_course_id}（课程列表中无匹配项）")
