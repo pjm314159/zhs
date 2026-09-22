@@ -362,3 +362,16 @@ API 参考：`.temp/questions_bank.md`
     - 新增显式集合 `NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404, 405, 409, 413, 422}`：命中即不重试、直接抛 `ZhsError`（每题省下约 2.3s 无效等待）；集合外的错误（408 超时、429 限流、5xx、网络异常、未列入的 4xx）仍按原策略重试，不做 4xx 一刀切
 - Test: `tests/zhidao/homework/test_worker.py::TestLlmFailureVisibility`（3 用例：失败标注 / 成功仍标 LLM / 控制台只提示一次）+ `tests/llm/test_openai.py::TestOpenAIRetryPolicy`（4 用例：402 不重试 / 429 仍重试 / 未列入集合的 4xx（418）仍重试 / 无状态码错误仍重试）
 - Refactor: ruff check/format + mypy 通过；pytest 全量 1158 passed
+
+### Task 32 — 提前终止后关闭流（消除 chunk_queue 丢弃与连接泄漏）✅
+- 现象（实测 `.zhs/logs/zhs_2026-09-22.log`）：单日 `chunk_queue 满，丢弃 chunk` **128 次**；按 reader 线程分组，相邻丢包间隔**恒为 5.00~5.02s**（= `put(timeout=5.0)` 超时）→ 证明是「主线程提前终止后无人消费」，而非 chunk 到达过密
+- 影响：每条被抛弃的流在无消费者时每 5s 丢一个 chunk，128 次 ≈ **10.7 分钟**白读（白烧 token/流量/连接）；若丢弃发生在找到标记之前则会丢答案内容
+- Green: `src/zhs/llm/openai.py`
+  - 新增 `stop_event`（`threading.Event`）+ `_close_stream()`：主线程离开的三条路径（找到标记 `return` / 流式超时 / 流内异常）统一由 `try/finally` 触发 `stop_event.set()` 与 `stream.close()`
+  - `_reader`：每次迭代前检查停止标记；空 delta 不再入队；`put(timeout=5.0)` → `put_nowait`（丢弃改为计数）；丢弃在 reader 退出时汇总为**一条** warning
+- Test: `tests/llm/test_openai.py::TestStreamEarlyTermination`（6 用例：提前终止后 reader 停止且关流 / 提前终止无丢包告警 / 标记末尾闭合返回完整文本 / 超时同样停流关流 / `close()` 抛异常不影响返回值 / **思考阶段只有空 delta 时不误杀**）
+- 修正（实现过程中踩到并修复的回归）：初版把"空 delta 不入队"当优化，但思考型模型（`deepseek-v4-flash` 等）在思考阶段只发 `reasoning_content`、`delta.content` 为空，这些空 delta 原本承担"刷新 30s 空闲超时"的 keepalive 作用；丢弃后 23:34:37 / 23:35:55 两次真实运行出现 `OpenAI 流式响应超时（30.0s 无数据），已收集 0 个 chunk`，重试后才成功（单题多花约 20 秒并白烧一次思考 token）。现明确：**空 delta 照常入队作为活跃信号**（不参与 `cache` 拼接），空闲阈值抽为 `STREAM_IDLE_TIMEOUT = 30.0`，语义为"这么久连一个 delta 都没收到"才算死连接；reader 退出时打印 `流式统计: 正文 chunk=N, 空 delta(含 thinking)=M` 便于确认 reasoning 阶段长度
+- 受益范围：`OpenAIProvider` 同时服务「知到作业/考试」与「AI 智慧课程 + `use_builtin_ai=false`」两条链路
+- 未做（实测评估为可忽略）：消费端全文正则 O(n²) —— 每 chunk 仅 1.5~3.6 µs（≈28~66 万 chunk/s），比 chunk 到达速率快 3 个数量级，与本次丢包**无因果关系**（依据见 `.temp/llm_stream_queue_fix.md` §3.3 / §9.4）
+- 修复文档：`.temp/llm_stream_queue_fix.md`（含根因、方案对比、测试计划、验收标准、证据附录）
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1165 passed
