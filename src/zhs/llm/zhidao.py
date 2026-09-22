@@ -209,7 +209,7 @@ class ZhidaoAIProvider(LLMProvider):
         ) as response:
             return self._parse_stream_with_early_stop(response.iter_lines(), aim_start, aim_end)
 
-    def _parse_stream_with_early_stop(self, lines: Any, aim_start: str, aim_end: str) -> str:
+    def _parse_stream_with_early_stop(self, lines: Any, aim_start: str, aim_end: str, timeout: float = 60.0) -> str:
         """解析 SSE 流式响应，检测到答案标记后提前终止
 
         事件类型：
@@ -219,12 +219,18 @@ class ZhidaoAIProvider(LLMProvider):
 
         如果流结束但未检测到答案标记，抛出 ZhsError 触发重试。
         """
+        import time as _time
+
+        deadline = _time.monotonic() + timeout
         collected: list[str] = []
         cache: str = ""
         event_count = 0
         current_event: str | None = None
 
         for line in lines:
+            if _time.monotonic() > deadline:
+                logger.error(f"SSE 流超时（>{timeout}s），已收集 {event_count} 个事件")
+                raise ZhsError(f"SSE stream timeout after {timeout}s")
             if isinstance(line, bytes):
                 line = line.decode("utf-8")
             line = line.strip()

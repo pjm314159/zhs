@@ -107,6 +107,7 @@ class UrlConfig(BaseModel):
     ai_task: str = "https://kg-run-student.zhihuishu.com"
     exam: str = "https://studentexamtest.zhihuishu.com"
     homework: str = "https://studentexam-api.zhihuishu.com"
+    taurusexam: str = "https://taurusexam-api.zhihuishu.com"
     ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"
     newbase: str = "https://newbase.zhihuishu.com"
 
@@ -123,11 +124,23 @@ class AIConfig(BaseModel):
 
 
 class ExamConfig(BaseModel):
-    """AI 考试配置"""
+    """考试配置（知到考试 + AI 考试通用）"""
 
     save_nums: int = Field(default=5, description="每批保存答案的题目数量")
-    delay_min: float = Field(default=3.0, description="每批保存后最小休息时间（秒）")
-    delay_max: float = Field(default=5.0, description="每批保存后最大休息时间（秒）")
+    delay_min: float = Field(default=3.0, description="每题保存后最小延迟（秒，缓存/随机答案用）")
+    delay_max: float = Field(default=5.0, description="每题保存后最大延迟（秒，缓存/随机答案用）")
+
+
+class QuestionBankConfig(BaseModel):
+    """题库配置（外部题库查询，作为 LLM 答题的提示源）"""
+
+    enabled: bool = Field(default=False, description="是否启用题库查询")
+    token: str = Field(default="", description="题库 token（enncy.cn 个人中心-更多配置获取）")
+    query_url: str = Field(default="https://tk.enncy.cn/query", description="题库查询 API URL")
+    info_url: str = Field(default="https://tk.enncy.cn/info", description="题库信息 API URL")
+    scopes: list[Literal["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam"]] = Field(
+        default=["zhidao_exam", "ai_exam"], description="启用题库查询的范围"
+    )
 
 
 class QuestionBankConfig(BaseModel):

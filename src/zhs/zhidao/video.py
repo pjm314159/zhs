@@ -14,7 +14,7 @@ import threading
 import time
 from base64 import b64encode
 from datetime import timedelta
-from random import random
+from random import randint, random, uniform
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -188,10 +188,10 @@ class ZhidaoVideoPlayer:
         from zhs.zhidao.quiz import ZhidaoQuizzer
 
         video = ctx.videos[video_id]
-        speed = self._speed or 1.5
+        speed = (self._speed or 1.5) + uniform(-0.15, 0.15)
         last_submit = played_time
         elapsed_time = 0
-        db_interval = 30
+        db_interval = 30 + randint(-5, 5)
         answer_delay: int | None = None
         current_question: PopupQuestion | None = None
         report = False
@@ -281,6 +281,8 @@ class ZhidaoVideoPlayer:
                         played_time = server_played
                     last_submit = played_time
                     wp.reset(int(played_time))
+                    db_interval = 30 + randint(-5, 5)
+                    speed = (self._speed or 1.5) + uniform(-0.15, 0.15)
                 else:
                     # 上报失败：不更新 last_submit，下次重试时增量正确
                     logger.warning(f"Progress report failed, will retry with delta={played_time - last_submit:.1f}s")

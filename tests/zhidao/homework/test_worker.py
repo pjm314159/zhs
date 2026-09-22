@@ -543,21 +543,18 @@ class TestQuestionBankInjection:
 
     def test_bank_hit_injects_hint(self) -> None:
         """题库命中时注入 extra["题库参考"]"""
-        from zhs.question_bank.models import QuestionBankResult
-
-        mock_bank = MagicMock()
-        mock_bank.query.return_value = QuestionBankResult(answer="选项A", times=10, ai=False)
-        worker, mock_llm = self._make_worker_with_llm(bank=mock_bank)
+        worker, mock_llm = self._make_worker_with_llm(bank=MagicMock())
         mock_llm.single_choice.return_value = [101]
         question = _make_question()
         item = _make_item()
 
-        worker._generate_answer_with_llm(question, item)
+        # 预查询题库得到 hint，传入 _generate_answer_with_llm
+        bank_hint = "选项A (来自题库)"
+        worker._generate_answer_with_llm(question, item, bank_hint=bank_hint)
 
         extra = mock_llm.single_choice.call_args.kwargs["extra"]
         assert "题库参考" in extra
         assert "选项A" in extra["题库参考"]
-        mock_bank.query.assert_called_once()
 
     def test_bank_no_answer_no_injection(self) -> None:
         """题库无答案（返回 None）时不注入"""
@@ -612,7 +609,8 @@ class TestQuestionBankInjection:
         question = _make_question()
         item = _make_item()
 
-        worker._generate_answer_with_llm(question, item)
+        # _generate_answer_with_source 内部调用 _query_question_bank
+        worker._generate_answer_with_source(question, item)
 
         call = mock_bank.query.call_args
         assert call.args[0] == "测试题目"  # title
@@ -753,7 +751,11 @@ class TestHomeworkWorkerRunHomework:
         session.homework_look.assert_called_once()
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
-    def test_run_homework_prints_bank_stats(self, mock_sleep: MagicMock, capsys: pytest.CaptureFixture[str]) -> None:
+    @patch.object(HomeworkWorker, "do_homework", return_value=90.0)
+    @patch.object(HomeworkWorker, "_check_and_cache")
+    def test_run_homework_prints_bank_stats(
+        self, mock_check: MagicMock, mock_do: MagicMock, mock_sleep: MagicMock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """run_homework 结束时 print 题库使用统计"""
         session = _make_mock_session()
         config = _make_config()
@@ -765,10 +767,6 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache, question_bank=mock_bank)
         item = _make_item()
-
-        # Mock do_homework + check_and_cache
-        worker.do_homework = MagicMock(return_value=90.0)
-        worker._check_and_cache = MagicMock()
 
         rate = worker.run_homework(item, "414804", "625")
 

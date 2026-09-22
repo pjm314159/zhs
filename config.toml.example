@@ -69,6 +69,20 @@ page_size = 100
 ai_homework_threshold = 90
 
 # ============================================================
+# 考试配置（知到考试 + AI 考试）
+# ============================================================
+
+[exam]
+# 每批保存答案的题目数量（AI 考试用，默认 5）
+save_nums = 5
+
+# 每题保存后延迟时间（秒，知到考试用）
+# 仅对缓存/随机答案生效（LLM 答案不延迟，LLM API 本身有延迟）
+# 实际延迟在 min 和 max 之间随机，防止请求过快触发风控
+delay_min = 3.0
+delay_max = 5.0
+
+# ============================================================
 # 显示设置
 # ============================================================
 
@@ -138,7 +152,7 @@ info_url = "https://tk.enncy.cn/info"
 
 # 启用范围（可多选）：
 #   zhidao_homework - 知到作业
-#   zhidao_exam     - 知到考试（暂未实现，保留）
+#   zhidao_exam     - 知到考试
 #   ai_homework     - AI 课程作业
 #   ai_exam         - AI 课程考试
 scopes = ["zhidao_exam", "ai_exam"]
@@ -168,6 +182,9 @@ passport = "https://passport.zhihuishu.com"
 study = "https://studyservice-api.zhihuishu.com"
 hike = "https://hike.zhihuishu.com"
 ai = "https://kg-ai-run.zhihuishu.com"
-newbase = "https://newbase.zhihuishu.com"
+ai_task = "https://kg-run-student.zhihuishu.com"
+exam = "https://studentexamtest.zhihuishu.com"
 homework = "https://studentexam-api.zhihuishu.com"
+taurusexam = "https://taurusexam-api.zhihuishu.com"
 ai_analysis = "https://ai-course-assistant-api.zhihuishu.com"
+newbase = "https://newbase.zhihuishu.com"

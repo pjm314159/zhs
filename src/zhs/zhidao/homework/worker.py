@@ -98,6 +98,9 @@ class HomeworkWorker:
         attempt = 1
 
         while self._analyzer.should_redo(item, score_rate):
+            # 每次重做消耗一次剩余次数（服务器端 isMarking 会 +1）。
+            # item 是列表快照，若不更新，得分始终低于阈值时会无限重做。
+            item.is_marking += 1
             attempt += 1
             self._reporter.print()
             self._reporter.print(styled("-" * 60, _C.DIM))
@@ -303,6 +306,7 @@ class HomeworkWorker:
         item: HomeworkItem,
         wrong_options: list[WrongOption] | None = None,
         ai_analysis: str | None = None,
+        bank_hint: str = "",
     ) -> int | str | None:
         """使用 LLM 生成答案
 
@@ -381,12 +385,10 @@ class HomeworkWorker:
             extra["历史AI解析"] = f"之前 AI 对此题的分析（仅供参考）:\n{ai_analysis}"
             logger.debug(f"历史AI解析: {ai_analysis[:100]}")
 
-        # 题库参考注入（仅当题库可用时查询，失败/无答案不影响主流程）
-        if self._question_bank is not None:
-            hint = self._query_question_bank(question, choices)
-            if hint:
-                extra["题库参考"] = hint
-                logger.debug(f"题库参考已注入: {hint[:50]}")
+        # 题库参考注入（使用预查询结果）
+        if bank_hint:
+            extra["题库参考"] = bank_hint
+            logger.debug(f"题库参考已注入: {bank_hint[:50]}")
 
         # 多选题/填空题：最多尝试 3 次，如果 AI 选了错误组合则 rollback
         max_retries = 3 if qt in (HomeworkQuestionType.MULTI, HomeworkQuestionType.FILL) else 1
@@ -703,7 +705,17 @@ class HomeworkWorker:
         entry = self._cache.get(course_id, exam_id, question_key)
         ai_analysis = entry.ai_analysis if entry else None
 
-        logger.debug(f"缓存错误选择方式: {wrong}, AI分析: {ai_analysis[:50] if ai_analysis else None}")
+        # 题库参考预查询（仅当题库可用时，后续注入 LLM extra）
+        bank_hint = ""
+        if self._question_bank is not None:
+            choices = [{"id": o.id, "content": o.content} for o in question.question_options]
+            bank_hint = self._query_question_bank(question, choices)
+
+        logger.debug(
+            f"缓存错误选择方式: {wrong}, "
+            f"AI分析: {ai_analysis[:50] if ai_analysis else None}, "
+            f"题库={'有' if bank_hint else '无'}"
+        )
 
         # 3. 根据题型和缓存情况决定策略
         qt = question.question_type
@@ -719,14 +731,17 @@ class HomeworkWorker:
 
         # 其他情况：调用 AI，传递错误选项和 AI 分析
         logger.debug(f"调用 LLM: wrong={wrong}, ai_analysis={ai_analysis[:50] if ai_analysis else None}")
-        answer = self._generate_answer_with_llm(question, item, wrong_options=wrong, ai_analysis=ai_analysis)
+        answer = self._generate_answer_with_llm(
+            question, item, wrong_options=wrong, ai_analysis=ai_analysis, bank_hint=bank_hint
+        )
         if answer is not None:
             logger.debug(f"LLM 返回答案: {answer}")
+            bank_suffix = "+题库" if bank_hint else ""
             if self._llm is None:
-                return answer, "无LLM随机"
+                return answer, f"无LLM随机{bank_suffix}"
             if wrong:
-                return answer, "缓存排除AI"
-            return answer, "LLM"
+                return answer, f"缓存排除AI{bank_suffix}"
+            return answer, f"LLM{bank_suffix}"
 
         logger.warning(f"无法生成答案: question_key={question_key}, 题型={qt}")
         return None, "无法生成"
@@ -766,16 +781,23 @@ class HomeworkWorker:
 
     def _style_source(self, source: str) -> str:
         """美化答案来源显示"""
-        if source == "缓存正确":
-            return styled(source, _C.GREEN)
-        elif source in ("缓存排除直接", "缓存排除AI"):
-            return styled(source, _C.YELLOW)
-        elif source == "LLM":
-            return styled(source, _C.BRIGHT_MAGENTA)
-        elif source == "无LLM随机":
-            return styled(source, _C.DIM)
+        # 提取题库后缀（如 "+题库"）
+        bank_suffix = ""
+        base_source = source
+        if source.endswith("+题库"):
+            bank_suffix = styled("+题库", _C.BRIGHT_CYAN)
+            base_source = source.removesuffix("+题库")
+
+        if base_source == "缓存正确":
+            return styled(base_source, _C.GREEN) + bank_suffix
+        elif base_source in ("缓存排除直接", "缓存排除AI"):
+            return styled(base_source, _C.YELLOW) + bank_suffix
+        elif base_source == "LLM":
+            return styled(base_source, _C.BRIGHT_MAGENTA) + bank_suffix
+        elif base_source == "无LLM随机":
+            return styled(base_source, _C.DIM) + bank_suffix
         else:
-            return styled(source, _C.WHITE)
+            return styled(base_source, _C.WHITE) + bank_suffix
 
     def _get_option_labels(self, options: list[HomeworkQuestionOption], ids: list[int]) -> str:
         """将选项 ID 转换为标签字符串（如 A, B, C）

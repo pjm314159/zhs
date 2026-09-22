@@ -47,7 +47,7 @@ class QueryStrategy:
     default_method: str = "POST"
 
 
-# 策略表（替代 6 个方法）
+# 策略表（替代 7 个方法）
 # fmt: off
 STRATEGIES: dict[str, QueryStrategy] = {
     "zhidao":       QueryStrategy("video_key", True,  "code",   0,     "form",  check_captcha=True),
@@ -55,6 +55,7 @@ STRATEGIES: dict[str, QueryStrategy] = {
     "ai_exam":      QueryStrategy("exam_key",  True,  "code",   0,     "form"),
     "ai_task":      QueryStrategy("ai_key",    True,  "code",   200,   "json"),
     "homework":     QueryStrategy("exam_key",  False, "status", "200", "form"),
+    "zhidao_exam":  QueryStrategy("exam_key",  False, "status", "200", "form"),
     "ai_exam_submit": QueryStrategy("exam_key", True, "code",   0,     "form", has_response_body=False),
 }
 # fmt: on
@@ -80,6 +81,7 @@ class EncryptedQuery:
         key_bytes_override: bytes | None = None,
         ok_value_override: int | str | None = None,
         content_type_override: str | None = None,
+        extra_fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """统一查询入口
 
@@ -92,6 +94,8 @@ class EncryptedQuery:
             key_bytes_override: 覆盖策略密钥（bytes，已解析），用于兼容旧 zhidao_query(key=...)
             ok_value_override: 覆盖策略期望值，用于兼容旧 zhidao_query(ok_code=...)
             content_type_override: 覆盖策略 content_type，用于兼容旧 zhidao_query(content_type=...)
+            extra_fields: 附加明文表单字段（不加密，与 secretStr 一起发送）。
+                例如知到考试 saveStudentAnswer 的 ``source=1`` 字段。
 
         Returns:
             响应 JSON（ai_exam_submit 返回空字典）
@@ -115,6 +119,10 @@ class EncryptedQuery:
             return self._hike_query(url, data, method, sig=sig)
 
         form_data = self._build_form_data(strategy, data, key_bytes_override=key_bytes_override)
+
+        # 附加明文字段（如 saveStudentAnswer 的 source=1），不进入 secretStr 加密
+        if extra_fields:
+            form_data.update(extra_fields)
 
         if not strategy.has_response_body:
             self._http.post_raw(url, data=form_data, content_type=strategy.content_type)

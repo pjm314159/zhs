@@ -1,304 +1,304 @@
-# ZHS — 智慧树自动刷课工具
+# ZHS — Zhihuishu Auto-Learning Tool
 
 [![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课、Hike 职教云课、AI 智慧课程三类课程的自动学习。核心能力包括：扫码登录、视频进度模拟、弹窗答题、AI 自动作业与考试。
+**[中文文档](README_zh.md)**
 
-## 功能特性
+ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types of courses: Zhidao shared courses, Hike vocational education courses, and AI smart courses. Core capabilities include: QR code login, video progress simulation, popup quiz answering, AI auto homework and exams.
 
-- **三类课程全覆盖**：知到（Zhidao）/ Hike 职教云 / AI 智慧课程
-- **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离
-- **扫码登录**：自动保存 Cookie，避免重复登录
-- **视频自动刷课**：模拟真人观看（随机暂停、随机延迟、进度条显示）
-- **弹窗答题**：视频内弹窗题目自动选择正确答案
-- **作业自动作答**：知到作业 + AI 课程作业，支持 LLM 答题与答案缓存
-- **AI 考试**：AI 课程考试自动答题，批量保存答案，心跳保活
-- **AI 解析**：调用智慧树 AI 解析接口获取题目解析（SSE 流式）
-- **多 LLM 后端**：默认使用智慧树内置 AI，也可配置 OpenAI 兼容接口（DeepSeek、MoonShot 等），**推荐使用自定义AI，默认的AI性能较低**
-- **PPT 转文本**：使用 python-pptx 本地提取 PPT 文本作为答题参考
-- **代理支持**：HTTP / HTTPS / SOCKS5
+## Features
 
-## 技术栈
+- **Three Course Types Supported**: Zhidao / Hike / AI Smart Courses
+- **Command-line Interface**: Clear subcommand separation with `zhs init / login / play / homework / exam / fetch / cache`
+- **QR Code Login**: Auto-saves cookies to avoid repeated logins
+- **Auto Video Watching**: Simulates human viewing behavior (random pauses, random delays, progress bar display)
+- **Popup Quiz Answering**: Automatically selects correct answers for popup questions during video playback
+- **Auto Homework**: Zhidao homework + AI course homework, supports LLM answering and answer caching
+- **AI Exams**: Auto-answer AI course exams, batch save answers, heartbeat keep-alive
+- **AI Analysis**: Calls Zhihuishu AI analysis API to get question explanations (SSE streaming)
+- **Multiple LLM Backends**: Default uses Zhihuishu built-in AI, also supports OpenAI-compatible interfaces (DeepSeek, MoonShot, etc.). **Custom AI is recommended as the default AI has low performance**
+- **PPT to Text**: Uses python-pptx to extract PPT text locally as answer reference
+- **Proxy Support**: HTTP / HTTPS / SOCKS5
 
-| 类别 | 选型                         |
-|------|----------------------------|
-| 语言 | Python 3.13+               |
-| HTTP 客户端 | httpx（同步）（api限制）           |
-| 数据模型 | pydantic v2                |
-| CLI 框架 | typer                      |
-| 日志 | loguru                     |
-| 加密 | pycryptodome（AES-128-CBC）  |
-| 配置 | TOML（tomllib + tomli-w）    |
-| LLM | openai（兼容接口）               |
-| Token 计数 | tiktoken                   |
-| 二维码 | qrcode + Pillow            |
-| PPT 解析 | python-pptx                |
-| HTML 文本提取 | beautifulsoup4             |
-| 测试 | pytest + respx + freezegun |
-| Lint / Format | ruff                       |
-| 类型检查 | mypy strict                |
+## Tech Stack
 
-## 安装
+| Category | Technology |
+|----------|------------|
+| Language | Python 3.13+ |
+| HTTP Client | httpx (synchronous) (API limitation) |
+| Data Models | pydantic v2 |
+| CLI Framework | typer |
+| Logging | loguru |
+| Encryption | pycryptodome (AES-128-CBC) |
+| Configuration | TOML (tomllib + tomli-w) |
+| LLM | openai (compatible interface) |
+| Token Counting | tiktoken |
+| QR Code | qrcode + Pillow |
+| PPT Parsing | python-pptx |
+| HTML Text Extraction | beautifulsoup4 |
+| Testing | pytest + respx + freezegun |
+| Lint / Format | ruff |
+| Type Checking | mypy strict |
 
-### 前置要求
+## Installation
+
+### Prerequisites
 
 - Python 3.13+
-- [uv](https://docs.astral.sh/uv/) 包管理器（推荐）
-  - 注意使用`uv`要使用`uv run zhs`command 或者直接进入环境使用
-- 或者直接使用打包好的.whl 直接使用 `pip install [version].whl` [**Release**](https://github.com/pjm314159/zhs/releases)
-- 或者直接使用`pip install zhs`
+- [uv](https://docs.astral.sh/uv/) package manager (recommended)
+  - Note: When using `uv`, run with `uv run zhs` command or enter the environment directly
+- Or use the pre-built .whl file: `pip install [version].whl` [**Release**](https://github.com/pjm314159/zhs/releases)
+- Or install directly with `pip install zhs`
 
-### 步骤
+### Steps
 
 ```bash
-# 克隆仓库
+# Clone the repository
 git clone <repo-url>
 cd ZHS
 
-# 安装依赖（含开发依赖）
+# Install dependencies (including dev dependencies)
 uv sync --dev
 
-# 或使用 pip
+# Or use pip
 # pip install -e ".[dev]"
 ```
 
-安装后 `zhs` 命令即可使用：
+After installation, the `zhs` command is ready to use:
 
 ```bash
 zhs --help
 ```
 
-## 快速开始
+## Quick Start
 
-### 1. 初始化配置
+### 1. Initialize Configuration
 
 ```bash
 zhs init
 ```
 
-在 `~/.zhs/` 下创建目录结构与默认 `config.toml` 配置文件。
+Creates directory structure and default `config.toml` configuration file under `~/.zhs/`.
 
-### 2. 扫码登录
+### 2. QR Code Login
 
 ```bash
 zhs login
 ```
 
-程序会生成二维码图片并保存到 `~/.zhs/qrcode.png`，使用智慧树 APP 扫码即可登录。Cookie 会自动保存，下次运行无需重复登录。
+The program generates a QR code image and saves it to `~/.zhs/qrcode.png`. Scan with the Zhihuishu app to login. Cookies are automatically saved for subsequent runs.
 
-如需在终端直接显示二维码：
+To display the QR code directly in terminal:
 
 ```bash
 zhs login --show-in-terminal
 ```
 
-### 3. 获取课程列表
+### 3. Fetch Course List
 
 ```bash
 zhs fetch
 ```
 
-打印所有课程列表并保存到 `~/.zhs/execution.json`（输出 `courseId`，可用作 `-c` 参数）。
+Prints all courses and saves to `~/.zhs/execution.json` (outputs `courseId` which can be used as the `-c` parameter).
 
-### 4. 刷视频
+### 4. Watch Videos
 
 ```bash
-# 刷单个知到课程（courseId）
+# Watch a single Zhidao course (courseId)
 zhs play -c 1000008156 --type zhidao
 
-# 刷单个 Hike 课程
+# Watch a single Hike course
 zhs play -c 12345
 
-# 刷 AI 课程（courseId:classId 格式）
+# Watch an AI course (courseId:classId format)
 zhs play -c 1001:2001 --type ai
 
-# 或使用 --ai-course / --ai-class 显式指定
+# Or specify explicitly with --ai-course / --ai-class
 zhs play --ai-course 1001 --ai-class 2001
 
-# 通过 URL 自动解析（知到视频页 / AI 学习页 / AI 课程页）
+# Auto-parse from URL (Zhidao video page / AI learning page / AI course page)
 zhs play --url "https://studyvideoh5.zhihuishu.com/stuStudy?recruitAndCourseId=xxx"
-zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/ courseId/nodeUid/classId"
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/courseId/nodeUid/classId"
 zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/courseId/classId"
 
-# 全刷所有课程
+# Watch all courses
 zhs play
 
-# 指定速度与时间限制
+# Specify speed and time limit
 zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 ```
 
-> **--url 与 -c 互斥**。`--url` 自动从浏览器复制的 URL 中解析课程参数：
-> - 知到视频页（`recruitAndCourseId=`）→ 扫描模式全刷
-> - AI 学习页（`learnPage/{courseId}/{nodeUid}/{classId}`）→ 直接模式，只刷该知识点
-> - AI 课程页（`knowledgeStudy/{courseId}/{classId}`）→ 扫描模式全刷
+> **`--url` and `-c` are mutually exclusive**. `--url` automatically parses course parameters from browser URLs:
+> - Zhidao video page (`recruitAndCourseId=`) → Scan mode, watch all
+> - AI learning page (`learnPage/{courseId}/{nodeUid}/{classId}`) → Direct mode, watch only that knowledge point
+> - AI course page (`knowledgeStudy/{courseId}/{classId}`) → Scan mode, watch all
 
-### 5. 写章节测试
+### 5. Complete Chapter Tests
 
 ```bash
-# 知到课程作业（按 courseId）
+# Zhidao course homework (by courseId)
 zhs homework -c 1000008156 --type zhidao
 
-# AI 课程作业
+# AI course homework
 zhs homework --ai-course 1001 --ai-class 2001
 
-# 通过浏览器复制的 URL 直接做题（知到作业 / AI 学习页 / AI 课程页）
+# Directly answer from browser URL (Zhidao homework / AI learning page / AI course page)
 zhs homework --url "https://onlineexamh5new.zhihuishu.com/stuExamWeb.html#/webExamList/dohomework/..."
 zhs homework --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/courseId/nodeUid/classId"
 zhs homework --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/courseId/classId"
 
-# 全刷作业
+# Complete all homework
 zhs homework
 ```
 
-> AI 课程 `learnPage` URL 含 `nodeUid`（知识点 ID）时走**直接模式**，只做该知识点作业；`knowledgeStudy` URL 走**扫描模式**全刷。
+> AI course `learnPage` URLs containing `nodeUid` (knowledge point ID) use **direct mode** (only that knowledge point); `knowledgeStudy` URLs use **scan mode** (all).
 
-### 6. AI 课程考试
+### 6. AI Course Exams
 
 ```bash
-# 答题但不提交（默认）
+# Answer but don't submit (default)
 zhs exam --ai-course 1001 --ai-class 2001
 
-# 答题并提交
+# Answer and submit
 zhs exam --ai-course 1001 --ai-class 2001 --submit
 
-# 通过 testDetail URL 直接做某个特定考试
+# Directly take a specific exam via testDetail URL
 zhs exam --url "https://ai-smart-course-student-pro.zhihuishu.com/testDetail/courseId/classId/examTestId/examPaperId/..."
 
-# 自动遍历所有 AI 课程的未完成考试
+# Auto-traverse all unfinished exams in AI courses
 zhs exam --type ai
 ```
 
-## CLI 命令一览
+## CLI Commands Overview
 
-| 命令 | 说明 |
-|------|------|
-| `zhs init` | 初始化 `~/.zhs/` 目录与默认配置 |
-| `zhs login` | 扫码登录并保存 Cookie |
-| `zhs play` | 刷视频（支持知到 / Hike / AI，支持 `--url`） |
-| `zhs homework` | 写作业（知到作业 + AI 课程作业，支持 `--url`） |
-| `zhs exam` | AI 课程考试（支持 `--url` 直接做某个考试） |
-| `zhs fetch` | 获取并保存课程列表（输出 `courseId`） |
-| `zhs cache` | 题库缓存管理（`export` 导出 / `import` 导入 JSON） |
+| Command | Description |
+|---------|-------------|
+| `zhs init` | Initialize `~/.zhs/` directory and default configuration |
+| `zhs login` | QR code login and save cookies |
+| `zhs play` | Watch videos (supports Zhidao / Hike / AI, supports `--url`) |
+| `zhs homework` | Complete homework (Zhidao + AI course homework, supports `--url`) |
+| `zhs exam` | AI course exams (supports `--url` for specific exams) |
+| `zhs fetch` | Fetch and save course list (outputs `courseId`) |
+| `zhs cache` | Question bank cache management (`export` to JSON / `import` from JSON) |
 
-每个命令均支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数。`play`/`homework`/`exam` 支持 `--url`（与 `-c` 互斥，自动从浏览器 URL 解析课程参数）。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
+All commands support global parameters `--proxy`, `-d/--debug`, `--console-log`. `play`/`homework`/`exam` support `--url` (mutually exclusive with `-c`, auto-parses course parameters from browser URLs). See [docs/tutorial.md](docs/tutorial.md) for detailed parameter descriptions.
 
-## 配置
+## Configuration
 
-配置文件位于 `~/.zhs/config.toml`，更多的配置可参考项目根目录的 [config.toml.example](config.toml.example)。
+Configuration file is located at `~/.zhs/config.toml`. For more configuration options, refer to [config.toml.example](config.toml.example) in the project root.
 
-### 主要配置项
+### Main Configuration Options
 
 ```toml
-# 基础设置
+# Basic Settings
 save_cookies = true
-limit = 0                # 刷课时间限制（分钟，0 = 不限制）
-threshold = 0.91         # 视频结束阈值（0.0-1.0）
+limit = 0                # Time limit in minutes (0 = no limit)
+threshold = 0.91         # Video end threshold (0.0-1.0)
 
 [video]
-zhidao_speed = 1.5       # 知到视频速度（最高 2.0）
-hike_speed = 1.25        # Hike 视频速度
-ai_speed = 1.5           # AI 课程视频速度
+zhidao_speed = 1.5       # Zhidao video speed (max 2.0)
+hike_speed = 1.25        # Hike video speed
+ai_speed = 1.5           # AI course video speed
 
 [homework]
-threshold = 100          # 作业达标阈值（0-100）
-max_submit = 0           # 最大重做次数（0 = 无限）
-delay_min = 1.0          # 每题保存后最小延迟（秒）
-delay_max = 2.0          # 每题保存后最大延迟（秒）
-ai_homework_threshold = 90  # AI 作业跳过阈值
+threshold = 100          # Homework pass threshold (0-100)
+max_submit = 0           # Maximum retry count (0 = unlimited)
+delay_min = 1.0          # Minimum delay after saving each question (seconds)
+delay_max = 2.0          # Maximum delay after saving each question (seconds)
+ai_homework_threshold = 90  # AI homework skip threshold
 
 [exam]
-save_nums = 5            # 每批保存答案的题目数
-delay_min = 3.0          # 每批保存后最小延迟（秒）
-delay_max = 5.0          # 每批保存后最大延迟（秒）
+save_nums = 5            # Number of questions saved per batch
+delay_min = 3.0          # Minimum delay after saving each batch (seconds)
+delay_max = 5.0          # Maximum delay after saving each batch (seconds)
 
 [display]
 log_level = "INFO"       # DEBUG / INFO / WARNING / ERROR
 
 [proxies]
-http = ""                # HTTP 代理
-https = ""               # HTTPS 代理
+http = ""                # HTTP proxy
+https = ""               # HTTPS proxy
 
 [qr]
-image_path = ""          # 二维码保存路径（留空使用默认目录）
+image_path = ""          # QR code save path (empty for default directory)
 
 [ai]
 enabled = true
-use_zhidao_ai = true     # 默认使用智慧树内置 AI
-api_key = ""             # OpenAI 兼容 API Key
+use_zhidao_ai = true     # Use Zhihuishu built-in AI by default
+api_key = ""             # OpenAI-compatible API Key
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
 
-[crypto]                 # 加密密钥（一般无需修改）
-[urls]                   # API URL（一般无需修改）
+[crypto]                 # Encryption keys (generally no modification needed)
+[urls]                   # API URLs (generally no modification needed)
 ```
 
-> **AI 答题**：默认使用智慧树内置 AI，无需任何 API Key。**前提是有ai智慧课程**，内置的AI性能低下，建议是使用自定义的。如需使用自定义 LLM，将 `use_zhidao_ai = false` 并填写 `api_key` 与 `base_url`。
+> **AI Answering**: Default uses Zhihuishu built-in AI, no API key required. **Prerequisite: AI smart course must exist**. The built-in AI has low performance; custom AI is recommended. To use custom LLM, set `use_zhidao_ai = false` and fill in `api_key` and `base_url`.
 
-## 数据目录
+## Data Directory
 
-程序数据默认保存在 `~/.zhs/`：
+Program data is saved under `~/.zhs/` by default:
 
-| 路径 | 说明 |
-|------|------|
-| `config.toml` | 配置文件 |
-| `cookies.json` | 登录 Cookie |
-| `execution.json` | `zhs fetch` 生成的课程列表 |
-| `qrcode.png` | 登录二维码图片 |
-| `logs/` | 日志目录（按天轮转，保留 30 天） |
-| `cache/` | 答案缓存目录（SQLite 数据库，见下） |
+| Path | Description |
+|------|-------------|
+| `config.toml` | Configuration file |
+| `cookies.json` | Login cookies |
+| `execution.json` | Course list generated by `zhs fetch` |
+| `qrcode.png` | Login QR code image |
+| `logs/` | Log directory (daily rotation, 30 days retention) |
+| `cache/` | Answer cache directory (SQLite database, see below) |
 
-### 缓存存储
+### Cache Storage
 
-答案缓存统一存储于 SQLite 数据库 `~/.zhs/cache/questions_bank.db`，包含两张表：
+Answer cache is stored in SQLite database `~/.zhs/cache/questions_bank.db`, containing two tables:
 
-| 表 | 说明 |
-|------|------|
-| `zhidao_questions` | 知到作业答案缓存（双键 eid + question_id，含对错标记、AI 解析） |
-| `ai_questions` | AI 作业/考试答案缓存（单键 question_id，HomeworkCtx 与 ExamCtx 共用） |
+| Table | Description |
+|-------|-------------|
+| `zhidao_questions` | Zhidao homework answer cache (dual key: eid + question_id, includes correct/incorrect flags, AI analysis) |
+| `ai_questions` | AI homework/exam answer cache (single key: question_id, shared by HomeworkCtx and ExamCtx) |
 
-可通过 `zhs cache export -c COURSE_ID` 导出为人类可读 JSON 分享，`zhs cache import PATH` 导入。
-旧版 JSON 缓存可通过 `.temp/migrate_cache_to_db.py` 迁移到 SQLite。
+Export to human-readable JSON for sharing with `zhs cache export -c COURSE_ID`, import with `zhs cache import PATH`.
+Legacy JSON cache can be migrated to SQLite using `.temp/migrate_cache_to_db.py`.
 
+## Development
 
-## 开发
+### Development Workflow
 
-### 开发流程
+This project follows TDD (Test-Driven Development) workflow, strictly adhering to the Red → Green → Refactor cycle for each module. See [docs/test.md](docs/test.md) for details.
 
-本项目采用 TDD（测试驱动开发）流程，每个模块严格遵循 Red → Green → Refactor 循环。详见 [docs/test.md](docs/test.md) 。
-
-### 质量检查
+### Quality Checks
 
 ```bash
-# 运行全部测试
+# Run all tests
 uv run pytest
 
-# Lint 检查
+# Lint check
 uv run ruff check src/ tests/
 
-# 格式化检查
+# Format check
 uv run ruff format --check src/ tests/
 
-# 类型检查
+# Type check
 uv run mypy src/ tests/
 ```
 
-### 文档
+### Documentation
 
-| 文档 | 用途 |
-|------|------|
-| [docs/spec.md](docs/spec.md) | 功能规格、API 端点、数据结构 |
-| [docs/design.md](docs/design.md) | 模块级设计、类签名、流程图 |
-| [docs/tutorial.md](docs/tutorial.md) | 使用教程 |
-| [docs/test.md](docs/test.md) | 测试策略与用例 |
-| [docs/linter.md](docs/linter.md) | 代码规范 |
+| Document | Purpose |
+|----------|---------|
+| [docs/spec.md](docs/spec.md) | Feature specifications, API endpoints, data structures |
+| [docs/design.md](docs/design.md) | Module-level design, class signatures, flowcharts |
+| [docs/tutorial.md](docs/tutorial.md) | User tutorial |
+| [docs/test.md](docs/test.md) | Testing strategy and cases |
+| [docs/linter.md](docs/linter.md) | Code standards |
 
 ## About
-本项目是使用python开发，我尽量完善代码的注释和写好文档，
-便于社区的开发。
+This project is developed using Python. I strive to improve code comments and documentation to facilitate community development.
 
-## 许可证
+## License
 
 GPL-3.0-only

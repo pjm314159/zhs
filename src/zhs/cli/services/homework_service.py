@@ -91,7 +91,7 @@ def run_homework_from_url(session: ZhsSession, config: AppConfig, url: str) -> N
     from zhs.cli.bootstrap import init_llm, init_question_bank
 
     llm = init_llm(config)
-    bank = init_question_bank(config, scope="zhidao_homework")
+    bank = init_question_bank(config, scope="zhidao_homework", llm=llm)
     cache = ZhidaoHomeworkCache()
     worker = HomeworkWorker(session, config, cache, llm=llm, question_bank=bank)
     score_rate = worker.run_homework(target, params["recruit_id"], params["school_id"])
@@ -171,7 +171,7 @@ def run_zhidao_homework(
     from zhs.cli.bootstrap import init_llm, init_question_bank
 
     llm = init_llm(config)
-    bank = init_question_bank(config, scope="zhidao_homework")
+    bank = init_question_bank(config, scope="zhidao_homework", llm=llm)
     cache = ZhidaoHomeworkCache()
     worker = HomeworkWorker(session, config, cache, llm=llm, question_bank=bank)
 
@@ -246,7 +246,7 @@ def run_ai_homework(
     from zhs.cli.bootstrap import init_question_bank
 
     mgr = AiCourseManager(session)
-    bank = init_question_bank(config, scope="ai_homework")
+    bank = init_question_bank(config, scope="ai_homework", llm=True)  # AI 课程 LLM 由 LLMProviderFactory 内部初始化
     mgr.run_course(
         course_id,
         class_id,
@@ -288,7 +288,8 @@ def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | 
     if course_type in (None, "auto", "ai"):
         try:
             ai_mgr = AiCourseManager(session)
-            bank = init_question_bank(config, scope="ai_homework")
+            # AI 课程 LLM 由 LLMProviderFactory 内部初始化
+            bank = init_question_bank(config, scope="ai_homework", llm=True)
             ai_courses = ai_mgr.get_ai_course_list()
             print(f"\n{course_tag('ai')} 发现 {len(ai_courses)} 门课程")
             for ac in ai_courses:

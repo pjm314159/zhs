@@ -376,24 +376,23 @@ class TestInitQuestionBank:
         """question_bank.enabled=False 返回 None"""
         config = _make_config()
         config.question_bank.enabled = False
-        assert init_question_bank(config, scope="ai_exam") is None
+        assert init_question_bank(config, scope="ai_exam", llm=True) is None
 
     def test_no_token_returns_none(self, capsys: pytest.CaptureFixture[str]) -> None:
         """token 为空返回 None 并 print 告警（终端可见）"""
         config = _make_config()
         config.question_bank.enabled = True
         config.question_bank.token = ""
-        assert init_question_bank(config, scope="ai_exam") is None
+        assert init_question_bank(config, scope="ai_exam", llm=True) is None
         captured = capsys.readouterr()
         assert "题库" in captured.out
 
-    def test_ai_disabled_returns_none(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """ai.enabled=False 时题库依赖 AI 不可用，返回 None 并 print 告警（终端可见）"""
+    def test_llm_none_returns_none(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """llm=None 时题库依赖 LLM 不可用，返回 None 并 print 告警（终端可见）"""
         config = _make_config()
         config.question_bank.enabled = True
         config.question_bank.token = "tok-abc"
-        config.ai.enabled = False
-        assert init_question_bank(config, scope="ai_exam") is None
+        assert init_question_bank(config, scope="ai_exam", llm=None) is None
         captured = capsys.readouterr()
         assert "题库" in captured.out
 
@@ -402,22 +401,17 @@ class TestInitQuestionBank:
         config = _make_config()
         config.question_bank.enabled = True
         config.question_bank.token = "tok-abc"
-        config.ai.enabled = True
-        config.ai.api_key = "sk-test"
         config.question_bank.scopes = ["ai_exam"]
-        assert init_question_bank(config, scope="zhidao_homework") is None
+        assert init_question_bank(config, scope="zhidao_homework", llm=True) is None
 
     def test_valid_config_returns_client(self) -> None:
-        """全部启用 + scope 命中返回 QuestionBankClient"""
+        """全部启用 + scope 命中 + llm 可用 返回 QuestionBankClient"""
         config = _make_config()
         config.question_bank.enabled = True
         config.question_bank.token = "tok-abc"
-        config.ai.enabled = True
-        config.ai.use_zhidao_ai = False
-        config.ai.api_key = "sk-test"
         config.question_bank.scopes = ["ai_exam", "ai_homework"]
 
-        client = init_question_bank(config, scope="ai_exam")
+        client = init_question_bank(config, scope="ai_exam", llm=True)
         try:
             assert client is not None
             from zhs.question_bank.client import QuestionBankClient

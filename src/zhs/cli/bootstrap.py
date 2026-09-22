@@ -101,12 +101,14 @@ def try_restore_cookies(session: ZhsSession, config: AppConfig) -> bool:
 
         mgr = ZhidaoCourseManager(session)
         courses = mgr.get_course_list()
-        if courses:
-            logger.info("Cookie 恢复成功")
-            from zhs.utils.display import msg_done
+        if not courses:
+            logger.info("Cookie 恢复成功但课程列表为空")
+            return False
+        logger.info("Cookie 恢复成功")
+        from zhs.utils.display import msg_done
 
-            print(msg_done("登录状态有效"))
-            return True
+        print(msg_done("登录状态有效"))
+        return True
     except Exception as e:
         logger.debug(f"Cookie 恢复失败: {e}")
 
@@ -174,11 +176,17 @@ def init_llm(config: AppConfig) -> Any:
     )
 
 
-def init_question_bank(config: AppConfig, scope: str) -> Any:
+def init_question_bank(config: AppConfig, scope: str, llm: Any = None) -> Any:
     """初始化题库查询客户端
 
-    题库依赖 AI：若 AI 未启用则禁用题库并告警。
+    题库依赖 LLM：题库答案仅作为 LLM 答题的提示源，无 LLM 时题库无用。
+    若 LLM 未初始化（llm is None）则禁用题库并告警。
     scope 决定当前场景是否在启用范围内（zhidao_homework/zhidao_exam/ai_homework/ai_exam）。
+
+    Args:
+        config: 应用配置
+        scope: 题库启用范围
+        llm: 已初始化的 LLM 实例（None=未初始化）
 
     Returns:
         QuestionBankClient | None
@@ -193,9 +201,9 @@ def init_question_bank(config: AppConfig, scope: str) -> Any:
         logger.warning("题库 token 为空，题库不可用")
         print(msg_warn("题库已启用但 token 为空，题库不可用（请在配置中设置 token 或关闭题库功能）"))
         return None
-    if not config.ai.enabled:
-        logger.warning("题库功能依赖 AI，但 AI 未启用，已禁用题库查询")
-        print(msg_warn("题库功能依赖 AI，但 AI 未启用，已禁用题库查询"))
+    if llm is None:
+        logger.warning("题库功能依赖 LLM，但 LLM 未初始化（检查 api_key 或 use_zhidao_ai 配置），已禁用题库查询")
+        print(msg_warn("题库功能依赖 LLM，但 LLM 未初始化，已禁用题库查询"))
         return None
     if scope not in qb.scopes:
         return None

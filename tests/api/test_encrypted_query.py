@@ -346,3 +346,73 @@ class TestUnknownStrategy:
         """未知策略名抛 KeyError"""
         with pytest.raises(KeyError):
             query.query("unknown", "https://example.com/api", data={})
+
+
+# ---------------------------------------------------------------------------
+# extra_fields（附加明文表单字段，如 saveStudentAnswer 的 source=1）
+# ---------------------------------------------------------------------------
+
+
+class TestExtraFields:
+    """extra_fields 参数：在加密 secretStr 之外附加明文字段"""
+
+    def test_extra_fields_included_in_form_data(self, query: EncryptedQuery) -> None:
+        """extra_fields 作为明文字段与 secretStr 一起发送"""
+        with respx.mock:
+            route = respx.post("https://homework.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "data": {}})
+            )
+            query.query(
+                "homework",
+                "https://homework.example.com/api",
+                data={"key": "value"},
+                extra_fields={"source": "1"},
+            )
+            assert route.called
+            body = route.calls[0].request.content.decode()
+            assert "secretStr" in body
+            assert "source=1" in body
+
+    def test_no_extra_fields_by_default(self, query: EncryptedQuery) -> None:
+        """不传 extra_fields 时行为不变（仅 secretStr）"""
+        with respx.mock:
+            route = respx.post("https://homework.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "data": {}})
+            )
+            query.query("homework", "https://homework.example.com/api", data={"key": "value"})
+            assert route.called
+            body = route.calls[0].request.content.decode()
+            assert "secretStr" in body
+            assert "source" not in body
+
+    def test_extra_fields_not_encrypted(self, query: EncryptedQuery) -> None:
+        """extra_fields 以明文发送，不进入 secretStr 加密"""
+        import json as _json
+        from urllib.parse import parse_qs
+
+        from zhs.crypto import Cipher
+
+        with respx.mock:
+            route = respx.post("https://homework.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "data": {}})
+            )
+            query.query(
+                "homework",
+                "https://homework.example.com/api",
+                data={"recruitId": "394787"},
+                extra_fields={"source": "1"},
+            )
+            assert route.called
+            body = route.calls[0].request.content
+            parsed = parse_qs(body.decode())
+            assert "secretStr" in parsed
+            assert "source" in parsed
+            assert parsed["source"] == ["1"]
+
+            # 解密 secretStr，确认 source 不在加密内容里
+            key = query._http.crypto.key_bytes("exam_key")
+            iv = query._http.crypto.key_bytes("iv")
+            cipher = Cipher(key, iv)
+            decrypted = _json.loads(cipher.decrypt(parsed["secretStr"][0]))
+            assert decrypted == {"recruitId": "394787"}
+            assert "source" not in decrypted

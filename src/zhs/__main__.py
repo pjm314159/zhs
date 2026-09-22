@@ -29,6 +29,7 @@ from zhs.cli.services.cache_service import export_course as _export_course
 from zhs.cli.services.cache_service import import_files as _import_files
 from zhs.cli.services.exam_service import dispatch_exam_url as _dispatch_exam_url
 from zhs.cli.services.exam_service import run_ai_exam as _run_ai_exam
+from zhs.cli.services.exam_service import run_zhidao_exam_by_course as _run_zhidao_exam_by_course
 from zhs.cli.services.fetch_service import fetch_course_list as _fetch_course_list
 from zhs.cli.services.homework_service import dispatch_homework_url as _dispatch_homework_url
 from zhs.cli.services.homework_service import run_ai_homework as _run_ai_homework
@@ -296,7 +297,7 @@ def exam(
     debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),  # noqa: B008
     console_log: bool = typer.Option(False, "--console-log", help="日志输出到控制台"),  # noqa: B008
 ) -> None:
-    """AI 课程考试"""
+    """课程考试（支持 AI 课程考试和知到考试扫描）"""
     result = _load_config_and_session(debug, console_log, proxy)
     if result is None:
         raise typer.Exit(1)
@@ -323,8 +324,22 @@ def exam(
             raise typer.Exit(1) from e
         return
 
+    # 知到考试模式：--type zhidao + -c <courseId>
+    if course_type == "zhidao":
+        if not course:
+            print(msg_warn("知到考试需要 -c <courseId> 指定课程，可以通过fetch获取"))
+            raise typer.Exit(1)
+        for c in course:
+            try:
+                _run_zhidao_exam_by_course(session, config, c, submit=submit)
+            except Exception as e:
+                logger.error(f"课程 {c} 考试处理失败: {e}")
+                print(f"课程 {c} 考试处理失败: {e}")
+        return
+
+    # AI 考试模式（默认）
     if course_type != "ai" and not ai_course:
-        print(msg_warn("目前仅支持 AI 课程考试，请使用 --type ai 或 --ai-course 指定"))
+        print(msg_warn("目前仅支持 AI 课程考试 (--type ai) 和知到考试扫描 (--type zhidao)"))
         raise typer.Exit(1)
 
     _run_ai_exam(session, config, ai_course, ai_class, submit)

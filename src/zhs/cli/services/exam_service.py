@@ -59,7 +59,7 @@ def run_ai_exam_direct(
     print(f"\n{course_tag('ai')} 直接模式: courseId={course_id}, classId={class_id}")
     print(f"  examTestId={exam_test_id}, examPaperId={exam_paper_id}")
 
-    bank = init_question_bank(config, scope="ai_exam")
+    bank = init_question_bank(config, scope="ai_exam", llm=True)  # AI 考试 LLM 由 ExamCtx 内部初始化
     try:
         ctx = ExamCtx(
             session=session,
@@ -110,7 +110,7 @@ def run_ai_exam(
     from zhs.utils.display import course_tag, msg_done, msg_info, msg_warn
 
     mgr = AiCourseManager(session)
-    bank = init_question_bank(config, scope="ai_exam")
+    bank = init_question_bank(config, scope="ai_exam", llm=True)  # AI 考试 LLM 由 ExamCtx 内部初始化
 
     # 获取课程列表
     if ai_course and ai_class:
@@ -184,4 +184,130 @@ def run_ai_exam(
     print(f"\n共完成 {total_exams} 个考试")
 
 
-__all__ = ["dispatch_exam_url", "run_ai_exam", "run_ai_exam_direct"]
+def run_zhidao_exam_by_course(
+    session: ZhsSession,
+    config: AppConfig,
+    course_id_str: str,
+    submit: bool = False,
+) -> None:
+    """按 courseId 运行知到考试（扫描 + 锁检查，能答题则开始）
+
+    通过课程列表反查 recruitId（getStudentFinalExam API 需要 recruitId + courseId）。
+
+    Args:
+        course_id_str: 课程 ID（数字型字符串，如 "1000083416"）
+        submit: 是否自动提交考试（默认 False，仅保存答案）
+    """
+    from zhs.utils.display import msg_error
+    from zhs.zhidao.course import ZhidaoCourseManager
+
+    # 解析 courseId
+    try:
+        target_course_id = int(course_id_str)
+    except ValueError:
+        print(msg_error(f"课程 ID 必须为数字: {course_id_str}"))
+        return
+
+    # CAS SSO
+    session.exam_sso_login()
+
+    # 通过 courseId 匹配课程，获取 recruit_id
+    mgr = ZhidaoCourseManager(session)
+    courses = mgr.get_course_list()
+    matched = None
+    for c in courses:
+        if not c.recruit_id:
+            continue
+        c_id = c.course_id if c.course_id > 0 else (c.course_info.course_id if c.course_info else 0)
+        if c_id == target_course_id:
+            matched = c
+            break
+
+    if matched is None:
+        logger.error(f"未找到课程 courseId={target_course_id}（课程列表中无匹配项）")
+        print(msg_error(f"未找到课程 courseId={target_course_id}"))
+        return
+
+    logger.info(f"匹配到课程: {matched.course_name} (courseId={target_course_id}, recruitId={matched.recruit_id})")
+    run_zhidao_exam(session, config, str(matched.recruit_id), target_course_id, submit=submit)
+
+
+def run_zhidao_exam(
+    session: ZhsSession,
+    config: AppConfig,
+    recruit_id: str,
+    course_id: int,
+    submit: bool = False,
+) -> None:
+    """运行知到课程考试（扫描 + 锁检查，能答题则开始）
+
+    流程：
+    1. 扫描未完成考试（getStudentFinalExam flag=1）
+    2. 逐个查询锁状态（getSaveAnswerLockResult）
+       - state=0 未锁死 → 获取 schoolId → doExam → 生成答案 → saveStudentAnswer
+       - state=1 锁死 → 提示用户手动开启考试后重试
+    3. 无心跳。submit=True 时自动提交，否则提示用户手动提交。
+
+    Args:
+        recruit_id: 招募 ID
+        course_id: 课程 ID
+        submit: 是否自动提交考试（默认 False，仅保存答案）
+    """
+    from zhs.utils.display import course_tag, msg_error, msg_info, msg_warn
+    from zhs.zhidao.exam.scanner import ExamScanner
+
+    scanner = ExamScanner(session, config)
+    result = scanner.scan_exams(recruit_id, course_id)
+    print(f"\n{msg_info('需要手动开启考试')}")
+    print(f"{course_tag('zhidao')} 课程考试: 发现 {len(result.uncompleted)} 个")
+    if result.pending:
+        print(f"  {msg_warn('待处理考试')}:")
+        for exam in result.pending:
+            status_tag = "进行中" if exam.is_in_progress else "未开考"
+            print(
+                f"    - {exam.exam_name} [{status_tag}] (examId={exam.exam_id}, "
+                f"时限={exam.limit_time}分钟, 剩余次数={exam.fa_student_exam_remain_count}, "
+                f"题目数={exam.problem_num})"
+            )
+
+        # 获取 schoolId（doExam / saveStudentAnswer 必需，未绑定学校时为空字符串）
+        school_id = session.exam_get_login_school_info()
+        if school_id:
+            logger.info(f"学校 ID: {school_id}")
+        else:
+            logger.info("未绑定学校，schoolId 留空")
+
+        # 初始化做题器（复用作业的 LLM/缓存/题库）
+        from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+        from zhs.cli.bootstrap import init_llm, init_question_bank
+        from zhs.zhidao.exam.worker import ExamWorker
+
+        llm = init_llm(config)
+        bank = init_question_bank(config, scope="zhidao_exam", llm=llm)
+        cache = ZhidaoHomeworkCache()
+        worker = ExamWorker(session, config, cache, llm=llm, question_bank=bank)
+
+        # 逐题做题
+        for exam in result.pending:
+            # 检查考试是否已开启（studentStartTime 或 progressType=2 或 state=2）
+            if not exam.is_started:
+                logger.warning(f"{exam.exam_name}: 考试未开启，请手动开启后重试")
+                print(f"    {msg_warn(f'{exam.exam_name}: 考试未开启，请手动开启后重试')}")
+                continue
+
+            try:
+                worker.run_exam(exam, recruit_id, school_id, submit=submit)
+            except Exception as e:
+                logger.error(f"{exam.exam_name}: 做题失败: {e}")
+                print(f"    {msg_error(f'{exam.exam_name}: 做题失败: {e}')}")
+    else:
+        print(f"  {msg_info('无待处理考试')}")
+
+
+__all__ = [
+    "dispatch_exam_url",
+    "run_ai_exam",
+    "run_ai_exam_direct",
+    "run_zhidao_exam",
+    "run_zhidao_exam_by_course",
+]
