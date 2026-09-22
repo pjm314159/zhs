@@ -50,7 +50,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
-      - name: Generate changelog
+      - name: Generate changelog (full, for CHANGELOG.md)
         uses: orhun/git-cliff-action@v4
         id: git-cliff
         with:
@@ -58,6 +58,14 @@ jobs:
           args: --tag ${{ github.ref_name }}
         env:
           OUTPUT: CHANGELOG.md
+
+      - name: Generate release notes (latest tag only)
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --tag ${{ github.ref_name }} --strip header
+        env:
+          OUTPUT: release-notes.md
 
       - name: Build package
         run: uv build
@@ -72,7 +80,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          body: ${{ steps.git-cliff.outputs.content }}
+          body_path: release-notes.md
 
       - name: Commit changelog and push
         run: |
