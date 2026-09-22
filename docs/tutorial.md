@@ -202,8 +202,8 @@ ZHS 使用命令式 CLI 接口，所有命令通过 `zhs <command>` 调用：
 |------|------|------|
 | `zhs init` | 初始化数据目录与配置 | `zhs init` |
 | `zhs login` | 扫码登录 | `zhs login` |
-| `zhs play` | 刷视频（知到/Hike/AI） | `zhs play -c ABC123` |
-| `zhs homework` | 写作业（知到/AI） | `zhs homework -c ABC123` |
+| `zhs play` | 刷视频（知到/Hike/AI） | `zhs play -c 1000008156` |
+| `zhs homework` | 写作业（知到/AI） | `zhs homework -c 1000008156` |
 | `zhs exam` | AI 课程考试 | `zhs exam --ai-course 1001 --ai-class 2001` |
 | `zhs fetch` | 获取课程列表 | `zhs fetch` |
 
@@ -228,11 +228,13 @@ zhs play
 
 ### 5.2 刷指定知到课程
 
-知到课程 ID 通常包含字母（如 `ABC123`）：
+`-c` 传知到课程的**数字 courseId**（如 `1000008156`），程序会反查课程所需的 `recruitAndCourseId`：
 
 ```bash
-zhs play -c ABC123
+zhs play -c 1000008156 --type zhidao
 ```
+
+> `recruitAndCourseId`（形如 `ABC123` 的字符串）只能通过 `--url` 传入，不能用于 `-c`。
 
 ### 5.3 刷指定 Hike 课程
 
@@ -262,10 +264,10 @@ zhs play -c 1001:2001 --type ai
 
 ```bash
 # 强制按知到课程处理
-zhs play -c 12345 --type zhidao
+zhs play -c 1000008156 --type zhidao
 
 # 强制按 Hike 课程处理
-zhs play -c ABC123 --type hike
+zhs play -c 12345 --type hike
 
 # 强制按 AI 课程处理
 zhs play -c 1001:2001 --type ai
@@ -303,10 +305,10 @@ zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/k
 
 ```bash
 # 指定播放速度（覆盖 config.toml 中的 video.*_speed）
-zhs play -c ABC123 -s 1.5
+zhs play -c 1000008156 -s 1.5
 
 # 限制每门课程刷课时间（分钟）
-zhs play -c ABC123 -l 30
+zhs play -c 1000008156 -l 30
 ```
 
 ---
@@ -325,7 +327,7 @@ zhs homework
 
 ```bash
 # 知到课程作业
-zhs homework -c ABC123
+zhs homework -c 1000008156
 
 # AI 课程作业
 zhs homework --ai-course 1001 --ai-class 2001
@@ -353,13 +355,13 @@ AI 学习页 URL 含 `nodeUid` 时走**直接模式**（只做该知识点作业
 
 ```bash
 # 不使用 AI 模型（随机生成答案）
-zhs homework -c ABC123 --no-ai
+zhs homework -c 1000008156 --no-ai
 
 # 指定达标阈值百分比（0-100，默认 100）
-zhs homework -c ABC123 --homework-threshold 80
+zhs homework -c 1000008156 --homework-threshold 80
 
 # 指定最大重做次数（0 = 无限次）
-zhs homework -c ABC123 --max-submit 3
+zhs homework -c 1000008156 --max-submit 3
 ```
 
 ---
@@ -415,7 +417,7 @@ zhs fetch --type course
 
 ```json
 {
-  "zhidao": [{"name": "课程名", "id": "ABC123"}],
+  "zhidao": [{"name": "课程名", "id": "1000008156"}],
   "hike": [{"name": "课程名", "id": "12345"}],
   "ai": [{"name": "课程名", "courseId": "1001", "classId": "2001"}]
 }
@@ -455,7 +457,7 @@ zhs login
 zhs fetch
 
 # 刷单个知到课程，1.5 倍速
-zhs play -c ABC123 -s 1.5
+zhs play -c 1000008156 -s 1.5
 
 # 刷单个 Hike 课程，限制 30 分钟
 zhs play -c 12345 -l 30
@@ -470,7 +472,7 @@ zhs play
 zhs play --type zhidao
 
 # 写知到课程作业
-zhs homework -c ABC123
+zhs homework -c 1000008156
 
 # 通过 URL 写指定作业
 zhs homework --url "https://onlineexamh5new.zhihuishu.com/..."
@@ -479,7 +481,7 @@ zhs homework --url "https://onlineexamh5new.zhihuishu.com/..."
 zhs exam --ai-course 1001 --ai-class 2001 --submit
 
 # 使用代理 + 调试模式
-zhs play -c ABC123 --proxy http://127.0.0.1:7890 -d --console-log
+zhs play -c 1000008156 --proxy http://127.0.0.1:7890 -d --console-log
 ```
 
 ---
@@ -541,22 +543,22 @@ https = "http://127.0.0.1:7890"
 使用 `--type` 参数手动指定：
 
 ```bash
-zhs play -c 12345 --type zhidao    # 强制按知到处理
-zhs play -c ABC123 --type hike     # 强制按 Hike 处理
-zhs play -c 1001:2001 --type ai    # 强制按 AI 处理
+zhs play -c 1000008156 --type zhidao    # 强制按知到处理
+zhs play -c 12345 --type hike           # 强制按 Hike 处理
+zhs play -c 1001:2001 --type ai         # 强制按 AI 处理
 ```
 
 ### Q3: AI 答题报错？
 
 - 默认使用智慧树内置 AI，无需额外配置
 - 如需自定义 LLM，在 `config.toml` 中设置 `ai.use_zhidao_ai = false` 并填写 `api_key` 和 `base_url`
-- 完全禁用 AI（随机答题）：`zhs homework -c ABC123 --no-ai`
+- 完全禁用 AI（随机答题）：`zhs homework -c 1000008156 --no-ai`
 
 ### Q4: 视频播放卡住？
 
 - 检查网络连接
 - 尝试使用代理：`zhs play --proxy ...`
-- 开启调试模式查看详细日志：`zhs play -c ABC123 -d --console-log`
+- 开启调试模式查看详细日志：`zhs play -c 1000008156 -d --console-log`
 - 查看日志文件：`~/.zhs/logs/zhs_YYYY-MM-DD.log`
 
 ### Q5: Cookie 过期？
@@ -599,4 +601,4 @@ zhs fetch
 cat ~/.zhs/execution.json
 ```
 
-知到课程 ID 含字母（如 `ABC123`），Hike 课程 ID 为纯数字（如 `12345`），AI 课程需要 `courseId` 和 `classId` 两个参数。
+知到 / Hike 课程 ID 均为纯数字（如 `1000008156` / `12345`），AI 课程需要 `courseId` 和 `classId` 两个参数（`-c courseId:classId`）。知到视频页 URL 中的 `recruitAndCourseId`（形如 `ABC123`）只能通过 `--url` 传入。

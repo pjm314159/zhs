@@ -1474,7 +1474,10 @@ class TestCLI:
         """zhs init 不报错"""
 
     def test_play_command_routes_zhidao(self) -> None:
-        """zhs play -c ABC123 → 路由到知到"""
+        """zhs play -c 1000008156 → 反查 rac_id 后路由到知到"""
+
+    def test_play_command_rejects_rac_id(self) -> None:
+        """zhs play -c ABC123（recruitAndCourseId）→ 报错提示改用 --url"""
 
     def test_play_command_routes_hike(self) -> None:
         """zhs play -c 12345 → 路由到 Hike"""
@@ -1483,7 +1486,7 @@ class TestCLI:
         """zhs play -c 12345 --type zhidao 显式指定"""
 
     def test_homework_command(self) -> None:
-        """zhs homework -c ABC123"""
+        """zhs homework -c 1000008156 → 按 courseId 匹配知到课程"""
 
     def test_exam_command_requires_ai(self) -> None:
         """zhs exam 无 --type ai 或 --ai-course → 报错"""

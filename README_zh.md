@@ -130,7 +130,7 @@ zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 ```
 
 > **--url 与 -c 互斥**。`--url` 自动从浏览器复制的 URL 中解析课程参数：
-> - 知到视频页（`recruitAndCourseId=`）→ 扫描模式全刷
+> - 知到视频页（`recruitAndCourseId=`）→ 只刷该课程（该课程全部章节视频）
 > - AI 学习页（`learnPage/{courseId}/{nodeUid}/{classId}`）→ 直接模式，只刷该知识点
 > - AI 课程页（`knowledgeStudy/{courseId}/{classId}`）→ 扫描模式全刷
 
