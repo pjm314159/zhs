@@ -125,6 +125,31 @@ class TestGetCourseList:
         courses = manager.get_course_list()
         assert courses == []
 
+    def test_course_list_cached(self, mock_session: ZhsSession) -> None:
+        """get_course_list 默认走实例缓存，只请求一次"""
+        route = respx.post(
+            "https://onlineservice-api.zhihuishu.com/gateway/t/v1/student/course/share/queryShareCourseInfo"
+        ).mock(return_value=httpx.Response(200, json=_make_course_list_response()))
+        manager = ZhidaoCourseManager(mock_session)
+
+        first = manager.get_course_list()
+        second = manager.get_course_list()
+
+        assert first == second
+        assert route.call_count == 1
+
+    def test_course_list_force_refresh(self, mock_session: ZhsSession) -> None:
+        """force=True 强制刷新，重新请求"""
+        route = respx.post(
+            "https://onlineservice-api.zhihuishu.com/gateway/t/v1/student/course/share/queryShareCourseInfo"
+        ).mock(return_value=httpx.Response(200, json=_make_course_list_response()))
+        manager = ZhidaoCourseManager(mock_session)
+
+        manager.get_course_list()
+        manager.get_course_list(force=True)
+
+        assert route.call_count == 2
+
     def test_pagination(self, mock_session: ZhsSession) -> None:
         """分页获取课程"""
         page1 = [{"recruitAndCourseId": "A1", "courseName": "课程1"}]
@@ -148,6 +173,57 @@ class TestGetCourseList:
         manager = ZhidaoCourseManager(mock_session)
         courses = manager.get_course_list()
         assert len(courses) == 2
+
+
+class TestFindCourse:
+    """find_course 测试"""
+
+    URL = "https://onlineservice-api.zhihuishu.com/gateway/t/v1/student/course/share/queryShareCourseInfo"
+
+    def test_matches_by_course_id(self, mock_session: ZhsSession) -> None:
+        """按数字 courseId 匹配（courseInfo.courseId 回退）"""
+        respx.post(self.URL).mock(return_value=httpx.Response(200, json=_make_course_list_response()))
+        manager = ZhidaoCourseManager(mock_session)
+
+        course = manager.find_course(456)
+        assert course is not None
+        assert course.secret == "ABC123_456"
+
+    def test_returns_none_when_not_found(self, mock_session: ZhsSession) -> None:
+        """未命中返回 None"""
+        respx.post(self.URL).mock(return_value=httpx.Response(200, json=_make_course_list_response()))
+        manager = ZhidaoCourseManager(mock_session)
+
+        assert manager.find_course(999) is None
+
+    def test_non_positive_returns_none_without_request(self, mock_session: ZhsSession) -> None:
+        """courseId <= 0 直接返回 None，不触发任何请求"""
+        route = respx.post(self.URL).mock(return_value=httpx.Response(200, json=_make_course_list_response()))
+        manager = ZhidaoCourseManager(mock_session)
+
+        assert manager.find_course(0) is None
+        assert route.call_count == 0
+
+    def test_require_recruit_id_skips_courses_without_recruit_id(self, mock_session: ZhsSession) -> None:
+        """require_recruit_id=True 时跳过没有 recruitId 的课程"""
+        respx.post(self.URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=_make_course_list_response(
+                    [
+                        {
+                            "recruitAndCourseId": "A1",
+                            "courseName": "无 recruitId 课程",
+                            "courseInfo": {"courseId": 456, "name": "无 recruitId 课程"},
+                        }
+                    ]
+                ),
+            )
+        )
+        manager = ZhidaoCourseManager(mock_session)
+
+        assert manager.find_course(456, require_recruit_id=True) is None
+        assert manager.find_course(456) is not None
 
 
 class TestGetContext:
