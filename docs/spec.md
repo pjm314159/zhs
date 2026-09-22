@@ -463,7 +463,7 @@ zhs init
 | `--console-log` | | 日志输出到控制台 |
 
 `--url` 接受三类 URL（按命令分层解析，不依赖域名前缀）：
-- 知到视频页 `stuStudy?recruitAndCourseId=...` → 扫描模式全刷
+- 知到视频页 `stuStudy?recruitAndCourseId=...` → 只刷该课程（该课程全部章节视频）
 - AI 学习页 `learnPage/{courseId}/{nodeUid}/{classId}` → 直接模式，只刷该知识点
 - AI 课程页 `singleCourse/knowledgeStudy/{courseId}/{classId}` → 扫描模式全刷
 
@@ -532,13 +532,16 @@ zhs cache import PATH [PATH ...]
 
 #### 3.11.8 课程类型自动检测
 
-- `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai`/`auto` 时直接路由
-- 自动检测（`auto` 或未指定）规则：
+- `--type` 参数优先级最高，显式指定 `zhidao`/`hike`/`ai` 时直接路由；`auto`（或未指定）走自动检测
+- `-c/--course` 只接受课程 ID，自动检测（`auto` 或未指定）规则：
   - 含冒号（`courseId:classId` 格式）→ AI 课程
-  - 含字母 → 知到（zhidao）
   - 纯数字 → 先匹配知到课程列表，命中则知到，否则 Hike
+  - 其它格式（如含字母的 `recruitAndCourseId`）→ 报错，提示改用 `--url`
+- 知到课程：`-c` 传数字 `courseId`，由 `cli/course_resolver.py` 的 `resolve_course_id` 反查课程列表中的 `recruitAndCourseId`（`secret`）后再刷课
+- **`recruitAndCourseId` 只能通过 `--url` 传入，不接受 `-c`**
+- `cli/course_type.py` 的 `detect_course` 用**一次**课程列表查询同时得出类型与匹配课程；`detect_course_type` 是只取类型的薄封装（显式 `--type` 时零查询）
+- 列表匹配统一走 `ZhidaoCourseManager.find_course()`；courseId 提取由 `zhidao/models.py` 的 `extract_course_id` 负责（顶层 `courseId` 为 0 时回退 `courseInfo.courseId`，取不到返回 0 且不参与匹配）
 - AI 课程通过 `--ai-course` + `--ai-class` 或 `-c courseId:classId --type ai` 指定
-- `detect_course_type` 支持传入 `session` 参数，纯数字 ID 时反查知到课程列表以区分知到/Hike
 
 #### 3.11.9 命令分层 URL 解析（`--url`）
 
@@ -546,7 +549,7 @@ zhs cache import PATH [PATH ...]
 
 | 命令 | 接受的 URL 路径模式 | 解析结果 | 模式 |
 |------|---------------------|----------|------|
-| `play` | `stuStudy?recruitAndCourseId=...` | rac_id → 知到 courseId | 扫描 |
+| `play` | `stuStudy?recruitAndCourseId=...` | 该课程的 rac_id | 只刷该课程 |
 | `play` | `learnPage/{courseId}/{nodeUid}/{classId}` | AI courseId + nodeUid | 直接 |
 | `play` | `singleCourse/knowledgeStudy/{courseId}/{classId}` | AI courseId | 扫描 |
 | `homework` | `dohomework/{recruitId}/{stuExamId}/{examId}/{courseId}/{schoolId}/0` | 知到作业直接做题 | 直接 |
@@ -556,8 +559,9 @@ zhs cache import PATH [PATH ...]
 
 - **直接模式**：URL 含 `nodeUid`（play/homework）或 `examTestId`（exam）时，仅处理该知识点/考试
 - **扫描模式**：URL 不含上述 ID 时，扫描整个课程
+- 知到 `recruitAndCourseId` 无知识点粒度，恒为该课程的全部章节视频（不存在直接/扫描之分）
 - 解析由 `cli/url_parser.py` 的 `parse_play_url` / `parse_homework_url_v2` / `parse_exam_url` 实现
-- 课程 ID 统一由 `cli/course_resolver.py` 的 `resolve_course_id` 解析（含知到 rac_id 反查）
+- `-c` 传入的课程 ID 统一由 `cli/course_resolver.py` 的 `resolve_course_id` 解析；它依赖 `detect_course`，知到列表只查询一次
 
 ### 3.12 CAS SSO 认证
 

@@ -132,7 +132,7 @@ zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 ```
 
 > **`--url` and `-c` are mutually exclusive**. `--url` automatically parses course parameters from browser URLs:
-> - Zhidao video page (`recruitAndCourseId=`) → Scan mode, watch all
+> - Zhidao video page (`recruitAndCourseId=`) → Watch that single course only
 > - AI learning page (`learnPage/{courseId}/{nodeUid}/{classId}`) → Direct mode, watch only that knowledge point
 > - AI course page (`knowledgeStudy/{courseId}/{classId}`) → Scan mode, watch all
 
