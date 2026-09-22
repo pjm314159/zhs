@@ -5,7 +5,7 @@
 
 from loguru import logger
 
-from zhs.cli.course_type import detect_course_type, parse_ai_course_str
+from zhs.cli.course_type import parse_ai_course_str
 from zhs.config import AppConfig
 from zhs.session import ZhsSession
 
@@ -36,18 +36,25 @@ def run_courses(
     courses: list[str],
     course_type: str | None,
 ) -> None:
-    """按课程列表刷课"""
+    """按课程列表刷课
+
+    `-c` 传入 courseId：知到课程会先反查 recruitAndCourseId 再刷课；
+    recruitAndCourseId 只能通过 `--url` 传入。
+    """
+    from zhs.cli.course_resolver import resolve_course_id
+
     for c in courses:
-        detected_type = detect_course_type(c, course_type)
         try:
-            if detected_type == "zhidao":
-                run_zhidao(session, config, c)
-            elif detected_type == "hike":
+            resolved = resolve_course_id(c, course_type, session)
+            if resolved.type == "zhidao":
+                assert resolved.rac_id is not None
+                run_zhidao(session, config, resolved.rac_id)
+            elif resolved.type == "hike":
                 run_hike(session, config, c)
-            elif detected_type == "ai":
+            elif resolved.type == "ai":
                 run_ai_by_str(session, config, c)
             else:
-                print(f"未知的课程类型: {detected_type}，跳过课程 {c}")
+                print(f"未知的课程类型: {resolved.type}，跳过课程 {c}")
         except Exception as e:
             logger.error(f"课程 {c} 处理失败: {e}")
             print(f"课程 {c} 处理失败: {e}")
@@ -90,8 +97,12 @@ def run_ai_by_str(session: ZhsSession, config: AppConfig, course_id_str: str) ->
     run_ai(session, config, course_id, class_id)
 
 
-def run_zhidao(session: ZhsSession, config: AppConfig, course_id: str) -> None:
-    """刷知到课程"""
+def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
+    """刷知到课程
+
+    Args:
+        rac_id: recruitAndCourseId，仅由 --url 解析或课程列表（secret）提供
+    """
     from zhs.zhidao.course import ZhidaoCourseManager
     from zhs.zhidao.video import ZhidaoVideoPlayer
 
@@ -103,8 +114,8 @@ def run_zhidao(session: ZhsSession, config: AppConfig, course_id: str) -> None:
         time_limit=config.limit * 60,
     )
 
-    ctx = mgr.get_context(course_id)
-    player.play_course(course_id, ctx)
+    ctx = mgr.get_context(rac_id)
+    player.play_course(rac_id, ctx)
 
 
 def run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:

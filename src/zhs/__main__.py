@@ -23,6 +23,7 @@ from zhs.cli.bootstrap import load_config_and_session as _load_config_and_sessio
 from zhs.cli.bootstrap import parse_proxy as _parse_proxy
 from zhs.cli.bootstrap import setup_logger as _setup_logger
 from zhs.cli.bootstrap import try_restore_cookies as _try_restore_cookies  # noqa: F401
+from zhs.cli.course_resolver import resolve_course_id as _resolve_course_id
 from zhs.cli.course_type import detect_course_type as _detect_course_type
 from zhs.cli.course_type import validate_course_type as _validate_course_type
 from zhs.cli.services.cache_service import export_course as _export_course
@@ -35,7 +36,7 @@ from zhs.cli.services.homework_service import dispatch_homework_url as _dispatch
 from zhs.cli.services.homework_service import run_ai_homework as _run_ai_homework
 from zhs.cli.services.homework_service import run_ai_homework_by_str as _run_ai_homework_by_str
 from zhs.cli.services.homework_service import run_all_homework as _run_all_homework
-from zhs.cli.services.homework_service import run_zhidao_homework_by_course as _run_zhidao_homework_by_course
+from zhs.cli.services.homework_service import run_zhidao_homework as _run_zhidao_homework
 from zhs.cli.services.play_service import dispatch_play_url as _dispatch_play_url
 from zhs.cli.services.play_service import run_ai as _run_ai
 from zhs.cli.services.play_service import run_ai_by_str as _run_ai_by_str
@@ -185,16 +186,23 @@ def play(
         # 内联路由循环，确保 _run_zhidao/_run_hike/_run_ai_by_str 从 __main__ 命名空间查找
         # （兼容 tests/cli/test_main.py 中 @patch("zhs.__main__._run_*") 的注入）
         for c in course:
-            detected_type = _detect_course_type(c, validated_type)
             try:
-                if detected_type == "zhidao":
-                    _run_zhidao(session, config, c)
-                elif detected_type == "hike":
+                # -c 传 courseId；知到课程在此反查 recruitAndCourseId（recruitAndCourseId 只能走 --url）
+                resolved = _resolve_course_id(c, validated_type, session)
+            except ValueError as e:
+                logger.error(f"课程 {c} 解析失败: {e}")
+                print(f"课程 {c} 解析失败: {e}")
+                continue
+            try:
+                if resolved.type == "zhidao":
+                    assert resolved.rac_id is not None
+                    _run_zhidao(session, config, resolved.rac_id)
+                elif resolved.type == "hike":
                     _run_hike(session, config, c)
-                elif detected_type == "ai":
+                elif resolved.type == "ai":
                     _run_ai_by_str(session, config, c)
                 else:
-                    print(f"未知的课程类型: {detected_type}，跳过课程 {c}")
+                    print(f"未知的课程类型: {resolved.type}，跳过课程 {c}")
             except Exception as e:
                 logger.error(f"课程 {c} 处理失败: {e}")
                 print(f"课程 {c} 处理失败: {e}")
@@ -260,15 +268,27 @@ def homework(
             print(f"AI 课程 {ai_course} 作业处理失败: {e}")
     elif course:
         for c in course:
-            detected_type = _detect_course_type(c, validated_type)
             try:
-                if detected_type == "ai":
+                # -c 传 courseId：知到在此一次解析出 course_id / recruit_id（recruitAndCourseId 只能走 --url）
+                resolved = _resolve_course_id(c, validated_type, session)
+            except ValueError as e:
+                logger.error(f"课程 {c} 解析失败: {e}")
+                print(f"课程 {c} 解析失败: {e}")
+                continue
+            try:
+                if resolved.type == "ai":
                     _run_ai_homework_by_str(session, config, c)
-                elif detected_type == "zhidao":
-                    _run_zhidao_homework_by_course(session, config, c)
+                elif resolved.type == "zhidao":
+                    if resolved.recruit_id is None:
+                        logger.warning(f"课程 {c} 缺少 recruitId，跳过作业")
+                        print(f"课程 {c} 缺少 recruitId，跳过作业")
+                        continue
+                    # 知到作业前必须走 CAS SSO
+                    session.exam_sso_login()
+                    _run_zhidao_homework(session, config, str(resolved.recruit_id), resolved.course_id)
                 else:
-                    logger.warning(f"暂不支持 {detected_type} 课程的作业功能")
-                    print(f"暂不支持 {detected_type} 课程的作业功能")
+                    logger.warning(f"暂不支持 {resolved.type} 课程的作业功能")
+                    print(f"暂不支持 {resolved.type} 课程的作业功能")
             except SliderVerificationRequired:
                 # 滑块验证：服务端状态，后续课程也会失败，立即停止
                 raise

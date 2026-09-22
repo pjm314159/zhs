@@ -32,6 +32,22 @@ class ZhidaoCourse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+def extract_course_id(course: ZhidaoCourse) -> int:
+    """提取知到课程的数字 courseId
+
+    课程列表接口中 courseId 可能出现在两处：顶层 `courseId` 与 `courseInfo.courseId`。
+    部分课程顶层为 0，真实 ID 只在 `courseInfo` 中。
+
+    Returns:
+        第一个大于 0 的 courseId；都取不到时返回 0
+    """
+    if course.course_id > 0:
+        return course.course_id
+    if course.course_info is not None and course.course_info.course_id > 0:
+        return course.course_info.course_id
+    return 0
+
+
 class VideoSmallLesson(BaseModel):
     """子视频"""
 
