@@ -143,18 +143,6 @@ class QuestionBankConfig(BaseModel):
     )
 
 
-class QuestionBankConfig(BaseModel):
-    """题库配置（外部题库查询，作为 LLM 答题的提示源）"""
-
-    enabled: bool = Field(default=False, description="是否启用题库查询")
-    token: str = Field(default="", description="题库 token（enncy.cn 个人中心-更多配置获取）")
-    query_url: str = Field(default="https://tk.enncy.cn/query", description="题库查询 API URL")
-    info_url: str = Field(default="https://tk.enncy.cn/info", description="题库信息 API URL")
-    scopes: list[Literal["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam"]] = Field(
-        default=["zhidao_exam", "ai_exam"], description="启用题库查询的范围"
-    )
-
-
 class AppConfig(BaseModel):
     """应用全局配置"""
 
