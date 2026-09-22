@@ -1,0 +1,120 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先搜索现有 Issue，确认没有重复。
+
+        > 请勿粘贴未经脱敏的 **cookie / token / password / apiKey**，日志中的敏感信息会被自动脱敏，但仍请自行检查。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰、简洁地描述问题现象
+      placeholder: 发生了什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供最小可复现步骤
+      placeholder: |
+        1. 执行 `zhs play -c <course_id>`
+        2. ...
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 报错信息
+      description: 请粘贴完整 traceback 或相关日志（已脱敏）
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: zhs 版本
+      description: "`pip show zhs` / `uv pip show zhs` 中的 Version；源码运行请填写 commit 短哈希"
+      placeholder: "0.1.3 或 commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python 版本
+      description: 项目要求 Python >= 3.13
+      placeholder: "3.13.x"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: "Windows 11 / Ubuntu 24.04 / macOS 15"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - uv
+        - pip
+        - 源码运行
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置片段
+      description: 粘贴 `config.toml` 中相关部分（务必删除 cookie / token / apiKey 等敏感信息）
+      render: ini
+      placeholder: |
+        [ai]
+        provider = "openai"
+        ...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，确认没有重复
+          required: true
+        - label: 我使用的是最新版本（`main` 分支或最新 PyPI 版本）
+          required: true
+        - label: 我已移除日志与配置中的 cookie、token、password、apiKey 等敏感信息
+          required: true

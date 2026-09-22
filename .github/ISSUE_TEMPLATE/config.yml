@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用文档
+    url: https://github.com/pjm314159/zhs/blob/main/README_zh.md
+    about: 安装、配置与使用说明，提交 Issue 前请先查阅
+  - name: 代码规范与 Linter 配置
+    url: https://github.com/pjm314159/zhs/blob/main/docs/linter.md
+    about: 贡献代码前请阅读；Pull Request 会自动套用模板与自查清单
