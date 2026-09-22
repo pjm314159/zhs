@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from zhs.__main__ import _detect_course_type, _validate_course_type, app
@@ -89,9 +90,10 @@ class TestHelp:
 class TestDetectCourseType:
     """课程类型检测辅助函数"""
 
-    def test_letters_route_zhidao(self) -> None:
-        """含字母 → zhidao"""
-        assert _detect_course_type("ABC123") == "zhidao"
+    def test_letters_rejected(self) -> None:
+        """含字母的 recruitAndCourseId 传给 -c → ValueError"""
+        with pytest.raises(ValueError, match="recruitAndCourseId 请通过 --url 传入"):
+            _detect_course_type("ABC123")
 
     def test_pure_digits_route_hike(self) -> None:
         """纯数字 → hike"""
@@ -164,18 +166,41 @@ class TestPlayCommand:
 
     @patch("zhs.__main__._run_zhidao")
     @patch("zhs.__main__._load_config_and_session")
-    def test_course_with_letters_routes_zhidao(
+    def test_rac_id_via_course_arg_rejected(
         self,
         mock_load: MagicMock,
         mock_run_zhidao: MagicMock,
     ) -> None:
-        """含字母课程 ID → 路由到知到"""
+        """-c 传 recruitAndCourseId → 报错提示改用 --url，不刷课"""
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
 
-        runner.invoke(app, ["play", "-c", "ABC123"])
+        result = runner.invoke(app, ["play", "-c", "ABC123"])
+        assert "recruitAndCourseId" in result.output
+        assert "--url" in result.output
+        mock_run_zhidao.assert_not_called()
+
+    @patch("zhs.__main__._run_zhidao")
+    @patch("zhs.__main__._resolve_course_id")
+    @patch("zhs.__main__._load_config_and_session")
+    def test_numeric_course_id_routes_zhidao_with_rac(
+        self,
+        mock_load: MagicMock,
+        mock_resolve: MagicMock,
+        mock_run_zhidao: MagicMock,
+    ) -> None:
+        """-c 传数字 courseId → 反查出 rac_id 后路由到知到"""
+        from zhs.cli.course_resolver import ResolvedCourse
+
+        mock_config = _make_mock_config()
+        mock_session = MagicMock()
+        mock_load.return_value = (mock_config, mock_session)
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc")
+
+        runner.invoke(app, ["play", "-c", "1000008156"])
         mock_run_zhidao.assert_called_once()
+        assert mock_run_zhidao.call_args.args[2] == "rac_abc"
 
     @patch("zhs.__main__._run_hike")
     @patch("zhs.__main__._load_config_and_session")
@@ -266,6 +291,55 @@ class TestHomeworkCommand:
 
         runner.invoke(app, ["homework", "-c", "100:200", "--type", "ai"])
         mock_run_ai_homework_by_str.assert_called_once()
+
+    @patch("zhs.__main__._run_zhidao_homework")
+    @patch("zhs.__main__._resolve_course_id")
+    @patch("zhs.__main__._load_config_and_session")
+    def test_homework_zhidao_course_routes_with_recruit_id(
+        self,
+        mock_load: MagicMock,
+        mock_resolve: MagicMock,
+        mock_run_zhidao_homework: MagicMock,
+    ) -> None:
+        """homework -c <知到 courseId> → 解析出 recruit_id 后运行知到作业"""
+        from zhs.cli.course_resolver import ResolvedCourse
+
+        mock_config = _make_mock_config()
+        mock_session = MagicMock()
+        mock_load.return_value = (mock_config, mock_session)
+        mock_resolve.return_value = ResolvedCourse(
+            type="zhidao", course_id=1000008156, rac_id="rac_abc", recruit_id=789
+        )
+
+        runner.invoke(app, ["homework", "-c", "1000008156"])
+
+        mock_session.exam_sso_login.assert_called_once()
+        mock_run_zhidao_homework.assert_called_once()
+        assert mock_run_zhidao_homework.call_args.args[2] == "789"
+        assert mock_run_zhidao_homework.call_args.args[3] == 1000008156
+
+    @patch("zhs.__main__._run_zhidao_homework")
+    @patch("zhs.__main__._resolve_course_id")
+    @patch("zhs.__main__._load_config_and_session")
+    def test_homework_zhidao_missing_recruit_id_skipped(
+        self,
+        mock_load: MagicMock,
+        mock_resolve: MagicMock,
+        mock_run_zhidao_homework: MagicMock,
+    ) -> None:
+        """知到课程缺少 recruitId → 跳过并提示，不调用作业流程"""
+        from zhs.cli.course_resolver import ResolvedCourse
+
+        mock_config = _make_mock_config()
+        mock_session = MagicMock()
+        mock_load.return_value = (mock_config, mock_session)
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc")
+
+        result = runner.invoke(app, ["homework", "-c", "1000008156"])
+
+        assert "缺少 recruitId" in result.output
+        mock_run_zhidao_homework.assert_not_called()
+        mock_session.exam_sso_login.assert_not_called()
 
     @patch("zhs.__main__._run_ai_homework")
     @patch("zhs.__main__._load_config_and_session")

@@ -16,7 +16,52 @@ from zhs.zhidao.models import (
     VideoSmallLesson,
     ZhidaoContext,
     ZhidaoCourse,
+    extract_course_id,
 )
+
+
+class TestExtractCourseId:
+    """extract_course_id 测试"""
+
+    def test_prefers_top_level_course_id(self) -> None:
+        """顶层 courseId > 0 时优先使用"""
+        course = ZhidaoCourse.model_validate(
+            {
+                "recruitAndCourseId": "RAC1",
+                "courseName": "课程",
+                "courseId": 111,
+                "courseInfo": {"courseId": 222, "name": "课程"},
+            }
+        )
+        assert extract_course_id(course) == 111
+
+    def test_falls_back_to_course_info(self) -> None:
+        """顶层缺失时回退 courseInfo.courseId"""
+        course = ZhidaoCourse.model_validate(
+            {
+                "recruitAndCourseId": "RAC1",
+                "courseName": "课程",
+                "courseInfo": {"courseId": 222, "name": "课程"},
+            }
+        )
+        assert extract_course_id(course) == 222
+
+    def test_zero_top_level_falls_back(self) -> None:
+        """顶层为 0 时回退 courseInfo.courseId"""
+        course = ZhidaoCourse.model_validate(
+            {
+                "recruitAndCourseId": "RAC1",
+                "courseName": "课程",
+                "courseId": 0,
+                "courseInfo": {"courseId": 222, "name": "课程"},
+            }
+        )
+        assert extract_course_id(course) == 222
+
+    def test_returns_zero_when_no_id(self) -> None:
+        """两处都取不到时返回 0（调用方需据此跳过，不得直接使用）"""
+        course = ZhidaoCourse.model_validate({"recruitAndCourseId": "RAC1", "courseName": "课程"})
+        assert extract_course_id(course) == 0
 
 
 class TestZhidaoCourse:

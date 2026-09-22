@@ -10,6 +10,7 @@ import pytest
 
 from zhs.cli.course_type import (
     VALID_COURSE_TYPES,
+    detect_course,
     detect_course_type,
     parse_ai_course_str,
     parse_homework_url,
@@ -19,20 +20,20 @@ from zhs.cli.course_type import (
 
 @pytest.fixture
 def mock_zhidao_session() -> Iterator[MagicMock]:
-    """session 中 zhidao 列表包含 courseId=1000008156"""
+    """session 中 zhidao 课程列表能匹配到 courseId=1000008156"""
     mock_course = MagicMock()
     mock_course.course_id = 1000008156
     mock_mgr = MagicMock()
-    mock_mgr.get_course_list.return_value = [mock_course]
+    mock_mgr.find_course.return_value = mock_course
     with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
         yield mock_mgr
 
 
 @pytest.fixture
 def mock_zhidao_session_empty() -> Iterator[MagicMock]:
-    """session 中 zhidao 列表为空"""
+    """session 中 zhidao 课程列表无匹配项"""
     mock_mgr = MagicMock()
-    mock_mgr.get_course_list.return_value = []
+    mock_mgr.find_course.return_value = None
     with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
         yield mock_mgr
 
@@ -48,9 +49,10 @@ class TestValidCourseTypes:
 class TestDetectCourseType:
     """detect_course_type"""
 
-    def test_letters_route_zhidao(self) -> None:
-        """含字母 → zhidao"""
-        assert detect_course_type("ABC123") == "zhidao"
+    def test_letters_rejected_with_url_hint(self) -> None:
+        """含字母的 recruitAndCourseId 传给 -c → ValueError 并提示改用 --url"""
+        with pytest.raises(ValueError, match="recruitAndCourseId 请通过 --url 传入"):
+            detect_course_type("ABC123")
 
     def test_pure_digits_route_hike(self) -> None:
         """纯数字（无 session）→ hike"""
@@ -62,13 +64,19 @@ class TestDetectCourseType:
         assert detect_course_type("12345", "zhidao") == "zhidao"
         assert detect_course_type("12345", "ai") == "ai"
 
-    def test_empty_string_routes_hike(self) -> None:
-        """空字符串（无字母）→ hike"""
-        assert detect_course_type("") == "hike"
+    def test_auto_type_falls_back_to_detection(self) -> None:
+        """--type auto 视为自动检测"""
+        assert detect_course_type("12345", "auto") == "hike"
 
-    def test_mixed_case_letters_route_zhidao(self) -> None:
-        """大小写混合字母 → zhidao"""
-        assert detect_course_type("AbC123") == "zhidao"
+    def test_empty_string_raises(self) -> None:
+        """空字符串 → ValueError"""
+        with pytest.raises(ValueError, match="无法识别的课程 ID"):
+            detect_course_type("")
+
+    def test_mixed_case_letters_rejected(self) -> None:
+        """大小写混合字母 → ValueError"""
+        with pytest.raises(ValueError, match="recruitAndCourseId 请通过 --url 传入"):
+            detect_course_type("AbC123")
 
     def test_colon_routes_ai(self) -> None:
         """含冒号 → ai（courseId:classId）"""
@@ -89,6 +97,76 @@ class TestDetectCourseType:
     def test_pure_digits_no_session_routes_hike(self) -> None:
         """纯数字 + 无 session → hike（不查列表）"""
         assert detect_course_type("12345") == "hike"
+
+    def test_numeric_course_id_matched_routes_zhidao(self) -> None:
+        """find_course 命中 → zhidao"""
+        mock_mgr = MagicMock()
+        mock_mgr.find_course.return_value = MagicMock()
+        session = MagicMock()
+
+        with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
+            assert detect_course_type("1000008156", session=session) == "zhidao"
+
+        mock_mgr.find_course.assert_called_once_with(1000008156)
+
+    def test_zero_course_id_raises(self) -> None:
+        """courseId=0 → ValueError（0 不是有效课程 ID）"""
+        with pytest.raises(ValueError, match="必须为正整数"):
+            detect_course_type("0")
+
+    def test_zhidao_list_fetch_failure_raises(self) -> None:
+        """知到列表拉取失败 → ValueError 提示用 --type，不静默回退 hike"""
+        mock_mgr = MagicMock()
+        mock_mgr.find_course.side_effect = RuntimeError("网络错误")
+        session = MagicMock()
+
+        with (
+            patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr),
+            pytest.raises(ValueError, match="请用 --type 显式指定"),
+        ):
+            detect_course_type("1000008156", session=session)
+
+
+class TestDetectCourse:
+    """detect_course（一次查询同时返回类型与匹配课程）"""
+
+    def test_returns_matched_course(self) -> None:
+        """命中知到 → 返回 (zhidao, 课程对象)"""
+        mock_course = MagicMock()
+        mock_mgr = MagicMock()
+        mock_mgr.find_course.return_value = mock_course
+        session = MagicMock()
+
+        with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
+            detected, course = detect_course("1000008156", session=session)
+
+        assert detected == "zhidao"
+        assert course is mock_course
+        mock_mgr.find_course.assert_called_once_with(1000008156)
+
+    def test_hike_returns_none_course(self) -> None:
+        """无 session → hike，且不带课程对象"""
+        detected, course = detect_course("12345")
+        assert detected == "hike"
+        assert course is None
+
+    def test_ai_returns_none_course(self) -> None:
+        """含冒号 → ai，且不带课程对象"""
+        detected, course = detect_course("100:200")
+        assert detected == "ai"
+        assert course is None
+
+    def test_explicit_zhidao_missing_course_raises(self) -> None:
+        """显式 zhidao 但列表无匹配 → ValueError"""
+        mock_mgr = MagicMock()
+        mock_mgr.find_course.return_value = None
+        session = MagicMock()
+
+        with (
+            patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr),
+            pytest.raises(ValueError, match="未找到 courseId=1000008156 的知到课程"),
+        ):
+            detect_course("1000008156", "zhidao", session)
 
 
 class TestValidateCourseType:
