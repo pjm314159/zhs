@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-09-22
+
+### Features
+
+- **question_bank**: External question bank integration as LLM hint source
+- **cli**: Accept only courseId for -c and resolve zhidao ids in one lookup (**BREAKING**)
+- **video**: Precheck heartbeat before playback to surface captcha and time limit
+- **config**: Rename use_zhidao_ai to use_builtin_ai and surface the effective AI provider (**BREAKING**)
+
+### Bug Fixes
+
+- Fix the zhidao progress bar and print chapter problems
+- Try to add some anti-detection to prevent detection
+- **config**: Remove duplicate QuestionBankConfig introduced by merge
+- **homework**: Label degraded random answers and limit LLM retries to retryable status codes
+- **llm**: Stop reader and close stream after early termination
+
+### Documentation
+
+- Add pull request and issue templates
+- Update -c/--url parameter semantics
+
+### Refactor
+
+- SQLite 缓存重构 + CLI 命令式接口 + BeautifulSoup HTML 清洗
+
+### Testing
+
+- **cli**: Cover courseId-only -c and single-lookup resolution
+
+### Miscellaneous
+
+- **release**: Publish only latest changelog to release notes
+- Bump version to 0.1.4
+- **release**: Publish to PyPI first and write changelog back to dev
+- **release**: Publish to PyPI before changelog sync
+
+### Release
+
+- V0.1.4（-c 参数语义、开播验证码预检、AI 答题失败可见性、LLM 流关闭）
+
 ## [0.1.3] - 2026-09-16
 
 ### Features
