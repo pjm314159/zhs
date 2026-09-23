@@ -85,14 +85,6 @@ jobs:
       - name: Publish to PyPI (Trusted Publishing / OIDC)
         run: uv publish
 
-      # 放在最后且允许失败：
-      # - CHANGELOG 只回写 dev（仓库规则规定改动必须经 dev 再 PR 到 main，机器人直推 main 会被拒 GH013）
-      # - 任何失败都不应阻断发布本身（PyPI 已完成）
-      - name: Commit changelog and push to dev (best effort)
-        continue-on-error: true
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git diff --cached --quiet || git commit -m "chore(release): update CHANGELOG.md for ${{ github.ref_name }}"
-          git push origin HEAD:dev
+      # 注意：此处不再回写 CHANGELOG.md。
+      # 方案 B 在「发布前」由 prepare-release.yml 生成 CHANGELOG 并随发布 PR 合入 main，
+      # 因此发布流程结束后 main 与 dev 不会分叉，无需再补一次 dev → main 的同步 PR。
