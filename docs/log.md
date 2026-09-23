@@ -399,4 +399,14 @@ API 参考：`.temp/questions_bank.md`
   - `uv.lock`：把 v0.1.4.1 发布残留的漂移（`0.1.4` → `0.1.4.1`）一并修回
 - Test: 无 Python 代码改动；两个 workflow 均通过 `js-yaml` 解析校验
 - Refactor: ruff check/format + mypy + pytest 全量（无源码改动）；分支 `chore/release-flow-followups`
+
+### Task 35 — CLI 版本号入口 `zhs --version` / `-v` ✅
+- 需求：支持 `zhs --version` 与 `zhs -v`。此前 CLI 没有任何版本入口，且 `src/zhs/__init__.py` 的 `__version__` 写死在 `"0.1.0"`（与 `pyproject.toml` 的 `0.1.4.1` 早已不一致，且全仓无引用）
+- Green
+  - `src/zhs/__init__.py`：`__version__` 改为从包元数据动态读取（`importlib.metadata.version("zhs")`），未安装时兜底 `"0.0.0+unknown"` —— 版本唯一来源仍是 `pyproject.toml`，不再有需要手工维护的第二处版本号（即此前的 A/B/C 选项选定 B：动态读取）
+  - `src/zhs/__main__.py`：新增 `_get_version()` 与 `_version_callback()`，并新增 `@app.callback()` 注册 **eager** 选项 `-v, --version`（命中即 `typer.echo("zhs <版本>")` + `Exit(0)`，不加载配置、不登录、无网络请求）；模块 docstring 的用法列表补充该选项，`__all__` 导出 `_get_version`
+- Test: `tests/cli/test_main.py::TestVersion`（5 用例：`--version` 输出与退出码 / `-v` 与 `--version` 输出一致 / 版本号来自包元数据 / 命中时不调用 `_load_config_and_session` / `--help` 中可见 `--version`）
+- 文档：`docs/spec.md` §3.11 增补全局选项表；`docs/tutorial.md` §9 通用参数处补 `zhs --version` 用法；`README.md` / `README_zh.md` 的 CLI 特性行补充说明
+- 实测输出：`zhs --version` 与 `zhs -v` 均输出 `zhs 0.1.4.1`，退出码 0；`zhs --help` 的 Options 段列出 `--version  -v`
+- Refactor: ruff check/format + mypy 通过；pytest 全量 1170 passed；分支 `feat/cli-version`
 - Refactor: ruff check/format + mypy（158 files）通过；pytest 全量 1165 passed；分支 `chore/prepare-release-flow`

@@ -1,11 +1,12 @@
 """__main__.py CLI TDD — 命令式接口"""
 
+from importlib.metadata import version as metadata_version
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
-from zhs.__main__ import _detect_course_type, _validate_course_type, app
+from zhs.__main__ import _detect_course_type, _get_version, _validate_course_type, app
 
 runner = CliRunner()
 
@@ -85,6 +86,41 @@ class TestHelp:
         """zhs init --help 不报错"""
         result = runner.invoke(app, ["init", "--help"])
         assert result.exit_code == 0
+
+
+class TestVersion:
+    """zhs --version / -v"""
+
+    def test_long_flag_prints_version(self) -> None:
+        """zhs --version 输出 `zhs <版本号>` 且退出码为 0"""
+        result = runner.invoke(app, ["--version"])
+
+        assert result.exit_code == 0
+        assert result.output.strip() == f"zhs {_get_version()}"
+
+    def test_short_flag_same_as_long(self) -> None:
+        """zhs -v 与 zhs --version 输出一致"""
+        assert runner.invoke(app, ["-v"]).output == runner.invoke(app, ["--version"]).output
+
+    def test_version_comes_from_package_metadata(self) -> None:
+        """版本号来自包元数据（与 pyproject 版本一致，不写死在源码里）"""
+        result = runner.invoke(app, ["--version"])
+
+        assert metadata_version("zhs") in result.output
+
+    def test_version_skips_business_logic(self) -> None:
+        """--version 不加载配置、不登录（is_eager 提前退出）"""
+        with patch("zhs.__main__._load_config_and_session") as mock_load:
+            result = runner.invoke(app, ["--version"])
+
+        mock_load.assert_not_called()
+        assert result.exit_code == 0
+
+    def test_version_listed_in_help(self) -> None:
+        """zhs --help 中能看到 --version"""
+        result = runner.invoke(app, ["--help"])
+
+        assert "--version" in result.output
 
 
 class TestDetectCourseType:

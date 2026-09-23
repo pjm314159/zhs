@@ -435,6 +435,12 @@ zhs fetch --type course
 | `-d, --debug` | 调试模式（输出 DEBUG 级别日志） |
 | `--console-log` | 日志输出到控制台（默认仅写入文件） |
 
+查看版本号（全局选项，无需子命令）：
+
+```bash
+zhs --version   # 或 zhs -v，输出形如 zhs 0.1.4.1
+```
+
 `play` / `homework` / `exam` 共有参数：
 
 | 参数 | 说明 |
