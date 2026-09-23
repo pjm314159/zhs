@@ -82,7 +82,9 @@ jobs:
           index = text.find("\n## [")
           if index == -1:
               raise SystemExit("CHANGELOG.md 中未找到版本段落（\\n## [）")
-          changelog.write_text(f"{text[:index]}\n\n{section}\n{text[index:]}", encoding="utf-8")
+          head = text[:index].rstrip()
+          tail = text[index:].lstrip("\n")
+          changelog.write_text(f"{head}\n\n{section}\n\n{tail}", encoding="utf-8")
           print("CHANGELOG.md 已插入新版本段落")
           PY
 
