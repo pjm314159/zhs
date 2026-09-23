@@ -760,7 +760,7 @@ fix/xxx  ── 从 dev 切出，完成后合并回 dev
 
 | 规则 | 说明 |
 |------|------|
-| 格式 | `v<major>.<minor>.<patch>`（如 `v0.1.1`） |
+| 格式 | `v<major>.<minor>.<patch>` 或 `v<major>.<minor>.<patch>.<hotfix>`（如 `v0.1.4`、`v0.1.2.2`，PEP 440 允许四段；历史上 `v0.1.2.1` / `v0.1.2.2` 即为四段） |
 | 位置 | 在 `main` 分支上打 tag |
 | 触发 | 推送 tag 自动触发 `release.yml` CI |
 | 版本号 | 与 `pyproject.toml` 的 `version` 字段一致 |
@@ -778,7 +778,7 @@ fix/xxx  ── 从 dev 切出，完成后合并回 dev
 ```
 
 > 为什么在打 tag 前生成：`main` 受规则集保护（`pull_request` 规则 + 无 bypass actor），机器人
-> 只能把提交推到 `dev`。若像旧流程那样在发布后回写 CHANGELOG，`dev` 每次都会领先 `main` 一个提交，
+> 只能把提交推到 `dev`。
 > 必须人工补一次 `dev → main` 同步 PR。改为发布前生成后，发布结束即 `main == dev`，无需收尾。
 >
 > 依赖设置：Prepare Release 需要仓库允许 Actions 创建 PR —— Settings → Actions → General →
