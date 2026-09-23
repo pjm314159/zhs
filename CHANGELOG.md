@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4.1] - 2026-09-23
+
+### Bug Fixes
+
+- **release**: Keep single blank line when inserting changelog section
+- **release**: Accept 3- or 4-segment versions when preparing a release
+
+### Documentation
+
+- Highlight pip install zhs as the quickest start and document new release flow
+
+### Miscellaneous
+
+- **release**: Generate changelog before tagging via prepare-release workflow
+
 ## [0.1.4] - 2026-09-22
 
 ### Features
