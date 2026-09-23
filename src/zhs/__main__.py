@@ -9,6 +9,7 @@
   zhs exam                考试
   zhs homework            写作业
   zhs fetch               获取课程列表
+  zhs --version / -v      查看版本号
 
 本模块仅保留 typer 命令声明与参数解析，业务逻辑全部委托给 zhs.cli 子包。
 为兼容现有测试（tests/cli/test_main.py 通过 patch("zhs.__main__._run_*") 注入 mock），
@@ -51,11 +52,41 @@ from zhs.session import ZhsSession
 # 显式导出供 tests/cli/test_main.py 导入的别名
 __all__ = [
     "_detect_course_type",
+    "_get_version",
     "_validate_course_type",
     "app",
 ]
 
 app = typer.Typer(name="zhs", help="智慧树自动刷课工具", no_args_is_help=True)
+
+
+def _get_version() -> str:
+    """当前安装的 zhs 版本号（来源于包元数据，见 zhs.__version__）"""
+    from zhs import __version__
+
+    return __version__
+
+
+def _version_callback(value: bool) -> None:
+    """`--version` / `-v`：打印版本号并退出（不加载配置、不登录）"""
+    if value:
+        typer.echo(f"zhs {_get_version()}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(  # noqa: B008
+        False,
+        "--version",
+        "-v",
+        help="显示版本号并退出",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """智慧树自动刷课工具（用 zhs --help 查看全部命令）"""
+    _ = version  # 实际处理在 _version_callback 中
 
 
 # ---------------------------------------------------------------------------

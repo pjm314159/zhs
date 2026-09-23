@@ -9,7 +9,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 ## 功能特性
 
 - **三类课程全覆盖**：知到（Zhidao）/ Hike 职教云 / AI 智慧课程
-- **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离
+- **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离，`zhs --version`（或 `-v`）查看版本号
 - **扫码登录**：自动保存 Cookie，避免重复登录
 - **视频自动刷课**：模拟真人观看（随机暂停、随机延迟、进度条显示）
 - **弹窗答题**：视频内弹窗题目自动选择正确答案

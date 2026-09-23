@@ -85,6 +85,14 @@ jobs:
       - name: Publish to PyPI (Trusted Publishing / OIDC)
         run: uv publish
 
-      # 注意：此处不再回写 CHANGELOG.md。
-      # 方案 B 在「发布前」由 prepare-release.yml 生成 CHANGELOG 并随发布 PR 合入 main，
-      # 因此发布流程结束后 main 与 dev 不会分叉，无需再补一次 dev → main 的同步 PR。
+      # 注意：此处不重新生成 / 回写 CHANGELOG.md。
+      # 方案 B 在「发布前」由 prepare-release.yml 生成 CHANGELOG 并随发布 PR 合入 main。
+      #
+      # 但发布提交（版本号 + CHANGELOG 段落）只落在 main，需要带回 dev：
+      # 否则下一次 Prepare Release（从 dev 取文件）会缺少本次 CHANGELOG 段落。
+      # 使用纯快进推送：dev 若已有新提交会失败（不会覆盖），且失败不影响发布结果。
+      - name: Sync dev with main (fast-forward, best effort)
+        continue-on-error: true
+        run: |
+          git fetch origin main dev
+          git push origin origin/main:dev
