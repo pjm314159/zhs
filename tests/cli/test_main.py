@@ -1,5 +1,6 @@
 """__main__.py CLI TDD — 命令式接口"""
 
+import re
 from importlib.metadata import version as metadata_version
 from unittest.mock import MagicMock, patch
 
@@ -117,10 +118,15 @@ class TestVersion:
         assert result.exit_code == 0
 
     def test_version_listed_in_help(self) -> None:
-        """zhs --help 中能看到 --version"""
-        result = runner.invoke(app, ["--help"])
+        """zhs --help 中能看到 --version
 
-        assert "--version" in result.output
+        注意：CI（Rich 检测到 CI / FORCE_COLOR）会给 `--version` 插入 ANSI 颜色码，
+        直接匹配原始输出会失败，故先剥离颜色码再断言。
+        """
+        result = runner.invoke(app, ["--help"])
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+
+        assert "--version" in plain
 
 
 class TestDetectCourseType:
