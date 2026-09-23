@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4.2] - 2026-09-23
+
+### Features
+
+- **cli**: Add zhs --version / -v backed by package metadata
+- **cli**: Add zhs --version / -v and sync dev after release
+
+### Testing
+
+- **cli**: Strip ANSI codes when asserting --version appears in help
+- **cli**: Make --version help assertion robust to ANSI colors
+
+### Miscellaneous
+
+- **release**: Fast-forward dev after publish and keep uv.lock version in sync
+
 ## [0.1.4.1] - 2026-09-23
 
 ### Bug Fixes
