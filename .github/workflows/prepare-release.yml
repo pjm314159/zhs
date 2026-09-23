@@ -50,12 +50,29 @@ jobs:
             exit 1
           fi
 
-      - name: Bump version in pyproject.toml
+      - name: Bump version (pyproject.toml + uv.lock)
         env:
           VERSION: ${{ inputs.version }}
         run: |
           sed -i -E "s|^version = \"[^\"]+\"$|version = \"$VERSION\"|" pyproject.toml
           grep -E '^version = ' pyproject.toml
+
+          # uv.lock 里记录了本包自身的版本，一并对齐，避免发布后本地 uv run 把它改脏
+          python3 - "$VERSION" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          version = sys.argv[1]
+          lock = pathlib.Path("uv.lock")
+          text = lock.read_text(encoding="utf-8")
+          pattern = re.compile(r'(\[\[package\]\]\nname = "zhs"\nversion = ")[^"]+(")')
+          new_text, count = pattern.subn(rf"\g<1>{version}\g<2>", text, count=1)
+          if count != 1:
+              raise SystemExit("uv.lock 中未找到 zhs 自身的 [[package]] 版本条目")
+          lock.write_text(new_text, encoding="utf-8")
+          print(f"uv.lock zhs 版本 → {version}")
+          PY
 
       - name: Generate new changelog section (git-cliff)
         uses: orhun/git-cliff-action@v4
@@ -99,7 +116,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add pyproject.toml CHANGELOG.md
+          git add pyproject.toml uv.lock CHANGELOG.md
           git commit -m "chore(release): prepare v$VERSION"
           git push origin "HEAD:$BRANCH"
 

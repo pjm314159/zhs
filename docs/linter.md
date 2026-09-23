@@ -770,19 +770,23 @@ fix/xxx  ── 从 dev 切出，完成后合并回 dev
 ```
 1. 在 dev 分支开发、测试（功能分支 → dev）
 2. 触发发布准备：Actions → Prepare Release → Run workflow，输入版本号（如 0.1.5）
-   自动完成：bump pyproject.toml version + git-cliff 生成 CHANGELOG.md 新段落
+   自动完成：bump pyproject.toml version（含 uv.lock 中本包自身版本）+ git-cliff 生成 CHANGELOG.md 新段落
    自动完成：推送 chore/release-vX.Y.Z 分支并开 PR 到 main（标题 release: vX.Y.Z）
 3. 审阅并合并发布 PR（CHANGELOG 内容在此审阅）
 4. 在 main 上打 tag 并推送：git checkout main && git pull && git tag v0.1.5 && git push origin v0.1.5
 5. CI 自动（release.yml）：check → git-cliff 生成 release notes → build → GitHub Release → PyPI
+   → 最后把 main 快进同步回 dev（git push origin origin/main:dev），保证下一次发布准备的 CHANGELOG 完整
 ```
 
 > 为什么在打 tag 前生成：`main` 受规则集保护（`pull_request` 规则 + 无 bypass actor），机器人
 > 只能把提交推到 `dev`。
 > 必须人工补一次 `dev → main` 同步 PR。改为发布前生成后，发布结束即 `main == dev`，无需收尾。
 >
+> 注意：发布提交（版本号 + CHANGELOG 段落）只落在 `main`，因此 `release.yml` 末尾会把 `main` **快进**
+> 同步回 `dev`；该步骤允许失败（`dev` 有新提交时会拒绝非快进推送），失败不影响发布结果。
+>
 > 依赖设置：Prepare Release 需要仓库允许 Actions 创建 PR —— Settings → Actions → General →
-> Workflow permissions → 勾选 *Allow GitHub Actions to create and approve pull requests*
+> Workflow permissions → 勾选 *Allow GitHub Actions to create and approve pull requests*（当前已开启）
 > （未开启时分支仍会被推送，工作流会打印手动开 PR 的 compare 链接）。
 
 ### 9.4 Changelog 自动化
@@ -794,6 +798,7 @@ fix/xxx  ── 从 dev 切出，完成后合并回 dev
 - **触发时机**：发布准备（打 tag 之前）与推送 tag 时
 - **输出**：`CHANGELOG.md`（随发布 PR 合入 main）+ GitHub Release body
 - **注意**：标签尚不存在时必须带 `--unreleased`，否则 git-cliff 只渲染已存在的标签
+- **版本号同步**：发布准备会同时更新 `pyproject.toml`、`uv.lock`（其中记录本包自身版本）与 `CHANGELOG.md`
 
 本地预览：
 
