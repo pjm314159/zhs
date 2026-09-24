@@ -26,7 +26,14 @@ dependencies = [
     "beautifulsoup4>=4.12",  # HTML 标签剥离与实体转义（题目文本清洗）
 ]
 
-# 构建系统（src layout 需要）
+# 项目链接
+[project.urls]
+Homepage = "https://github.com/pjm314159/zhs"
+Repository = "https://github.com/pjm314159/zhs"
+Issues = "https://github.com/pjm314159/zhs/issues"
+Changelog = "https://github.com/pjm314159/zhs/blob/main/CHANGELOG.md"
+
+# 构建系统
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -45,7 +52,7 @@ dev = [
     "mypy>=1.13",            # 静态类型检查，strict 模式
 ]
 
-# CLI 入口点：安装后可直接运行 `zhs` 命令
+# CLI 入口点：
 [project.scripts]
 zhs = "zhs.__main__:app"
 
