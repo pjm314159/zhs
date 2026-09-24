@@ -8,6 +8,8 @@
 
 ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types of courses: Zhidao shared courses, Hike vocational education courses, and AI smart courses. Core capabilities include: QR code login, video progress simulation, popup quiz answering, AI auto homework and exams.
 
+> If this project helps you, please consider giving it a star ⭐
+
 ## Features
 
 - **Three Course Types Supported**: Zhidao / Hike / AI Smart Courses

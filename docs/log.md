@@ -409,4 +409,10 @@ API 参考：`.temp/questions_bank.md`
 - 文档：`docs/spec.md` §3.11 增补全局选项表；`docs/tutorial.md` §9 通用参数处补 `zhs --version` 用法；`README.md` / `README_zh.md` 的 CLI 特性行补充说明
 - 实测输出：`zhs --version` 与 `zhs -v` 均输出 `zhs 0.1.4.1`，退出码 0；`zhs --help` 的 Options 段列出 `--version  -v`
 - Refactor: ruff check/format + mypy 通过；pytest 全量 1170 passed；分支 `feat/cli-version`
+
+### Task 36 — 项目链接与 Star 提示 ✅
+- `pyproject.toml`：新增 `[project.urls]`（Homepage / Repository / Issues / Changelog），下次发版后会在 PyPI 页面侧边栏显示
+- `README.md` / `README_zh.md`：简介下方各加一行提示——中文「如果我的项目对你有帮助，欢迎 star ⭐」、英文对应翻译
+- Test: 仅文档与包元数据改动；`tomllib` 解析确认 `[project.urls]` 生效，`uv run` 运行后 `uv.lock` 未被改动
+- Refactor: ruff check/format + mypy 通过（无源码改动）；CI 全量测试通过；分支 `docs/project-links-and-star`
 - Refactor: ruff check/format + mypy（158 files）通过；pytest 全量 1165 passed；分支 `chore/prepare-release-flow`

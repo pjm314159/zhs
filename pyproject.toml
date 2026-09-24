@@ -26,6 +26,13 @@ dependencies = [
     "beautifulsoup4>=4.12",  # HTML 标签剥离与实体转义（题目文本清洗）
 ]
 
+# 项目链接（会显示在 PyPI 页面侧边栏）
+[project.urls]
+Homepage = "https://github.com/pjm314159/zhs"
+Repository = "https://github.com/pjm314159/zhs"
+Issues = "https://github.com/pjm314159/zhs/issues"
+Changelog = "https://github.com/pjm314159/zhs/blob/main/CHANGELOG.md"
+
 # 构建系统（src layout 需要）
 [build-system]
 requires = ["hatchling"]
