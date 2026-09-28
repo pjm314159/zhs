@@ -416,3 +416,32 @@ API 参考：`.temp/questions_bank.md`
 - `README.md` / `README_zh.md`：简介下方各加一行提示——中文「如果我的项目对你有帮助，欢迎 star ⭐」、英文对应翻译
 - Test: 仅文档与包元数据改动；`tomllib` 解析确认 `[project.urls]` 生效，`uv run` 运行后 `uv.lock` 未被改动
 - Refactor: ruff check/format + mypy 通过（无源码改动）；CI 全量测试通过；分支 `docs/project-links-and-star`
+
+### Task 37 — polymas 智慧课程（hikeAiCourse）基础层：fetch 命令支持 ✅
+- 背景：issue #14（2026 改版智慧课程迁移到 `hike-teaching-center.polymas.com`，三类 fetch 均查不到）；协议来自上游 PR VermiIIi0n/fuckZHS#168 + 探测脚本实测（`.temp/hike-new/`，文档 `.temp/polymas_dev.md`）；分支 `feat/polymas-course`
+- Red/Green（T1/T5/T2/T6 各自先行红灯确认）
+  - `src/zhs/config.py`：`UrlConfig` 新增 `polymas_api`（cloudapi.polymas.com）与 `polymas_origin`（hike-teaching-center.polymas.com）
+  - `src/zhs/session.py`：新增 `polymas_query` —— 明文 JSON + `jt-cas` JWT 作 `Authorization` 头（无 Bearer），Origin/Referer 指向 polymas_origin；信封校验 HTTP 2xx + body.code==200，失败 raise ApiError（异常链 `from exc`）；Cookie 无 jt-cas 时 ZhsError fail-fast 提示重新登录
+  - `src/zhs/polymas/`（新包）：`models.py::PolymasCourse`（alias 模型，数字 courseId/term before-validator 转 str，`term` property 取 terms[0]）；`course.py::PolymasCourseManager` —— 会话级 `get_user_detail` 查 1 次缓存（`school_nid`/`school_id` 双字段，getLoginSchoolInfo 不再需要）、`get_course_list` 分页拉全 + **courseType 严格过滤 hikeAiCourse**（shareCourse/mapCourse 留给知到/AI 模块防重复）+ 顶层 classId 为 null 时 classList 兜底查 1 次
+  - `src/zhs/cli/`：`course_type.py` VALID_COURSE_TYPES 加 `polymas`；`detect_course` 支持 `polymas:` 前缀自动检测（检查顺序在 ai 冒号分支之前）与显式 `--type polymas`；`course_resolver.py::ResolvedCourse` 新增 `polymas_course_id: str | None`（nid 风格 ID 不落 int 字段）；`fetch_service.py` 输出 `[Polymas] N 门课程` 并写入 `execution.json` 的 `polymas` 键（含 name/courseId/classId/term）；`display.py::course_tag` 加 `[Polymas]`（BRIGHT_GREEN）
+- Test: `tests/test_config.py`（polymas 域名默认值）、`tests/test_session.py::TestPolymasQuery`（5 用例：成功信封/JWT+Origin 头/业务 code!=401→ApiError/HTTP 错误/缺 jt-cas fail-fast/GET 支持）、`tests/polymas/test_course.py`（11 用例：模型 str 化/term/会话缓存/过滤/classList 兜底/兜底空数组/分页/schoolId 传参/ApiError 传播，fixture 照真实抓包结构）、`tests/cli/test_course_type.py`（前缀检测/validate/类型集合）、`tests/cli/test_course_resolver.py::TestPolymasResolve`（2 用例）、`tests/cli/services/test_fetch_service.py`（含 [Polymas] 输出与 execution.json 断言）
+- 已知边界：账号无真实 hikeAiCourse，`queryTree`/`record/report` 未实测（T3/T4 待 F10 数据，见 `.temp/polymas_dev.md` §4/§5）
+- Refactor: ruff check/format 通过；mypy 通过（163 files）；pytest 全量 **1191 passed**；分支 `feat/polymas-course`
+- Fix（实跑发现）：`get-current-user-detail` 仅支持 POST —— 初版实现为 GET，实跑 `zhs fetch` 服务端返回 `code=100000 系统异常`；对齐 probe 实测（probe_polymas.py 步骤 2 即 POST）改为 POST 空 body，测试补锁 method/空 body 断言（红→绿），实跑输出 `[Polymas] 0 门课程` 管线连通
+
+### Task 38 — polymas 智慧课程：资源树 + 播放器 + play 命令集成 ✅
+- 背景：Task 37 基础层（fetch 连通）之后的下一阶段；字段按 PR #168 反推实现，F10（真实 hikeAiCourse 响应）回来后校正；分支 `feat/polymas-course`
+- Red/Green（TDD 先行红灯确认）
+  - T3a `session.py::polymas_query` GET 分支支持 query params（`findStudyLibraryByCourseId` 是 GET + params，data 直接是 libraryFolderId 字符串）
+  - T3b `polymas/models.py`：`PolymasNodeDetail`（classify/title/ext）+ `PolymasNode`（nodeId str 化/completePercentage float 化/children 递归 + `classify`/`title` property + `flatten_videos()` 展平收集 `PolymasVideoNode`，folder 更新章节名，坏 ext JSON 容错为 `{}`）+ `PolymasVideoNode`（resource_id/title/chapter/oss_url/duration/is_finished/is_require/complete_percentage）
+  - T3c `polymas/course.py`：`library_folder_id()`（course_id 维度懒加载缓存，GET + params）、`get_resource_tree()`（classId/term 缺失 ZhsError 失败即停）、`get_video_nodes()`（展平 + 无 ossUrl/时长 0 过滤跳过 + warning 日志）
+  - 配置 `config.py`：新增 `PolymasConfig`（report_interval=30/report_jitter=5/base_speed=1.5/speed_jitter=0.15/pause_prob=0.0025/pause_duration=60）加入 `AppConfig.polymas`，TOML `[polymas]` 节读写支持
+  - T4 `polymas/video.py::PolymasVideoPlayer`：`play_course`（空列表提示/单视频异常隔离/TimeLimitExceeded+KeyboardInterrupt 冒泡/耗时统计）→ `play_video`（resource/detail 查服务端进度 → isFinished 或 completePercentage 达阈值跳过 → endWatchTime 达阈值跳过）→ `_main_loop`（随机速度 + 偶发暂停 + 随机上报间隔，对齐 zhidao/hike 反检测策略；上报失败不更新 last_submit；进度条 `\r` 刷新）+ `_resource_detail`/`_report`（区间报文，clientType 暂用 "Windows" TODO(F9/R3)）
+  - T6b `cli/services/play_service.py`：新增 `run_polymas`（courseId 字符串匹配课程 → `player.play_course(course, mgr)`，未找到 ValueError）；`run_courses` 加 polymas 分支（`polymas:` 前缀路由，保留原始字符串 ID）；`run_all` 加 polymas 段（`--type` in (None, "auto", "polymas")，单课失败隔离）；`__all__` 更新
+- Test: `tests/polymas/test_models.py`（14 用例）、`tests/polymas/test_course.py`（新增 TestResourceTree 8 用例：懒加载缓存/GET params/queryTree body/term int/失败即停/非视频过滤/跨调用缓存）、`tests/polymas/test_video.py`（11 用例，sleep/random/uniform/randint 全 patch 确定化）、`tests/test_config.py`（TestPolymasConfig + TOML 往返）、`tests/test_session.py`（GET params）、`tests/cli/services/test_play_service.py`（路由/匹配/未找到/配置传递/auto+polymas 全刷，26 用例）
+- 事故与修复（两次拖垮整机内存的根因链，全部定位并修复）
+  - **test_video.py 文件曾被回退 + BOM 叠加**：文件头叠了 4 个 BOM（12 字节），且此前修复过的 `random` patch `return_value=1` 被回退为 `return_value=0`——`0 < pause_prob(0.0025)` 恒真 → 60s 暂停永不结束 → `played_time` 永远等于 `last_submit` → `while` 死循环，每 30 轮一次 report mock 调用无限追加 → 内存吃光（faulthandler 转储定位到 `mock.py _increment_mock_call`）。已重新剥离 BOM + 改回 `return_value=1`，并以此教训确立规则：**polymas video 测试的 random patch 必须为 1**
+  - **test_zhidao_course_exception_continues 触发真实 `get_course_list` 分页循环**：该用例只 mock 知到/AI，`run_all` 新增 polymas 段用 MagicMock session 走真实代码——`items` 是 truthy mock（`not items` 不触发）、`total=int(mock)==1`（`__int__` 默认）、`fetched=0` 永不 `>=1` → `while True` 无限分页 → 无限分配直到 MemoryError（空错误消息即 `str(MemoryError())`，被 `except Exception` 吞掉）。修复：用例补 `PolymasCourseManager` mock（真实代码对真实响应正确，属测试隔离问题）
+  - 教训沉淀：**凡 mock session 走真实分页/播放循环的用例必须 mock 对应 Manager**；新增 faulthandler_timeout 护栏跑全量
+- Refactor: ruff check/format 全绿（修 test_video.py BOM、test_models.py/test_config.py 格式）；mypy 通过（166 files，`_resource_detail` 返回类型 `dict[str, object]`→`dict[str, Any]`）；pytest 全量 **1235 passed, 49 deselected**（124.8s）；分支 `feat/polymas-course`
+- Fix（PR #168 一致性复核发现）：班级 ID 来源链与 PR 流程存在偏差——PR 文档（api.md §2.2/§3）用 `studentClasses[0].classId`，初版实现只读顶层 `classId`。probe 实测响应两字段并存（shareCourse 样本中均为 null），若真实 hikeAiCourse 只填 `studentClasses`，原实现会多打一次 classList（结果仍对但偏离 PR）。按 TDD 补齐：`PolymasCourse` 新增 `student_classes` 字段 + `student_class_id()` 方法，manager 兜底链改为 **顶层 classId → studentClasses[0].classId → classList**（红 3 失败 → 绿 47 passed；新增用例含 studentClasses 有值时跳过 classList 的请求次数断言）；全量 **1238 passed, 49 deselected**（80.1s）

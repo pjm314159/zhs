@@ -15,6 +15,7 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
     """获取课程列表"""
     from zhs.ai.course import AiCourseManager
     from zhs.hike.course import HikeCourseManager
+    from zhs.polymas.course import PolymasCourseManager
     from zhs.utils.display import course_tag
     from zhs.utils.path import get_data_dir
     from zhs.zhidao.course import ZhidaoCourseManager
@@ -23,11 +24,13 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
     zhidao_ids: list[dict[str, Any]] = []
     hike_ids: list[dict[str, Any]] = []
     ai_ids: list[dict[str, Any]] = []
+    polymas_ids: list[dict[str, Any]] = []
 
     if fetch_type in ("all", "course"):
         zhidao_mgr = ZhidaoCourseManager(session)
         hike_mgr = HikeCourseManager(session)
         ai_mgr = AiCourseManager(session)
+        polymas_mgr = PolymasCourseManager(session)
 
         # extract_course_id：顶层 courseId 为 0 时回退 courseInfo.courseId，避免输出 0 给用户
         zhidao_ids = [{"name": c.course_name, "courseId": extract_course_id(c)} for c in zhidao_mgr.get_course_list()]
@@ -40,6 +43,16 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
             }
             for c in ai_mgr.get_ai_course_list()
         ]
+        # polymas：courseType 严格过滤 hikeAiCourse（manager 内），避免与知到/AI 重复
+        polymas_ids = [
+            {
+                "name": c.course_name,
+                "courseId": c.course_id,
+                "classId": c.class_id,
+                "term": c.term,
+            }
+            for c in polymas_mgr.get_course_list()
+        ]
 
         print(f"{course_tag('zhidao')} {len(zhidao_ids)} 门课程")
         for c in zhidao_ids:
@@ -50,9 +63,12 @@ def fetch_course_list(session: ZhsSession, fetch_type: str = "all") -> None:
         print(f"{course_tag('ai')} {len(ai_ids)} 门课程")
         for c in ai_ids:
             print(f"  {c['name']} (courseId={c['courseId']}, classId={c['classId']})")
+        print(f"{course_tag('polymas')} {len(polymas_ids)} 门课程")
+        for c in polymas_ids:
+            print(f"  {c['name']} (courseId={c['courseId']}, classId={c['classId']})")
 
     exec_path = get_data_dir() / "execution.json"
-    data = {"zhidao": zhidao_ids, "hike": hike_ids, "ai": ai_ids}
+    data = {"zhidao": zhidao_ids, "hike": hike_ids, "ai": ai_ids, "polymas": polymas_ids}
     with open(exec_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 

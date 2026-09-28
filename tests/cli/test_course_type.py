@@ -42,8 +42,8 @@ class TestValidCourseTypes:
     """VALID_COURSE_TYPES 常量"""
 
     def test_contains_all_expected_types(self) -> None:
-        """包含 zhidao/hike/ai/auto"""
-        assert set(VALID_COURSE_TYPES) == {"zhidao", "hike", "ai", "auto"}
+        """包含 zhidao/hike/ai/polymas/auto"""
+        assert set(VALID_COURSE_TYPES) == {"zhidao", "hike", "ai", "polymas", "auto"}
 
 
 class TestDetectCourseType:
@@ -156,6 +156,12 @@ class TestDetectCourse:
         assert detected == "ai"
         assert course is None
 
+    def test_polymas_prefix_returns_none_course(self) -> None:
+        """polymas: 前缀 → polymas，且不带课程对象（courseId 可能 nid 风格）"""
+        detected, course = detect_course("polymas:wraJQrmek5uZG2Wo0rd8")
+        assert detected == "polymas"
+        assert course is None
+
     def test_explicit_zhidao_missing_course_raises(self) -> None:
         """显式 zhidao 但列表无匹配 → ValueError"""
         mock_mgr = MagicMock()
@@ -177,6 +183,7 @@ class TestValidateCourseType:
         assert validate_course_type("zhidao") == "zhidao"
         assert validate_course_type("hike") == "hike"
         assert validate_course_type("ai") == "ai"
+        assert validate_course_type("polymas") == "polymas"
         assert validate_course_type("auto") == "auto"
 
     def test_none_passes_through(self) -> None:

@@ -10,6 +10,22 @@ import pytest
 from zhs.cli.course_resolver import ResolvedCourse, resolve_course_id
 
 
+class TestPolymasResolve:
+    """polymas 课程解析（issue #14，courseId 可能 nid 风格字符串）"""
+
+    def test_polymas_prefix_auto_detected(self) -> None:
+        """polymas: 前缀 → 自动检测为 polymas，保留原始字符串 ID"""
+        result = resolve_course_id("polymas:wraJQrmek5uZG2Wo0rd8")
+        assert result.type == "polymas"
+        assert result.polymas_course_id == "wraJQrmek5uZG2Wo0rd8"
+
+    def test_polymas_explicit_type_numeric_id(self) -> None:
+        """显式 polymas + 纯数字 courseId → 同样走字符串字段"""
+        result = resolve_course_id("3001", "polymas")
+        assert result.type == "polymas"
+        assert result.polymas_course_id == "3001"
+
+
 class TestResolveCourseId:
     """resolve_course_id"""
 

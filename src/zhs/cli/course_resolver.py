@@ -18,7 +18,7 @@ from zhs.cli.course_type import detect_course, parse_ai_course_str
 class ResolvedCourse:
     """解析后的课程信息"""
 
-    type: str  # "zhidao" / "hike" / "ai"
+    type: str  # "zhidao" / "hike" / "ai" / "polymas"
     course_id: int
     # AI 课程专用
     class_id: int | None = None
@@ -26,6 +26,8 @@ class ResolvedCourse:
     rac_id: str | None = None
     # 知到专用（recruitId；作业/考试需要，课程未提供时为 None）
     recruit_id: int | None = None
+    # polymas 专用（courseId 可能 nid 风格字符串，不落 course_id:int）
+    polymas_course_id: str | None = None
 
 
 def resolve_course_id(
@@ -71,6 +73,10 @@ def resolve_course_id(
         if parsed is None:
             raise ValueError(f"AI 课程 ID 格式错误: {course_id_str}")
         return ResolvedCourse(type="ai", course_id=parsed[0], class_id=parsed[1])
+
+    # polymas：原始字符串 ID（可能 nid 风格），course_id 占位 0
+    if detected == "polymas":
+        return ResolvedCourse(type="polymas", course_id=0, polymas_course_id=course_id_str.removeprefix("polymas:"))
 
     raise ValueError(f"未知课程类型: {detected}")
 

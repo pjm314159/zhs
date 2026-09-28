@@ -12,6 +12,7 @@ from zhs.config import (
     ConfigManager,
     CryptoConfig,
     ExamConfig,
+    PolymasConfig,
     QuestionBankConfig,
     UrlConfig,
 )
@@ -72,6 +73,12 @@ class TestUrlConfig:
         assert u.hike == "https://hike.zhihuishu.com"
         assert u.ai == "https://kg-ai-run.zhihuishu.com"
 
+    def test_polymas_urls(self) -> None:
+        """polymas 平台域名（issue #14 新课程类型）"""
+        u = UrlConfig()
+        assert u.polymas_api == "https://cloudapi.polymas.com"
+        assert u.polymas_origin == "https://hike-teaching-center.polymas.com"
+
     def test_custom_values(self) -> None:
         u = UrlConfig(base="http://localhost:8080")
         assert u.base == "http://localhost:8080"
@@ -114,6 +121,33 @@ class TestExamConfig:
         assert e.save_nums == 1
         assert e.delay_min == 1.0
         assert e.delay_max == 2.0
+
+
+# ---------------------------------------------------------------------------
+# PolymasConfig
+# ---------------------------------------------------------------------------
+
+
+class TestPolymasConfig:
+    def test_default_values(self) -> None:
+        p = PolymasConfig()
+        assert p.report_interval == 30
+        assert p.report_jitter == 5
+        assert p.base_speed == 1.5
+        assert p.speed_jitter == 0.15
+        assert p.pause_prob == 0.0025
+        assert p.pause_duration == 60
+
+    def test_custom_values(self) -> None:
+        p = PolymasConfig(
+            report_interval=20, report_jitter=3, base_speed=2.0, speed_jitter=0.1, pause_prob=0.01, pause_duration=30
+        )
+        assert p.report_interval == 20
+        assert p.report_jitter == 3
+        assert p.base_speed == 2.0
+        assert p.speed_jitter == 0.1
+        assert p.pause_prob == 0.01
+        assert p.pause_duration == 30
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +235,11 @@ class TestAppConfig:
         assert cfg.question_bank.enabled is True
         assert cfg.question_bank.token == "tok-123"
         assert cfg.question_bank.scopes == ["zhidao_exam", "ai_exam"]  # 默认值不变
+
+    def test_nested_polymas_override(self) -> None:
+        cfg = AppConfig(polymas=PolymasConfig(report_interval=20))
+        assert cfg.polymas.report_interval == 20
+        assert cfg.polymas.base_speed == 1.5  # 默认值不变
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +372,24 @@ http = "http://127.0.0.1:8080"
         cfg = mgr.load()
         assert cfg.proxies.to_dict() == {"http": "http://127.0.0.1:8080"}
 
+    def test_load_polymas_section(self, tmp_path: Path) -> None:
+        """加载 polymas 子配置"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[polymas]
+report_interval = 20
+report_jitter = 3
+pause_prob = 0.01
+"""
+        )
+        mgr = ConfigManager(config_file)
+        cfg = mgr.load()
+        assert cfg.polymas.report_interval == 20
+        assert cfg.polymas.report_jitter == 3
+        assert cfg.polymas.pause_prob == 0.01
+        assert cfg.polymas.base_speed == 1.5  # 默认值
+
 
 # ---------------------------------------------------------------------------
 # ConfigManager — TOML 保存
@@ -385,6 +442,17 @@ class TestConfigManagerSave:
         assert loaded.question_bank.enabled is True
         assert loaded.question_bank.token == "tok-xyz"
         assert loaded.question_bank.scopes == ["ai_homework"]
+
+    def test_save_preserves_polymas(self, tmp_path: Path) -> None:
+        """保存和加载保留 polymas 配置"""
+        config_file = tmp_path / "config.toml"
+        cfg = AppConfig(polymas=PolymasConfig(report_interval=20, pause_prob=0.01))
+        mgr = ConfigManager(config_file)
+        mgr.save(cfg)
+        loaded = mgr.load()
+        assert loaded.polymas.report_interval == 20
+        assert loaded.polymas.pause_prob == 0.01
+        assert loaded.polymas.base_speed == 1.5  # 默认值
 
     def test_roundtrip_all_defaults(self, tmp_path: Path) -> None:
         """默认值保存后加载一致"""

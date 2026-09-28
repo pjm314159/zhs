@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from zhs.config import AppConfig
-from zhs.exceptions import ApiError, CaptchaRequired
+from zhs.exceptions import ApiError, CaptchaRequired, ZhsError
 from zhs.session import ZhsSession
 
 
@@ -318,3 +318,81 @@ class TestCookieSetter:
         c.set("key1", "value1")
         session.cookies = c
         assert session._cookies.get("key1") == "value1"
+
+
+# ---------------------------------------------------------------------------
+# polymas_query（明文 JSON + jt-cas JWT，issue #14）
+# ---------------------------------------------------------------------------
+
+_POLYMAS_URL = "https://cloudapi.polymas.com/student-course/student/index/queryStudentCourse"
+
+
+class TestPolymasQuery:
+    def test_success_returns_full_body(self, session: ZhsSession, mock_http: Any) -> None:
+        """HTTP 200 + code 200 → 返回完整响应 dict，携带 JWT/Origin 头"""
+        session.cookies = httpx.Cookies()
+        session._cookies.set("jt-cas", "token-jwt", domain="polymas.com")
+        route = respx.post(_POLYMAS_URL).mock(
+            return_value=httpx.Response(200, json={"code": 200, "msg": "success", "data": {"total": 2}})
+        )
+        result = session.polymas_query(_POLYMAS_URL, {"keyword": ""})
+        assert result["code"] == 200
+        assert result["data"] == {"total": 2}
+        req = route.calls.last.request
+        assert req.headers["Authorization"] == "token-jwt"
+        assert req.headers["Origin"] == "https://hike-teaching-center.polymas.com"
+        assert "application/json" in req.headers["content-type"]
+
+    def test_business_error_raises_api_error(self, session: ZhsSession, mock_http: Any) -> None:
+        """业务 code != 200 → ApiError，code/msg 保留"""
+        session.cookies = httpx.Cookies()
+        session._cookies.set("jt-cas", "token-jwt", domain="polymas.com")
+        respx.post(_POLYMAS_URL).mock(
+            return_value=httpx.Response(200, json={"code": 401, "msg": "未登录", "data": None})
+        )
+        with pytest.raises(ApiError) as ei:
+            session.polymas_query(_POLYMAS_URL, {})
+        assert ei.value.code == 401
+        assert ei.value.message == "未登录"
+
+    def test_http_error_raises_api_error(self, session: ZhsSession, mock_http: Any) -> None:
+        """HTTP 非 200 → ApiError（异常链保留）"""
+        session.cookies = httpx.Cookies()
+        session._cookies.set("jt-cas", "token-jwt", domain="polymas.com")
+        respx.post(_POLYMAS_URL).mock(return_value=httpx.Response(502, text="bad gateway"))
+        with pytest.raises(ApiError):
+            session.polymas_query(_POLYMAS_URL, {})
+
+    def test_missing_jt_cas_fails_fast(self, session: ZhsSession, mock_http: Any) -> None:
+        """无 jt-cas Cookie → ZhsError，提示重新登录，不发请求"""
+        session.cookies = httpx.Cookies()
+        with pytest.raises(ZhsError, match="jt-cas"):
+            session.polymas_query(_POLYMAS_URL, {})
+
+    def test_get_method_supported(self, session: ZhsSession, mock_http: Any) -> None:
+        """method="GET" 走 GET 请求"""
+        session.cookies = httpx.Cookies()
+        session._cookies.set("jt-cas", "token-jwt", domain="polymas.com")
+        route = respx.get("https://cloudapi.polymas.com/user/user/v2/get-current-user-detail").mock(
+            return_value=httpx.Response(200, json={"code": 200, "data": {"userNid": "Qw"}})
+        )
+        result = session.polymas_query(
+            "https://cloudapi.polymas.com/user/user/v2/get-current-user-detail", method="GET"
+        )
+        assert result["data"]["userNid"] == "Qw"
+        assert route.calls.last.request.method == "GET"
+
+    def test_get_method_with_params(self, session: ZhsSession, mock_http: Any) -> None:
+        """GET 请求 data 作为 query params 发送（findStudyLibraryByCourseId 需要）"""
+        session.cookies = httpx.Cookies()
+        session._cookies.set("jt-cas", "token-jwt", domain="polymas.com")
+        route = respx.get("https://cloudapi.polymas.com/library").mock(
+            return_value=httpx.Response(200, json={"code": 200, "data": "ashq8p9iZT"})
+        )
+        result = session.polymas_query(
+            "https://cloudapi.polymas.com/library", {"courseId": "c1", "term": "20271"}, method="GET"
+        )
+        assert result["data"] == "ashq8p9iZT"
+        req = route.calls.last.request
+        assert req.url.params["courseId"] == "c1"
+        assert req.url.params["term"] == "20271"

@@ -80,6 +80,8 @@ def course_tag(course_type: str) -> str:
         return styled("[Hike]", _C.BOLD, _C.BRIGHT_YELLOW)
     elif course_type == "ai":
         return styled("[AI]", _C.BOLD, _C.BRIGHT_MAGENTA)
+    elif course_type == "polymas":
+        return styled("[Polymas]", _C.BOLD, _C.BRIGHT_GREEN)
     return styled(f"[{course_type}]", _C.BOLD)
 
 

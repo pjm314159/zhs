@@ -51,6 +51,9 @@ def run_courses(
                 run_zhidao(session, config, resolved.rac_id)
             elif resolved.type == "hike":
                 run_hike(session, config, c)
+            elif resolved.type == "polymas":
+                assert resolved.polymas_course_id is not None
+                run_polymas(session, config, resolved.polymas_course_id)
             elif resolved.type == "ai":
                 run_ai_by_str(session, config, c)
             else:
@@ -135,11 +138,33 @@ def run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:
     player.play_course(course_id, root)
 
 
+def run_polymas(session: ZhsSession, config: AppConfig, course_id: str) -> None:
+    """刷 Polymas 智慧课程（hikeAiCourse）"""
+    from zhs.polymas.course import PolymasCourseManager
+    from zhs.polymas.video import PolymasVideoPlayer
+
+    mgr = PolymasCourseManager(session)
+    player = PolymasVideoPlayer(
+        session,
+        config=config.polymas,
+        end_threshold=config.threshold,
+        time_limit=config.limit * 60,
+    )
+
+    for course in mgr.get_course_list():
+        if course.course_id == course_id:
+            player.play_course(course, mgr)
+            return
+    raise ValueError(f"未找到 courseId={course_id} 的 polymas 课程")
+
+
 def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = None) -> None:
-    """全刷模式：按 --type 过滤，先刷知到再刷 Hike 再刷 AI"""
+    """全刷模式：按 --type 过滤，先刷知到再刷 Hike 再刷 AI 再刷 Polymas"""
     from zhs.ai.course import AiCourseManager
     from zhs.hike.course import HikeCourseManager
     from zhs.hike.video import HikeVideoPlayer
+    from zhs.polymas.course import PolymasCourseManager
+    from zhs.polymas.video import PolymasVideoPlayer
     from zhs.utils.display import course_tag
     from zhs.zhidao.course import ZhidaoCourseManager
     from zhs.zhidao.video import ZhidaoVideoPlayer
@@ -222,6 +247,28 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
             logger.error(f"获取 AI 课程列表失败: {e}")
             print(f"获取 AI 课程列表失败: {e}")
 
+    # Polymas（智慧课程）
+    if course_type in (None, "auto", "polymas"):
+        try:
+            polymas_mgr = PolymasCourseManager(session)
+            polymas_player = PolymasVideoPlayer(
+                session,
+                config=config.polymas,
+                end_threshold=config.threshold,
+                time_limit=config.limit * 60,
+            )
+            p_courses = polymas_mgr.get_course_list()
+            print(f"\n{course_tag('polymas')} 发现 {len(p_courses)} 门课程")
+            for pc in p_courses:
+                try:
+                    polymas_player.play_course(pc, polymas_mgr)
+                except Exception as e:
+                    logger.error(f"智慧课程 {pc.course_name} 处理失败: {e}")
+                    print(f"智慧课程 {pc.course_name} 处理失败: {e}")
+        except Exception as e:
+            logger.error(f"获取智慧课程列表失败: {e}")
+            print(f"获取智慧课程列表失败: {e}")
+
 
 __all__ = [
     "dispatch_play_url",
@@ -230,5 +277,6 @@ __all__ = [
     "run_all",
     "run_courses",
     "run_hike",
+    "run_polymas",
     "run_zhidao",
 ]

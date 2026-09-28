@@ -22,6 +22,7 @@ from zhs.api.sso import SsoAuthenticator
 from zhs.api.zhidao_exam_api import ZhidaoExamApi
 from zhs.api.zhidao_homework_api import ZhidaoHomeworkApi
 from zhs.config import AppConfig, CryptoConfig, UrlConfig
+from zhs.exceptions import ApiError, ZhsError
 
 
 class ZhsSession:
@@ -173,6 +174,62 @@ class ZhsSession:
         注意：ok_code 参数为兼容旧 API 保留，策略表固定为 200。
         """
         return self._query.query("hike", url, data, method=method, sig=sig)
+
+    def polymas_query(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        method: str = "POST",
+    ) -> dict[str, Any]:
+        """polymas 平台查询（明文 JSON + jt-cas JWT 鉴权，检查 code=200）
+
+        与加密查询完全不同：无 AES/secretStr，JWT 直接放 Authorization 头，
+        Origin/Referer 指向 hike-teaching-center.polymas.com。
+
+        Args:
+            url: 完整 URL（UrlConfig.polymas_api 域下）
+            data: JSON body（POST）或 query params（GET）
+            method: HTTP 方法，默认 POST
+
+        Returns:
+            完整响应 dict（含 code/msg/data）
+
+        Raises:
+            ZhsError: Cookie 中无 jt-cas（需重新登录）
+            ApiError: HTTP 状态非 2xx、响应非 JSON、或业务 code 非 200
+        """
+        token = next((c.value for c in self._cookies.jar if c.name == "jt-cas"), None)
+        if not token:
+            raise ZhsError("Cookie 中未找到 jt-cas，请先 zhs login 重新登录")
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                " AppleWebKit/537.36 (KHTML, like Gecko)"
+                " Chrome/149.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/plain, */*",
+            "Authorization": token,
+            "Origin": self.urls.polymas_origin,
+            "Referer": f"{self.urls.polymas_origin}/",
+            "Content-Type": "application/json",
+        }
+        client = self._get_client()
+        try:
+            if method.upper() == "GET":
+                resp = client.get(url, headers=headers, params=data)
+            else:
+                resp = client.post(url, headers=headers, json=data or {})
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ApiError(code=-1, message=f"polymas 请求失败: {exc}") from exc
+        try:
+            body: dict[str, Any] = resp.json()
+        except ValueError as exc:
+            raise ApiError(code=-1, message=f"polymas 响应非 JSON: {resp.text[:200]}") from exc
+        code = body.get("code")
+        if code != 200:
+            raise ApiError(code=int(code) if code is not None else -1, message=str(body.get("msg", "")))
+        return body
 
     def ai_exam_query(
         self,

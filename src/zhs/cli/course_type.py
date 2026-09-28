@@ -16,7 +16,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from zhs.zhidao.models import ZhidaoCourse
 
-VALID_COURSE_TYPES = ("zhidao", "hike", "ai", "auto")
+VALID_COURSE_TYPES = ("zhidao", "hike", "ai", "polymas", "auto")
 
 
 def validate_course_type(course_type: str | None) -> str | None:
@@ -74,6 +74,10 @@ def detect_course(
     """
     explicit = course_type if course_type not in (None, "auto") else None
 
+    # polymas 前缀检查须在 ai 冒号检查之前（"polymas:" 本身含冒号）
+    if explicit == "polymas" or (explicit is None and course_id.startswith("polymas:")):
+        # polymas courseId 可能是 nid 风格字符串，不做数字校验
+        return "polymas", None
     if explicit == "ai" or (explicit is None and ":" in course_id):
         return "ai", None
     if explicit == "hike":

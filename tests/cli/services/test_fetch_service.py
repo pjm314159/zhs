@@ -15,6 +15,7 @@ from zhs.cli.services.fetch_service import fetch_course_list
 class TestFetchCourseList:
     """fetch_course_list"""
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -23,6 +24,7 @@ class TestFetchCourseList:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """fetch_type=all 写入 execution.json"""
@@ -60,6 +62,7 @@ class TestFetchCourseList:
         assert len(data["ai"]) == 1
         assert data["ai"][0]["courseId"] == 100
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -68,6 +71,7 @@ class TestFetchCourseList:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """知到顶层 courseId 为 0 时输出 courseInfo.courseId，不输出 0 给用户"""
@@ -87,6 +91,7 @@ class TestFetchCourseList:
         data = json.loads((tmp_path / "execution.json").read_text(encoding="utf-8"))
         assert data["zhidao"][0]["courseId"] == 88888
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -95,6 +100,7 @@ class TestFetchCourseList:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -111,6 +117,7 @@ class TestFetchCourseList:
         captured = capsys.readouterr()
         assert "0 门课程" in captured.out
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -119,6 +126,7 @@ class TestFetchCourseList:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """fetch_type 非 all/course 时不调用课程列表 API"""
@@ -135,8 +143,9 @@ class TestFetchCourseList:
         exec_path = tmp_path / "execution.json"
         assert exec_path.exists()
         data = json.loads(exec_path.read_text(encoding="utf-8"))
-        assert data == {"zhidao": [], "hike": [], "ai": []}
+        assert data == {"zhidao": [], "hike": [], "ai": [], "polymas": []}
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -145,6 +154,7 @@ class TestFetchCourseList:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """fetch_type=course 等价于 all，调用所有列表 API"""
@@ -161,6 +171,7 @@ class TestFetchCourseList:
         mock_hike_cls.return_value.get_course_list.assert_called_once()
         mock_ai_cls.return_value.get_ai_course_list.assert_called_once()
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -169,6 +180,7 @@ class TestFetchCourseList:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """execution.json 使用 indent=4 格式化"""
@@ -185,3 +197,39 @@ class TestFetchCourseList:
         content = exec_path.read_text(encoding="utf-8")
         # indent=4 应包含 4 个空格的缩进
         assert "    " in content
+
+    @patch("zhs.polymas.course.PolymasCourseManager")
+    @patch("zhs.ai.course.AiCourseManager")
+    @patch("zhs.hike.course.HikeCourseManager")
+    @patch("zhs.zhidao.course.ZhidaoCourseManager")
+    def test_fetch_all_includes_polymas(
+        self,
+        mock_zhidao_cls: MagicMock,
+        mock_hike_cls: MagicMock,
+        mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """fetch_type=all 输出 [Polymas] 课程（courseType 过滤后仅 hikeAiCourse）"""
+        mock_zhidao_cls.return_value.get_course_list.return_value = []
+        mock_hike_cls.return_value.get_course_list.return_value = []
+        mock_ai_cls.return_value.get_ai_course_list.return_value = []
+
+        mock_course = MagicMock()
+        mock_course.course_name = "智慧课程1"
+        mock_course.course_id = "3001"
+        mock_course.class_id = "203843"
+        mock_course.term = "20271"
+        mock_polymas_cls.return_value.get_course_list.return_value = [mock_course]
+
+        session = MagicMock()
+
+        with patch("zhs.utils.path.get_data_dir", return_value=tmp_path):
+            fetch_course_list(session, fetch_type="all")
+
+        data = json.loads((tmp_path / "execution.json").read_text(encoding="utf-8"))
+        assert data["polymas"] == [{"name": "智慧课程1", "courseId": "3001", "classId": "203843", "term": "20271"}]
+        captured = capsys.readouterr()
+        assert "[Polymas]" in captured.out
+        assert "1 门课程" in captured.out

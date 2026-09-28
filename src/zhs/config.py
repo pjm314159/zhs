@@ -10,6 +10,8 @@
   - ProxyConfig（代理设置）
   - QRConfig（二维码设置）
   - AIConfig（AI 配置）
+  - ExamConfig（考试配置）
+  - PolymasConfig（polymas 播放/上报配置）
   - CryptoConfig（加密密钥）
   - UrlConfig（API URL）
 """
@@ -110,6 +112,8 @@ class UrlConfig(BaseModel):
     taurusexam: str = "https://taurusexam-api.zhihuishu.com"
     ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"
     newbase: str = "https://newbase.zhihuishu.com"
+    polymas_api: str = "https://cloudapi.polymas.com"
+    polymas_origin: str = "https://hike-teaching-center.polymas.com"
 
 
 class AIConfig(BaseModel):
@@ -133,6 +137,17 @@ class ExamConfig(BaseModel):
     save_nums: int = Field(default=5, description="每批保存答案的题目数量")
     delay_min: float = Field(default=3.0, description="每题保存后最小延迟（秒，缓存/随机答案用）")
     delay_max: float = Field(default=5.0, description="每题保存后最大延迟（秒，缓存/随机答案用）")
+
+
+class PolymasConfig(BaseModel):
+    """polymas 智慧课程播放/上报配置（全部随机化，对齐 zhidao 反检测策略）"""
+
+    report_interval: int = Field(default=30, description="进度上报基准间隔（秒）")
+    report_jitter: int = Field(default=5, description="上报间隔抖动半宽（实际间隔 = interval ± jitter 内随机）")
+    base_speed: float = Field(default=1.5, description="默认播放速度（倍速基准）")
+    speed_jitter: float = Field(default=0.15, description="速度抖动半宽（每次上报后重抽）")
+    pause_prob: float = Field(default=0.0025, description="偶发暂停概率（模拟人类离开）")
+    pause_duration: int = Field(default=60, description="偶发暂停时长（秒）")
 
 
 class QuestionBankConfig(BaseModel):
@@ -165,6 +180,7 @@ class AppConfig(BaseModel):
     urls: UrlConfig = UrlConfig()
     ai: AIConfig = AIConfig()
     exam: ExamConfig = ExamConfig()
+    polymas: PolymasConfig = PolymasConfig()
     question_bank: QuestionBankConfig = QuestionBankConfig()
 
 
@@ -336,6 +352,10 @@ class ConfigManager:
         if "exam" in data:
             result["exam"] = ExamConfig(**data["exam"])
 
+        # [polymas] section
+        if "polymas" in data:
+            result["polymas"] = PolymasConfig(**data["polymas"])
+
         # [question_bank] section
         if "question_bank" in data:
             result["question_bank"] = QuestionBankConfig(**data["question_bank"])
@@ -376,6 +396,7 @@ class ConfigManager:
             "urls",
             "ai",
             "exam",
+            "polymas",
             "question_bank",
         )
         for section in sections:

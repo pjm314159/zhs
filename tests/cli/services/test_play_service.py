@@ -14,6 +14,7 @@ from zhs.cli.services.play_service import (
     run_all,
     run_courses,
     run_hike,
+    run_polymas,
     run_zhidao,
 )
 
@@ -74,6 +75,20 @@ class TestRunCourses:
         ):
             run_courses(session, config, ["100:200"], "ai")
         mock_run.assert_called_once_with(session, config, "100:200")
+
+    def test_polymas_course_routed(self) -> None:
+        """polymas: 前缀课程路由到 run_polymas（保留原始字符串 ID）"""
+        session = MagicMock()
+        config = _make_config()
+        with (
+            patch(
+                "zhs.cli.course_resolver.resolve_course_id",
+                return_value=ResolvedCourse(type="polymas", course_id=0, polymas_course_id="wraJQrmek5uZG2Wo0rd8"),
+            ),
+            patch("zhs.cli.services.play_service.run_polymas") as mock_run,
+        ):
+            run_courses(session, config, ["polymas:wraJQrmek5uZG2Wo0rd8"], None)
+        mock_run.assert_called_once_with(session, config, "wraJQrmek5uZG2Wo0rd8")
 
     def test_multiple_courses_processed(self) -> None:
         """多个课程依次处理"""
@@ -253,19 +268,82 @@ class TestRunHike:
         mock_player.play_course.assert_called_once_with("12345", mock_root)
 
 
+class TestRunPolymas:
+    """run_polymas"""
+
+    @patch("zhs.polymas.video.PolymasVideoPlayer")
+    @patch("zhs.polymas.course.PolymasCourseManager")
+    def test_calls_play_course(
+        self,
+        mock_mgr_cls: MagicMock,
+        mock_player_cls: MagicMock,
+    ) -> None:
+        """按 courseId 字符串匹配课程后调用 play_course"""
+        session = MagicMock()
+        config = _make_config()
+        mock_course = MagicMock()
+        mock_course.course_id = "wraJQrmek5uZG2Wo0rd8"
+        mock_mgr = MagicMock()
+        mock_mgr.get_course_list.return_value = [mock_course]
+        mock_mgr_cls.return_value = mock_mgr
+        mock_player = MagicMock()
+        mock_player_cls.return_value = mock_player
+
+        run_polymas(session, config, "wraJQrmek5uZG2Wo0rd8")
+
+        mock_player.play_course.assert_called_once_with(mock_course, mock_mgr)
+
+    @patch("zhs.polymas.video.PolymasVideoPlayer")
+    @patch("zhs.polymas.course.PolymasCourseManager")
+    def test_course_not_found_raises(
+        self,
+        mock_mgr_cls: MagicMock,
+        mock_player_cls: MagicMock,
+    ) -> None:
+        """courseId 不在列表中 → ValueError"""
+        session = MagicMock()
+        config = _make_config()
+        mock_mgr_cls.return_value.get_course_list.return_value = []
+        with pytest.raises(ValueError, match="未找到 courseId=nope 的 polymas 课程"):
+            run_polymas(session, config, "nope")
+
+    @patch("zhs.polymas.video.PolymasVideoPlayer")
+    @patch("zhs.polymas.course.PolymasCourseManager")
+    def test_player_uses_config(
+        self,
+        mock_mgr_cls: MagicMock,
+        mock_player_cls: MagicMock,
+    ) -> None:
+        """player 使用 config.polymas/threshold/limit"""
+        session = MagicMock()
+        config = _make_config()
+        config.limit = 5
+        mock_mgr_cls.return_value.get_course_list.return_value = []
+
+        with pytest.raises(ValueError):
+            run_polymas(session, config, "nope")
+
+        call_kwargs = mock_player_cls.call_args.kwargs
+        assert call_kwargs["config"] is config.polymas
+        assert call_kwargs["end_threshold"] == 0.91
+        assert call_kwargs["time_limit"] == 300
+
+
 class TestRunAll:
     """run_all"""
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_default_runs_all_three_types(
+    def test_default_runs_all_four_types(
         self,
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
     ) -> None:
-        """默认（None）运行 zhidao + hike + ai"""
+        """默认（None）运行 zhidao + hike + ai + polymas"""
         session = MagicMock()
         config = _make_config()
         mock_zhidao = MagicMock()
@@ -277,12 +355,16 @@ class TestRunAll:
         mock_ai = MagicMock()
         mock_ai_cls.return_value = mock_ai
         mock_ai.get_ai_course_list.return_value = []
+        mock_polymas = MagicMock()
+        mock_polymas_cls.return_value = mock_polymas
+        mock_polymas.get_course_list.return_value = []
 
         run_all(session, config, None)
 
         mock_zhidao.get_course_list.assert_called_once()
         mock_hike.get_course_list.assert_called_once()
         mock_ai.get_ai_course_list.assert_called_once()
+        mock_polymas.get_course_list.assert_called_once()
 
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
@@ -350,6 +432,7 @@ class TestRunAll:
         mock_zhidao_cls.assert_not_called()
         mock_hike_cls.assert_not_called()
 
+    @patch("zhs.polymas.course.PolymasCourseManager")
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.hike.course.HikeCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
@@ -358,8 +441,9 @@ class TestRunAll:
         mock_zhidao_cls: MagicMock,
         mock_hike_cls: MagicMock,
         mock_ai_cls: MagicMock,
+        mock_polymas_cls: MagicMock,
     ) -> None:
-        """--type auto 运行全部"""
+        """--type auto 运行全部（含 polymas）"""
         session = MagicMock()
         config = _make_config()
         mock_zhidao = MagicMock()
@@ -371,12 +455,41 @@ class TestRunAll:
         mock_ai = MagicMock()
         mock_ai_cls.return_value = mock_ai
         mock_ai.get_ai_course_list.return_value = []
+        mock_polymas = MagicMock()
+        mock_polymas_cls.return_value = mock_polymas
+        mock_polymas.get_course_list.return_value = []
 
         run_all(session, config, "auto")
 
         mock_zhidao.get_course_list.assert_called_once()
         mock_hike.get_course_list.assert_called_once()
         mock_ai.get_ai_course_list.assert_called_once()
+        mock_polymas.get_course_list.assert_called_once()
+
+    @patch("zhs.ai.course.AiCourseManager")
+    @patch("zhs.hike.course.HikeCourseManager")
+    @patch("zhs.zhidao.course.ZhidaoCourseManager")
+    @patch("zhs.polymas.course.PolymasCourseManager")
+    def test_type_polymas_only_runs_polymas(
+        self,
+        mock_polymas_cls: MagicMock,
+        mock_zhidao_cls: MagicMock,
+        mock_hike_cls: MagicMock,
+        mock_ai_cls: MagicMock,
+    ) -> None:
+        """--type polymas 只运行 polymas"""
+        session = MagicMock()
+        config = _make_config()
+        mock_polymas = MagicMock()
+        mock_polymas_cls.return_value = mock_polymas
+        mock_polymas.get_course_list.return_value = []
+
+        run_all(session, config, "polymas")
+
+        mock_polymas.get_course_list.assert_called_once()
+        mock_zhidao_cls.assert_not_called()
+        mock_hike_cls.assert_not_called()
+        mock_ai_cls.assert_not_called()
 
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
     def test_zhidao_list_exception_handled(
@@ -395,13 +508,15 @@ class TestRunAll:
 
     @patch("zhs.ai.course.AiCourseManager")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
+    @patch("zhs.polymas.course.PolymasCourseManager")
     def test_zhidao_course_exception_continues(
         self,
+        mock_polymas_cls: MagicMock,
         mock_zhidao_cls: MagicMock,
         mock_ai_cls: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """单个知到课程异常不中断"""
+        """单个知到课程异常不中断（polymas 需 mock：真实分页循环在 MagicMock 下不终止）"""
         session = MagicMock()
         config = _make_config()
         mock_course = MagicMock()
@@ -410,6 +525,7 @@ class TestRunAll:
         mock_zhidao_cls.return_value.get_course_list.return_value = [mock_course]
         mock_zhidao_cls.return_value.get_context.side_effect = Exception("err")
         mock_ai_cls.return_value.get_ai_course_list.return_value = []
+        mock_polymas_cls.return_value.get_course_list.return_value = []
 
         run_all(session, config, None)
         captured = capsys.readouterr()
