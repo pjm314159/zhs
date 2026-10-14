@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4.3] - 2026-10-14
+
+### Bug Fixes
+
+- **zhidao**: 原样发送弹窗题 questionIds，修复 lessonPopupExam 返回 -1
+- **ci**: Pin Python version range so lxml stops building from source
+- **zhidao**: 修复进度条 answering 不可达，补弹窗题调试日志
+- **zhidao**: 停机原因写入日志文件，不再只打 stdout
+- 补齐 Hike/CLI 的停机与失败日志
+
+### Documentation
+
+- Add GitHub project links to package metadata and a star request to READMEs
+- Add package project links, README star request, and tidy pyproject comments
+- Add project links and star request
+- **zhidao**: 同步弹窗题 questionIds 的真实类型
+- 记录 -12 停机日志可观测性与真机实测，教程补验证码恢复路径（Q11）
+
+### Styling
+
+- 删掉复述代码的注释
+
+### Reverted
+
+- Remove project urls and README star request
+
 ## [0.1.4.2] - 2026-09-23
 
 ### Features

@@ -7,7 +7,7 @@
 name = "zhs"
 authors = [{name="pjm314159"}]
 license = "GPL-3.0-only"
-version = "0.1.4.2"
+version = "0.1.4.3"
 description = "智慧树刷课脚本"
 readme = "README.md"
 # 上界与 CI 矩阵一致：新版 Python 上 lxml 等二进制依赖尚无预编译轮子，放开会退回源码编译
