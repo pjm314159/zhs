@@ -133,18 +133,18 @@ Python 3.12+ 支持 PEP 695 类型参数语法，ruff `UP046` 要求泛型类使
 
 ```python
 # ✅ 正确：PEP 695 类型参数语法
-class BaseQuestionCache[T](ABC):
+class Repository[T]:
     def get(self, key: str) -> T | None: ...
     def put(self, key: str, value: T) -> None: ...
 
 # ❌ 错误：旧式 TypeVar + Generic
 from typing import Generic, TypeVar
 T = TypeVar("T")
-class BaseQuestionCache(Generic[T], ABC):
+class Repository(Generic[T]):
     ...
 ```
 
-> **项目应用**：`zhs.cache.base.BaseQuestionCache[T]` 使用此语法，子类 `ZhidaoHomeworkCache[HomeworkCacheEntry]` / `AiExamCache[dict[str, Any]]` 显式指定类型参数。
+> **说明**：当前源码中暂无泛型类（原 `zhs.cache.base.BaseQuestionCache[T]` 已随 JSON 缓存基类移除）；新写泛型类时必须使用 PEP 695 语法，ruff UP046 会强制检查。
 
 #### B006 — 可变默认参数
 
@@ -591,7 +591,7 @@ PEP 695 类型参数语法（`class Foo[T]:`）在 mypy 1.13+ 完全支持，无
 
 ```python
 # mypy 正确识别 T 为类型参数
-class BaseQuestionCache[T](ABC):
+class Repository[T]:
     def get(self, key: str) -> T | None: ...
 ```
 
