@@ -1671,9 +1671,9 @@ flowchart TD
         Ref1["[参考资料（如有）]"]
         Ctx1["假设你是一名学生，正在学习《{courseName}》。\n现在，你学习到了{theme}。\n本次考察知识点为{knowledgePoint}。"]
         Instruct1["本题为{answer_type}，请从选项中选择{最合适的答案/所有正确的答案}，\n回答放到 markdown 代码块中"]
-        Format1["```answer\n[{id: xxx, content: xxx}]\n```"]
+        Format1["answer 代码块：\n[{id: xxx, content: xxx}]"]
         Q1["{question}"]
-        Choices1["```choices\n{choices_json}\n```"]
+        Choices1["choices 代码块：\n{choices_json}"]
         Ref1 --> Ctx1 --> Instruct1 --> Format1 --> Q1 --> Choices1
     end
 
@@ -1681,7 +1681,7 @@ flowchart TD
         Ref2["[参考资料（如有）]"]
         Ctx2["假设你是一名学生..."]
         Instruct2["本题为填空题，请填写空白处内容，\n每空一行，放到 markdown 代码块中"]
-        Format2["```answer\n答案1\n答案2\n```"]
+        Format2["answer 代码块：\n答案1\n答案2"]
         Q2["{question}"]
         Ref2 --> Ctx2 --> Instruct2 --> Format2 --> Q2
     end
