@@ -29,7 +29,6 @@ tests/
 │   └── test_path.py                  # 路径工具
 ├── cache/                            # 统一缓存子包测试
 │   ├── __init__.py
-│   ├── test_base.py                  # BaseQuestionCache[T] 抽象基类
 │   ├── test_zhidao_cache.py          # ZhidaoHomeworkCache
 │   └── test_ai_cache.py              # AiExamCache
 ├── zhidao/
@@ -1055,44 +1054,7 @@ class TestHomeworkCacheCompat:
 
 ### 4.9 cache/ 子包
 
-#### 4.9.1 cache/test_base.py
-
-```python
-class TestBaseQuestionCache:
-    def test_path_format(self, tmp_path) -> None:
-        """缓存路径格式：{cache_dir}/{course_type}/{course_id}/{exam_id}.json"""
-        from zhs.cache.base import BaseQuestionCache
-
-        class DummyCache(BaseQuestionCache[dict]):
-            def _serialize(self, data: dict) -> dict:
-                return data
-            def _deserialize(self, raw: dict) -> dict:
-                return raw
-
-        cache = DummyCache(
-            cache_dir=tmp_path,
-            course_type="zhidao",
-            course_id="C1001",
-            exam_id="E2001",
-        )
-        assert cache.path == tmp_path / "zhidao" / "C1001" / "E2001.json"
-
-    def test_lazy_loading(self, tmp_path) -> None:
-        """懒加载：首次访问才读取文件"""
-        # 文件不存在时返回空字典
-        # 文件存在时加载内容
-        ...
-
-    def test_save_and_load_roundtrip(self, tmp_path) -> None:
-        """保存后重新加载一致"""
-        ...
-
-    def test_generic_type_parameter(self) -> None:
-        """PEP 695 泛型：BaseQuestionCache[T] 支持不同类型参数"""
-        ...
-```
-
-#### 4.9.2 cache/test_zhidao_cache.py
+#### 4.9.1 cache/test_zhidao_cache.py
 
 ```python
 class TestZhidaoHomeworkCache:

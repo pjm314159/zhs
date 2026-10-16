@@ -25,7 +25,6 @@ src/zhs/
 ├── reporter.py          # 进度报告器（ConsoleReporter / ProgressReporter）
 ├── cache/               # 统一缓存子包（SQLite 存储 questions_bank.db）
 │   ├── __init__.py
-│   ├── base.py          # BaseQuestionCache 旧基类（已弃用，保留兼容）
 │   ├── zhidao_cache.py  # ZhidaoHomeworkCache（SQLite 双键 eid+question_id）
 │   └── ai_cache.py      # AiExamCache（SQLite 单键 question_id，UPSERT）
 ├── zhidao/              # 知到共享课模块

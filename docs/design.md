@@ -27,7 +27,6 @@ e:\project\python\ZHS\
 │       ├── reporter.py         # 进度报告器（ConsoleReporter / ProgressReporter）
 │       ├── cache/              # 统一缓存子包（SQLite 存储）
 │       │   ├── __init__.py
-│       │   ├── base.py         # BaseQuestionCache 旧基类（已弃用，保留兼容）
 │       │   ├── zhidao_cache.py # ZhidaoHomeworkCache（SQLite 双键 eid+question_id）
 │       │   └── ai_cache.py     # AiExamCache（SQLite 单键 question_id，UPSERT）
 │       ├── zhidao/             # 知到共享课程
@@ -94,7 +93,6 @@ e:\project\python\ZHS\
 │   ├── test_reporter.py
 │   ├── cache/                  # 缓存测试
 │   │   ├── __init__.py
-│   │   ├── test_base.py        # BaseQuestionCache 旧基类测试
 │   │   ├── test_zhidao_cache.py     # ZhidaoHomeworkCache（SQLite）
 │   │   ├── test_zhidao_cache_db.py  # SQLite 双键/桥接/课程级查询测试
 │   │   └── test_ai_cache.py    # AiExamCache（SQLite）
@@ -725,13 +723,7 @@ class AiExamCache:
 - `search_in_course` 按 `question` 文本跨 exam 搜索，仅返回有答案的题目（仅 ExamCtx 调用）
 - `load_exam` 加载当前 exam 缓存到内存；`load_all_for_course` 保留为工具方法（不再被 exam_base 预加载）
 
-#### 2.6.4 base.py — 已弃用基类
-
-`BaseQuestionCache[T]` 是旧的 JSON 文件缓存基类（PEP 695 泛型）。
-`ZhidaoHomeworkCache` 与 `AiExamCache` 已迁移到独立 SQLite 实现，不再继承此类。
-`base.py` 保留但无子类使用，后续可清理。
-
-#### 2.6.5 zhidao/homework/cache.py — 兼容入口
+#### 2.6.4 zhidao/homework/cache.py — 兼容入口
 
 ```python
 """知到作业本地缓存管理（兼容入口）
@@ -2245,7 +2237,6 @@ flowchart LR
 - 滑块验证异常
 
 **cache/**：
-- `BaseQuestionCache` 路径管理、惰性加载、损坏文件处理
 - `ZhidaoHomeworkCache` 对错标记、AI 解析保存、选项匹配
 - `AiExamCache` 答案存取、`search_in_course` 跨 exam 查询、`parse_answer` 静态方法
 
@@ -2405,7 +2396,7 @@ flowchart TD
 14. **作业 API 加密**：知到作业 API（`studentexam-api`）使用 `exam_key` 加密，**不发送 `dateFormate`** 字段，与知到视频 API（`studyservice-api`）不同
 15. **AI 考试 API 加密**：AI 考试 API（`studentexamtest`）使用 `exam_key` 加密，**发送 `dateFormate`** 字段，检查 `code` 字段（与知到作业 API 不同）
 16. **禁止 asyncio**：项目不再使用 `asyncio`，所有代码同步实现；`session.py` 无 `_async_client`/`async_api_query`/`aclose` 等异步接口
-17. **统一缓存路径**：所有缓存路径格式为 `~/.zhs/cache/{course_type}/{course_id}/{exam_id}.json`，通过 `BaseQuestionCache` 子类实现
+17. **统一缓存存储**：题目缓存统一存 SQLite（`questions_bank.db`），由 `ZhidaoHomeworkCache`（双键 eid+question_id）与 `AiExamCache`（单键 question_id，UPSERT）实现；旧 JSON 文件缓存基类 `BaseQuestionCache` 已移除
 18. **PEP 695 泛型**：泛型类使用 `class Foo[T](ABC):` 语法（非 `Generic[T]`），ruff UP046 要求
 19. **循环导入**：`zhidao/homework/cache.py` 使用 PEP 562 `__getattr__` 懒加载；`analyzer.py`/`worker.py` 使用 `TYPE_CHECKING` 守卫仅用于类型注解的导入
 20. **模板方法模式**：`HomeworkCtx` 与 `ExamCtx` 必须继承 `AiExamBase`，公共流程在基类实现，差异通过抽象方法委托

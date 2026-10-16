@@ -443,3 +443,14 @@ API 参考：`.temp/questions_bank.md`
 - 修正：`delta=0.0` **不是预检专属**——主循环在随机暂停、弹窗答题后会以 `last_submit == played_time` 再次上报，同样打 `delta=0.0`。区分预检应结合紧邻的 `play_video: videoId=..., played=...s` 行（预检是新视频刚开播，紧跟该行）
 - 未测：自然恢复耗时（`-12` 持续多久自动解除）——本次只验证了"被拦后 3 分钟内未恢复"
 - Refactor: ruff check/format 通过；分支 `feat/captcha-observability` + `docs/captcha-recovery`
+
+### Task 39 — 移除已弃用的 cache/base.py JSON 缓存基类 ✅
+- 背景：`BaseQuestionCache[T]`（旧 JSON 文件缓存基类，PEP 695 泛型）自 `ZhidaoHomeworkCache` / `AiExamCache` 迁移到独立 SQLite 实现后已无任何生产代码引用，仅剩自身测试 `tests/cache/test_base.py` "续命"，`docs/design.md` §2.6.4 亦标注"后续可清理"
+- Green（纯删除，无新增代码）
+  - 删除 `src/zhs/cache/base.py` 与 `tests/cache/test_base.py`（13 用例）
+  - `src/zhs/cache/__init__.py`：docstring 移除"提供 BaseQuestionCache 抽象基类"与旧 JSON 路径格式描述，改为仅描述两个 SQLite 实现
+  - `docs/design.md`：结构树删除 `base.py` / `test_base.py` 两行；§2.6.4（已弃用基类）整节删除，§2.6.5 → §2.6.4 重新编号；测试范围清单删除 `BaseQuestionCache` 行；决策记录 #17 由"JSON 路径格式 + BaseQuestionCache 子类"改写为"SQLite questions_bank.db + 双实现"（原文早已过时）
+  - `docs/spec.md` / `docs/test.md`：结构树删除对应行；`test.md` §4.9.1（test_base.py 用例）删除，§4.9.2 → §4.9.1 重新编号
+  - `docs/linter.md`：UP046/§6.2 的 PEP 695 示例类由 `BaseQuestionCache[T]` 换为中性 `Repository[T]`；"项目应用"注改为"当前源码中暂无泛型类"（base.py 是 src 中唯一的 PEP 695 泛型类，删除后原注释失实）
+- Test: 删除测试本身；`tests/cache/` 72 passed，全量 1158 passed（较此前 1170 少 12 = test_base 用例数，符合预期）
+- Refactor: ruff check / format --check / mypy（156 文件）全部通过；分支 `refactor/cache-remove-base`
