@@ -56,5 +56,8 @@ class LLMProviderFactory:
                 api_key=ai_config.api_key,
                 base_url=ai_config.base_url,
                 model_name=ai_config.model,
+                # 流式空闲超时：部分模型（如 GLM-5.3-Flash）偶发长时间无首包，
+                # 默认 120s 会让单题白等两分钟，降到 60s 以便快速重试
+                timeout=60.0,
             )
         return None
