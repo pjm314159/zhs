@@ -157,6 +157,8 @@ zhs homework
 ```
 
 > AI course `learnPage` URLs containing `nodeUid` (knowledge point ID) use **direct mode** (only that knowledge point); `knowledgeStudy` URLs use **scan mode** (all).
+>
+> Knowledge points marked as exam-free (`freeExam=1`, excluded from mastery scoring) are skipped in homework mode with a `跳过(免考)` log line. `play` mode is unaffected — exam-free knowledge points still need their resources completed.
 
 ### 6. AI Course Exams
 

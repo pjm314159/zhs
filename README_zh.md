@@ -155,6 +155,8 @@ zhs homework
 ```
 
 > AI 课程 `learnPage` URL 含 `nodeUid`（知识点 ID）时走**直接模式**，只做该知识点作业；`knowledgeStudy` URL 走**扫描模式**全刷。
+>
+> 标记为免考的知识点（接口 `freeExam=1`，不计入掌握度）在作业模式下会自动跳过并输出「跳过(免考)」；`play` 模式不受影响，免考知识点仍需完成资源任务。
 
 ### 6. AI 课程考试
 
