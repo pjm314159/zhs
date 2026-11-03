@@ -75,6 +75,35 @@ class TestKnowledgePoint:
         assert kp.knowledge_name == "面向对象"
         assert kp.study_progress == 50
 
+    def test_free_exam_defaults(self) -> None:
+        """未提供免考相关字段时取默认值"""
+        kp = KnowledgePoint(knowledge_id=1, knowledge_name="变量")
+        assert kp.free_exam == 0
+        assert kp.mastery_percentage is None
+        assert kp.mastery_state == 0
+
+    def test_free_exam_from_api_json(self) -> None:
+        """解析免考知识点：freeExam=1 且掌握度为 null"""
+        data = {
+            "knowledgeId": 3,
+            "knowledgeName": "免考知识点",
+            "freeExam": 1,
+            "labelList": [4],
+            "masteryPercentage": None,
+            "masteryState": 5,
+        }
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 1
+        assert kp.mastery_percentage is None
+        assert kp.mastery_state == 5
+
+    def test_mastery_percentage_from_api_json(self) -> None:
+        """解析需掌握度知识点的分值"""
+        data = {"knowledgeId": 4, "knowledgeName": "必考知识点", "freeExam": 0, "masteryPercentage": 97}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+        assert kp.mastery_percentage == 97
+
 
 class TestTheme:
     """主题模型"""
@@ -165,6 +194,30 @@ class TestResourceDetail:
         assert rd.resources_uid == 100
         assert rd.resources_url == "https://example.com/video.mp4"
         assert rd.resources_file_id == 200
+
+    def test_empty_string_file_id_normalized(self) -> None:
+        """非文件类资源（文本/PPT）返回空串时归一为 0"""
+        data = {
+            "resourcesUid": 101,
+            "resourcesName": "教材片段选取",
+            "resourcesType": 4,
+            "resourcesDistributeType": 1,
+            "resourcesFileId": "",
+        }
+        rd = ResourceDetail.model_validate(data)
+        assert rd.resources_file_id == 0
+
+    def test_none_file_id_normalized(self) -> None:
+        """resourcesFileId 为 null 时归一为 0"""
+        data = {
+            "resourcesUid": 102,
+            "resourcesName": "课件",
+            "resourcesType": 2,
+            "resourcesDistributeType": 1,
+            "resourcesFileId": None,
+        }
+        rd = ResourceDetail.model_validate(data)
+        assert rd.resources_file_id == 0
 
 
 class TestResource:
