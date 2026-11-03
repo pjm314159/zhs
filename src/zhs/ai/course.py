@@ -342,6 +342,22 @@ class AiCourseManager:
                     return knowledge
         return None
 
+    def _find_theme_name(self, course_info: AiCourseInfo, knowledge: Any) -> str:
+        """反查知识点所属主题名（直接模式未传 theme 时使用）
+
+        Args:
+            course_info: 课程信息
+            knowledge: 目标知识点
+
+        Returns:
+            主题名称，未找到返回空字符串
+        """
+        for theme in course_info.cake_theme_list:
+            for item in theme.knowledge_list:
+                if item.knowledge_id == knowledge.knowledge_id:
+                    return theme.theme_name
+        return ""
+
     def _run_play_only(
         self,
         course_id: int,
@@ -473,7 +489,8 @@ class AiCourseManager:
                 ai_config=ai_config,
                 op_extra={
                     "courseName": course_info.course_name,
-                    "theme": theme.theme_name,
+                    # 直接模式（node_uid）下不传入 theme，改为按知识点反查所属主题
+                    "theme": theme.theme_name if theme is not None else self._find_theme_name(course_info, knowledge),
                     "knowledgePoint": knowledge.knowledge_name,
                 },
                 question_bank=question_bank,
