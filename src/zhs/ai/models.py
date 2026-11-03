@@ -32,6 +32,10 @@ class KnowledgePoint(BaseModel):
     knowledge_id: int = Field(alias="knowledgeId")
     knowledge_name: str = Field(alias="knowledgeName")
     study_progress: int = Field(default=0, alias="studyProgress")
+    # 免考标记：1 表示该知识点不计入掌握度考核，无需完成作业
+    free_exam: int = Field(default=0, alias="freeExam")
+    mastery_percentage: int | None = Field(default=None, alias="masteryPercentage")
+    mastery_state: int = Field(default=0, alias="masteryState")
 
 
 class Theme(BaseModel):

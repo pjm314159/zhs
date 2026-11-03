@@ -268,6 +268,13 @@ class AiCourseManager:
                 )
                 if no_homework:
                     self._run_play_only(course_id, class_id, knowledge, video_player, learn_optional, threshold)
+                elif knowledge.free_exam == 1:
+                    # homework 模式：免考知识点不计入掌握度，直接跳过
+                    self._reporter.tree_print(
+                        msg_skip(f"跳过(免考): {knowledge.knowledge_name}"), depth=2, enabled=True
+                    )
+                    self._reporter.print()
+                    return
                 else:
                     self._run_homework_only(
                         course_id,
@@ -294,6 +301,12 @@ class AiCourseManager:
                     # play 模式：只刷知识点，不查询作业
                     self._run_play_only(course_id, class_id, knowledge, video_player, learn_optional, threshold)
                 else:
+                    # homework 模式：免考知识点不计入掌握度，直接跳过
+                    if knowledge.free_exam == 1:
+                        self._reporter.tree_print(
+                            msg_skip(f"跳过(免考): {knowledge.knowledge_name}"), depth=2, enabled=True
+                        )
+                        continue
                     # homework 模式：只做作业，不刷视频
                     self._run_homework_only(
                         course_id,
