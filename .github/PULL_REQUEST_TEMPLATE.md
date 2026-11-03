@@ -65,5 +65,5 @@ uv run pytest                           # 测试（默认跳过 integration）
 - [ ] 公开函数具备完整类型注解；异常使用 `raise ... from e` 保留异常链
 - [ ] 日志使用 `loguru`，且未输出 cookie / token / password / apiKey 等敏感信息
 - [ ] 未在业务模块中调用 `logger.add()` / `logger.remove()`（日志配置统一在 CLI 入口）
-- [ ] 涉及行为变更时已同步更新 `README.md` / `README_zh.md` / `docs/`
+- [ ] 涉及行为变更时已同步更新 `README.md` / `README_en.md` / `docs/`
 - [ ] commit 消息遵循 Conventional Commits（会自动进入 CHANGELOG）
