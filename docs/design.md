@@ -598,7 +598,7 @@ stateDiagram-v2
 - **仅扫码登录**：已删除账号密码登录
 - `login_with_qr` 增加 `_max_retries` 参数防止二维码过期时无限递归
 - `gologin` 返回 HTML 不解析 JSON
-- Cookie 恢复由 CLI 的 `_try_restore_cookies` 处理，通过调用 `ZhidaoCourseManager.get_course_list()` 验证有效性
+- Cookie 恢复由 CLI 的 `try_restore_cookies()` 负责（纯本地读取）；登录态由 `verify_session()` 校验：先用 `CASTGC` 经 CAS 换票建立 `onlineservice-api` 域的 `SESSION`，再用 `getLoginUserInfo` 能否取到用户信息判定，不再依赖课程列表
 
 ### 2.6 cache/ — 统一缓存子包（SQLite 存储）
 
