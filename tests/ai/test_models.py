@@ -75,6 +75,23 @@ class TestKnowledgePoint:
         assert kp.knowledge_name == "面向对象"
         assert kp.study_progress == 50
 
+    def test_free_exam_defaults_to_zero(self) -> None:
+        """接口未下发 freeExam 时默认非免考"""
+        kp = KnowledgePoint(knowledge_id=1, knowledge_name="普通知识点")
+        assert kp.free_exam == 0
+
+    def test_free_exam_from_api_json(self) -> None:
+        """解析免考标记（freeExam=1）"""
+        data = {"knowledgeId": 2, "knowledgeName": "免考知识点", "freeExam": 1}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 1
+
+    def test_free_exam_zero_from_api_json(self) -> None:
+        """freeExam=0 表示需考核"""
+        data = {"knowledgeId": 3, "knowledgeName": "必考知识点", "freeExam": 0}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+
 
 class TestTheme:
     """主题模型"""
