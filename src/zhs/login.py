@@ -9,7 +9,6 @@ import time
 from base64 import b64decode
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import httpx
 from loguru import logger
@@ -17,7 +16,7 @@ from loguru import logger
 from zhs.config import AppConfig
 from zhs.exceptions import LoginFailed
 from zhs.session import ZhsSession
-from zhs.utils.cookie import cookies_to_list, list_to_cookies
+from zhs.utils.cookie import cookies_to_list, list_to_cookies, read_cookies_file
 
 
 class LoginResult:
@@ -140,7 +139,7 @@ class LoginManager:
             raise LoginFailed(f"扫码登录失败: {e}") from e
 
     def try_restore_cookies(self, cookies_path: Path) -> bool:
-        """尝试从文件恢复 cookies
+        """仅从文件恢复 cookies（不联网、不判定登录态）
 
         Args:
             cookies_path: cookies JSON 文件路径
@@ -148,24 +147,18 @@ class LoginManager:
         Returns:
             True 恢复成功，False 恢复失败（文件不存在/内容无效）
         """
-        if not cookies_path.exists():
+        cookies_data = read_cookies_file(cookies_path)
+        if cookies_data is None:
             return False
 
         try:
-            raw = cookies_path.read_text(encoding="utf-8")
-            if not raw.strip():
-                return False
-            cookies_data: list[dict[str, Any]] = json.loads(raw)
-            if not cookies_data:
-                return False
-
-            cookies = list_to_cookies(cookies_data)
-            self._session.cookies = cookies
-            logger.info("Successfully restored cookies from file")
-            return True
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            self._session.cookies = list_to_cookies(cookies_data)
+        except (KeyError, TypeError, ValueError):
             logger.warning("Failed to restore cookies from file")
             return False
+
+        logger.info("Successfully restored cookies from file")
+        return True
 
     def save_cookies(self, cookies_path: Path) -> None:
         """保存 cookies 到文件
