@@ -197,7 +197,7 @@ class RateLimitError(ZhsError):
 - `CaptchaRequired` 对应知到视频 API 的 `code=-12`
 - `SliderVerificationRequired` 对应作业 API 的滑块验证响应
 - `ApiUnavailableError` / `RateLimitError` 用于网络层与限流场景，便于上层重试或降级
-- **已删除** `InvalidCookies`（不再使用，Cookie 失效由 `_try_restore_cookies` 返回 False 处理）
+- **已删除** `InvalidCookies`（不再使用，会话失效由 `verify_session()` 返回 `SessionStatus.EXPIRED` 处理；`try_restore_cookies()` 只负责本地文件恢复）
 
 ### 2.2 crypto.py — 加解密模块
 

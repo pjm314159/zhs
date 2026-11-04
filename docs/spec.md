@@ -109,8 +109,9 @@ src/zhs/
 #### 3.2.2 Cookie 持久化
 
 - 将 cookies 序列化为 JSON 列表保存到 `~/.zhs/cookies.json`
-- 启动时尝试从 `cookies.json` 恢复会话
-- 恢复时验证 cookies 有效性（尝试获取课程列表）
+- 启动时先尝试从 `cookies.json` 本地恢复会话（只读取文件，不发请求）
+- 恢复成功后调用 `getLoginUserInfo` 校验会话：能取到用户信息（`result.uuid` / `result.username`）即视为有效，其余情况默认会话失效；不解析 `code`，不以课程列表等业务数据是否为空作为判据
+- 校验结果分三类：有效 / 会话失效（提示重新登录）/ 接口不可用（提示检查网络）
 - 设置 cookies 时自动解析 `uuid`（从 `CASLOGC` cookie 的 JSON 中提取），并设置 `exitRecod_{uuid}=2`
 
 ### 3.3 知到（Zhidao）共享课程
