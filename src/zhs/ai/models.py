@@ -65,6 +65,14 @@ class ResourceDetail(BaseModel):
     resources_file_id: int = Field(default=0, alias="resourcesFileId")
     resources_sync_type: int = Field(default=1, alias="resourcesSyncType")
 
+    @field_validator("resources_file_id", mode="before")
+    @classmethod
+    def _normalize_empty_file_id(cls, value: object) -> object:
+        """非文件类资源（文本/PPT）的 resourcesFileId 可能是空串或 null，归一为 0"""
+        if value is None or value == "":
+            return 0
+        return value
+
 
 class Resource(BaseModel):
     """资源"""
