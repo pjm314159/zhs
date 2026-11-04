@@ -607,3 +607,20 @@ class TestLoadConfigAndSession:
             load_config_and_session(debug=False, console_log=False, proxy=None)
 
         mock_check.assert_called_once_with(mock_config)
+
+
+class TestInitLlmTimeouts:
+    """知到作业/考试路径必须把两个超时都传给 OpenAIProvider"""
+
+    def test_init_llm_passes_both_timeouts(self) -> None:
+        config = _make_config()
+        config.ai.enabled = True
+        config.ai.api_key = "test-key"
+        config.ai.stream_timeout = 88.0
+        config.ai.stream_idle_timeout = 9.0
+
+        provider = init_llm(config)
+
+        assert provider is not None
+        assert provider._timeout == 88.0
+        assert provider._idle_timeout == 9.0

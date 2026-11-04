@@ -188,6 +188,8 @@ def init_llm(config: AppConfig) -> Any:
         base_url=ai.base_url,
         model_name=ai.model,
         max_token=ai.max_token,
+        timeout=ai.stream_timeout,
+        idle_timeout=ai.stream_idle_timeout,
     )
 
 

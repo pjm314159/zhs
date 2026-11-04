@@ -68,3 +68,20 @@ class TestLLMProviderFactoryCreate:
         provider = LLMProviderFactory.create(config)
         assert isinstance(provider, OpenAIProvider)
         assert provider._model_name == "deepseek-chat"
+
+
+class TestFactoryTimeoutPropagation:
+    """工厂路径必须把两个超时都传给 OpenAIProvider"""
+
+    def test_openai_provider_receives_both_timeouts(self) -> None:
+        config = AIConfig(
+            enabled=True,
+            use_builtin_ai=False,
+            api_key="sk-test",
+            stream_timeout=77.0,
+            stream_idle_timeout=12.0,
+        )
+        provider = LLMProviderFactory.create(config)
+        assert isinstance(provider, OpenAIProvider)
+        assert provider._timeout == 77.0
+        assert provider._idle_timeout == 12.0

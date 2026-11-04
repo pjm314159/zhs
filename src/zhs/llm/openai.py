@@ -10,12 +10,9 @@ from typing import Any
 from loguru import logger
 from openai import OpenAI
 
+from zhs.config import DEFAULT_STREAM_IDLE_TIMEOUT, DEFAULT_STREAM_TIMEOUT
 from zhs.exceptions import ZhsError
 from zhs.llm.base import LLMProvider
-
-# 流式空闲超时（秒）：这么久「连一个 delta 都没收到」才判定连接已死（正常再重试）。
-# 注意思考型模型会长时间只发 reasoning_content（delta.content 为空），此时空 delta 也是活跃信号。
-STREAM_IDLE_TIMEOUT = 30.0
 
 
 class OpenAIProvider(LLMProvider):
@@ -34,7 +31,8 @@ class OpenAIProvider(LLMProvider):
         max_retries: int = 3,
         retry_delay: float = 1.0,
         max_token: int = 27900,
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_STREAM_TIMEOUT,
+        idle_timeout: float = DEFAULT_STREAM_IDLE_TIMEOUT,
     ) -> None:
         self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
         self._model_name = model_name
@@ -43,6 +41,7 @@ class OpenAIProvider(LLMProvider):
         self._retry_delay = retry_delay
         self._max_token = max_token
         self._timeout = timeout
+        self._idle_timeout = idle_timeout
 
     def completion(
         self,
@@ -82,7 +81,7 @@ class OpenAIProvider(LLMProvider):
         否则后台 reader 会继续读取已被抛弃的响应，而队列再无人消费，
         每次 put 白等 5 秒才超时丢一个 chunk（同时白烧 token / 流量 / 连接）。
 
-        空闲超时（`get` 的 30s）语义是"**连一个 delta 都没收到**"：思考型模型只发
+        空闲超时（`idle_timeout`）语义是"**连一个 delta 都没收到**"：思考型模型只发
         `reasoning_content`（`delta.content` 为空）时，空 delta 也会入队作为活跃信号，
         避免长思考被误判为连接已死。
         """
@@ -149,7 +148,7 @@ class OpenAIProvider(LLMProvider):
                     raise ZhsError(f"OpenAI stream timeout after {self._timeout}s")
 
                 try:
-                    item = chunk_queue.get(timeout=min(remaining, STREAM_IDLE_TIMEOUT))
+                    item = chunk_queue.get(timeout=min(remaining, self._idle_timeout))
                 except Empty:
                     # 超时未收到 chunk
                     elapsed = time.monotonic() - start_time

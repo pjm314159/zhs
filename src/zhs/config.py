@@ -19,13 +19,17 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from zhs.utils.path import get_config_path
 
 # ============================================================
 # 配置模型（按功能分组）
 # ============================================================
+
+# 流式响应默认超时（秒）：AIConfig 与 OpenAIProvider 共用，避免两处硬编码
+DEFAULT_STREAM_TIMEOUT = 120.0
+DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 
 
 class VideoConfig(BaseModel):
@@ -126,6 +130,22 @@ class AIConfig(BaseModel):
     base_url: str = Field(default="https://api.openai.com/v1", description="API Base URL")
     model: str = Field(default="gpt-4o-mini", description="模型名称")
     max_token: int = Field(default=27900, description="最大 Token 数")
+    stream_timeout: float = Field(
+        default=DEFAULT_STREAM_TIMEOUT,
+        gt=0,
+        description="OpenAI 兼容接口流式响应总时长上限（秒），不得小于 stream_idle_timeout",
+    )
+    stream_idle_timeout: float = Field(
+        default=DEFAULT_STREAM_IDLE_TIMEOUT,
+        gt=0,
+        description="OpenAI 兼容接口相邻 chunk 空闲等待上限（秒），决定首包最长等待",
+    )
+
+    @model_validator(mode="after")
+    def _check_timeout_order(self) -> "AIConfig":
+        if self.stream_timeout < self.stream_idle_timeout:
+            raise ValueError("stream_timeout 不能小于 stream_idle_timeout（总时长必须覆盖首包等待）")
+        return self
 
 
 class ExamConfig(BaseModel):
