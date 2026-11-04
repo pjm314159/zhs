@@ -253,13 +253,15 @@ src/zhs/
 
 #### 3.5.5 AI 作业（HomeworkCtx）
 
+> **免考跳过**：派发前按 `[homework] skip_ai_free_exam`（默认 `true`）跳过 `freeExam=1` 的知识点，发生在 `query_homework` / LLM 调用之前；`play` 不受影响。知识点由 `_iter_targets()` 统一遍历，`KnowledgeTarget` 绑定真实主题名（直接模式不再出现 `theme=None`）。
+
 **作业流程**：
 1. 加载答案缓存（SQLite `ai_questions` 表）
 2. 打开作业（`openExam`）
 3. 启动心跳线程定期更新作业用时（`updateUserUsedTime`，daemon 线程，通过 `_stopped` 标志退出）
 4. 获取试卷内容（`getExamSheetInfo`）
 5. **顺序处理**题目（不并发，避免 API 限流）
-6. 每题保存后 sleep `homework.delay_min` ~ `delay_max` 秒
+6. 每题保存后 sleep 3 ~ 5 秒（`ai/homework.py` 硬编码；`[homework] delay_min/delay_max` 只用于知到作业）
 7. 提交作业（`submit`）
 8. 检查结果，更新答案缓存
 
@@ -313,6 +315,7 @@ src/zhs/
 - 支持 stream 模式
 - 支持 max_retries 和 retry_delay
 - Token 超长时自动截断（保留最后 `ai.max_token` tokens，默认 27900）
+- **流式超时可配置**：`[ai] stream_timeout`（默认 120.0 秒，整个流的总截止时间）与 `stream_idle_timeout`（默认 30.0 秒，相邻 chunk 空闲等待 / 首包最长等待）。默认值常量在 `zhs/config.py`，`AIConfig.model_validator` 校验 `stream_timeout >= stream_idle_timeout`（且 `> 0`）；运行时用 `min(remaining, idle_timeout)` 兜底。`LLMProviderFactory.create` 与 `cli.bootstrap.init_llm` 两条路径都传参。内置 AI（`use_builtin_ai=True`）走另一套 SSE 端点，不受这两项影响
 
 #### 3.6.3 智慧树内置 AI（ZhidaoAIProvider）
 
@@ -415,7 +418,7 @@ src/zhs/
 - **双通道输出**：stderr（控制台，可选）+ 文件（持久化）
 - **控制台格式**：`<level>{level:<7}</level> | <cyan>{name}</cyan> - {message}`
 - **文件格式**：`{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {thread.name} | {name}:{function}:{line} | {message}`
-- **文件轮转**：按天轮转（`00:00`），保留 30 天，gzip 压缩
+- **文件轮转**：按 10 MB 轮转，保留 7 天，zip 压缩（`src/zhs/logger.py`）
 - **日志目录**：`<data_dir>/logs/`（`data_dir` 由 `utils/path.py` 的 `get_data_dir()` 决定）
 - **级别过滤**：
   - 控制台：由 `AppConfig.display.log_level` 控制（默认 INFO），`-d/--debug` 强制 DEBUG
@@ -425,7 +428,7 @@ src/zhs/
 
 ### 3.11 CLI 命令
 
-ZHS CLI 采用命令式接口（typer），共 6 个子命令。
+ZHS CLI 采用命令式接口（typer），共 7 个子命令（`init` / `login` / `play` / `homework` / `exam` / `fetch` / `cache`）。
 
 全局选项（不依赖子命令，且不加载配置、不登录）：
 
@@ -503,7 +506,7 @@ AI 课程考试。
 | 参数 | 缩写 | 说明 |
 |------|------|------|
 | `--course` | `-c` | 课程 ID |
-| `--type` | | 课程类型（目前仅支持 ai） |
+| `--type` | | 课程类型（`ai` / `zhidao` / `auto`） |
 | `--url` | | 考试 URL（从浏览器复制，与 `-c` 互斥） |
 | `--ai-course` | | AI 课程 courseId |
 | `--ai-class` | | AI 课程 classId |
@@ -775,7 +778,7 @@ SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatc
 | HTTP 客户端 | httpx | **同步 API**，兼容 requests 风格 |
 | 数据模型 | pydantic v2 | 类型安全、自动验证、JSON 序列化、alias 映射 |
 | CLI | typer | 类型注解自动生成参数，命令式接口 |
-| 日志 | loguru | 双通道输出、filter 脱敏、按天轮转 |
+| 日志 | loguru | 双通道输出、filter 脱敏、10 MB 轮转 / 7 天 / zip |
 | 加密 | pycryptodome | AES-128-CBC 加密 |
 | 配置 | TOML | Python 3.11+ 标准库 tomllib + tomli-w |
 | LLM | openai | OpenAI 兼容 API 调用 |
@@ -795,11 +798,13 @@ SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatc
 
 ### 项目配置 (pyproject.toml)
 
+> 以下代码块是**设计时快照**，仅示意字段分组。版本号、Python 版本约束、开发依赖组（`[dependency-groups] dev`）与构建配置一律以根目录 `pyproject.toml` 为准。
+
 ```toml
 [project]
 name = "zhs"
-version = "0.1.0"
-requires-python = ">=3.13"
+version = "0.1.4.3"
+requires-python = ">=3.13,<3.15"
 dependencies = [
     "httpx>=0.28",
     "pydantic>=2.10",

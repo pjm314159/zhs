@@ -1107,7 +1107,7 @@ class TestZhidaoHomeworkCache:
         assert "zhidao" in cache.path.parts
 ```
 
-#### 4.9.3 cache/test_ai_cache.py
+#### 4.9.2 cache/test_ai_cache.py
 
 ```python
 class TestAiExamCache:
@@ -1629,24 +1629,23 @@ uv run pytest --cov=zhs --cov-report=html
 
 ## 7. CI 集成
 
-```yaml
-# .github/workflows/test.yml
-name: Test
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - run: pip install -e ".[dev]"
-      - run: ruff check src/ tests/
-      - run: ruff format --check src/ tests/
-      - run: mypy src/ tests/
-      - run: pytest  # 默认跳过 integration 标记
-```
+实际配置见 `.github/workflows/ci.yml`（仓库中**不存在** `test.yml`）：
+
+- Python 3.13 / 3.14 矩阵，依赖用 `uv sync --dev` 安装
+- 四项检查：`uv run ruff check src/ tests/`、`uv run ruff format --check src/ tests/`、`uv run mypy src/ tests/`、`uv run pytest`
+- `tests-gate` 门禁汇总结果；`user-install` 用构建出的 wheel 做安装冒烟
+- 集成测试默认跳过：`pyproject.toml` 的 `addopts = "-m 'not integration'"`；需真实 API + 扫码登录时单独跑 `uv run pytest -m integration tests/integration/`
+- 发布相关工作流：`prepare-release.yml`（发布前生成 CHANGELOG）、`release.yml`（tag 触发打包与发布）
+
+### 7.1 本轮新增用例（会话 / 免考 / 超时）
+
+- `tests/api/test_session_auth.py`：`verify_session()` 三态、CAS 换票、HTTP 级 `SESSION` 注入回归
+- `tests/ai/test_course_free_exam.py`：`skip_ai_free_exam` 两态、`play` 不受影响
+- `tests/test_config.py`：`stream_timeout` / `stream_idle_timeout` 默认值、TOML 覆盖、大小约束、round-trip
+- `tests/llm/test_factory.py` / `tests/cli/test_bootstrap.py`：两条 provider 路径的超时传参
+- `tests/llm/test_openai.py`：`idle_timeout` 生效与思考阶段空 delta 不误判超时
+
+> 缓存相关用例以当前 SQLite 实现为准（`~/.zhs/cache/questions_bank.db`，`get(course_id, exam_id, question_key)`）；早期 JSON API 示例已废弃。
 
 ---
 

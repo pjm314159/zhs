@@ -1,10 +1,10 @@
 <!--
-感谢贡献！提交 PR 前请先阅读 docs/linter.md（代码规范与 Linter 配置），并确保 CI 全绿。
+感谢贡献！提交 PR 前请先阅读 GIT.md（分支 / 提交 / PR 规范）与 docs/linter.md（代码规范与 Linter 配置），并确保 CI 全绿。
 -->
 
 ## 关联 Issue
 
-<!-- 使用 Closes / Fixes 关联，例如：Closes #123 -->
+<!-- 使用 Closes / Fixes 关联，例如：Closes #123；无关联 Issue 请写明原因 -->
 
 Closes #
 
@@ -14,7 +14,7 @@ Closes #
 
 ## 变更类型
 
-<!-- 与 Conventional Commits 的 type 对应（docs/linter.md §9.1），可多选 -->
+<!-- 与 Conventional Commits 的 type 对应（GIT.md §2），可多选 -->
 
 - [ ] `feat` 新功能
 - [ ] `fix` Bug 修复
@@ -56,7 +56,7 @@ uv run pytest                           # 测试（默认跳过 integration）
 
 ## 自查清单
 
-- [ ] 已阅读并遵循 `docs/linter.md`
+- [ ] 已阅读并遵循 `GIT.md` 与 `docs/linter.md`
 - [ ] Ruff lint 通过（0 errors），且已执行 `--fix` / `format` 处理格式问题
 - [ ] Ruff format 检查通过（0 changes needed）
 - [ ] mypy strict 检查通过（0 errors）
@@ -67,3 +67,4 @@ uv run pytest                           # 测试（默认跳过 integration）
 - [ ] 未在业务模块中调用 `logger.add()` / `logger.remove()`（日志配置统一在 CLI 入口）
 - [ ] 涉及行为变更时已同步更新 `README.md` / `README_zh.md` / `docs/`
 - [ ] commit 消息遵循 Conventional Commits（会自动进入 CHANGELOG）
+- [ ] 功能分支从 `dev` 切出、PR base 为 `dev`（GIT.md §1）

@@ -3,12 +3,19 @@
 > 本文档基于 [spec.md](./spec.md) 的功能规格和技术栈决策，给出模块级详细设计。
 > 所有代码均为**同步实现**，禁止使用 `asyncio`。
 
+> **近期实现补充**（正文仍为设计时快照，以下条目以源码为准）：
+> - `src/zhs/api/session_auth.py`：`SessionVerifier` / `SessionStatus` / `verify_session()`；探活前用 CAS 换票建立 `onlineservice-api` 的 `SESSION`，判据只看 `result.uuid` / `result.username`。
+> - `ZhsSession` 门面新增 `get()` / `get_no_redirect()`；`try_restore_cookies()` 只做本地恢复。
+> - AI 课程：`KnowledgeTarget`、`_iter_targets()` / `_find_target()` / `_should_skip_ai_free_exam()`；`[homework] skip_ai_free_exam`（默认 `true`）。
+> - `[ai] stream_timeout` / `stream_idle_timeout`（默认 120.0 / 30.0），`AIConfig.model_validator` 校验大小关系；`OpenAIProvider(idle_timeout=...)`；工厂与 `init_llm` 两条路径传参。
+> - 配置以 `config.toml.example` 为准；本文件的配置类签名、结构树与用例清单为设计时快照。
+
 ---
 
 ## 1. 项目结构
 
 ```
-e:\project\python\ZHS\
+.   # 仓库根目录（下文路径均相对根目录）
 ├── pyproject.toml              # 项目配置（依赖、ruff、mypy、pytest）
 ├── config.toml.example         # 配置文件示例
 ├── README.md
@@ -1772,7 +1779,7 @@ def extract_text(html: str) -> str:
 | 一次性配置 | CLI 入口调用 `_setup_logger(config)` 完成所有 sink 注册 |
 | 双通道 | stderr（控制台实时）+ 文件（持久化审计） |
 | 敏感信息脱敏 | 自动过滤 cookie/token/password 等字段 |
-| 文件轮转 | 按日期轮转，保留 30 天，gz 压缩 |
+| 文件轮转 | 按 10 MB 轮转，保留 7 天，zip 压缩 |
 | 线程安全 | loguru 本身线程安全，无需额外同步 |
 
 #### 2.12.2 公开 API
@@ -1784,7 +1791,7 @@ def setup_logging(config: AppConfig) -> None:
     """
     配置 loguru 日志系统（幂等）。
     - 移除 loguru 默认 sink（id=0）
-    - 注册文件 sink（按日期轮转，保留 30 天，gz 压缩）
+    - 注册文件 sink（按 10 MB 轮转，保留 7 天，zip 压缩）
     - 注册 stderr sink（可选，由 console_log/debug 控制）
     - 注册敏感信息过滤 filter
     """
@@ -1926,8 +1933,9 @@ def fetch(
 | `zhs login` | 扫码登录 | `--show-in-terminal`, `--image-path`, `--proxy` |
 | `zhs play` | 刷视频 | `-c/--course`, `--type`, `--ai-course`, `--ai-class`, `-s/--speed`, `-l/--limit` |
 | `zhs homework` | 写作业 | `-c/--course`, `--type`, `--url`, `--ai-course`, `--ai-class`, `--no-ai`, `--homework-threshold`, `--max-submit` |
-| `zhs exam` | AI 课程考试 | `--ai-course`, `--ai-class`, `--type ai`, `--submit` |
+| `zhs exam` | 课程考试 | `--type ai/zhidao/auto`, `-c`, `--url`, `--submit` |
 | `zhs fetch` | 获取课程数据 | `--type all/course/homework` |
+| `zhs cache` | 答案缓存导出/导入 | `-c/--type/-o` |
 
 **CLI 执行主流程**：
 
@@ -1937,16 +1945,20 @@ flowchart TD
     LoadConfig --> ParseProxy[解析代理]
     ParseProxy --> SetupLog[配置日志 loguru]
     SetupLog --> CreateSession[创建 ZhsSession]
-    CreateSession --> RestoreCookies[尝试恢复 cookies]
-    RestoreCookies -->|失败| PromptLogin[提示运行 zhs login]
-    RestoreCookies -->|成功| Dispatch{命令分发}
+    CreateSession --> RestoreCookies[本地恢复 cookies]
+    RestoreCookies -->|无本地 Cookie| PromptLogin[提示运行 zhs login]
+    RestoreCookies -->|已恢复| Verify[verify_session 三态]
+    Verify -->|UNAVAILABLE| NetHint[提示接口不可用 / 检查网络]
+    Verify -->|EXPIRED| PromptLogin
+    Verify -->|OK| Dispatch{命令分发}
 
     Dispatch -->|init| DoInit[创建目录 + 默认配置]
     Dispatch -->|login| DoLogin[扫码登录 + 保存 cookies]
     Dispatch -->|play| DoPlay[刷视频]
     Dispatch -->|homework| DoHomework[写作业]
-    Dispatch -->|exam| DoExam[AI 考试]
+    Dispatch -->|exam| DoExam[考试]
     Dispatch -->|fetch| DoFetch[获取课程列表]
+    Dispatch -->|cache| DoCache[缓存导出/导入]
 ```
 
 **play 命令路由**：
@@ -2233,7 +2245,7 @@ flowchart LR
 - `HomeworkScanner` 扫描和过滤
 - `HomeworkWorker` 做题流程（doHomework → saveAnswer → submit → look → analyze）
 - `HomeworkAnalyzer` 错题分析
-- `ZhidaoHomeworkCache` 缓存读写（新路径格式 `zhidao/{course_id}/{exam_id}.json`）
+- `ZhidaoHomeworkCache` 缓存读写（SQLite `~/.zhs/cache/questions_bank.db`，`zhidao_questions` 表用 `eid + question_id` 双键；旧 JSON 缓存由 `scripts/migrate_cache.py` 迁移）
 - 滑块验证异常
 
 **cache/**：
@@ -2392,7 +2404,7 @@ flowchart TD
 10. **Hike 资源树**：无 `file_id` 的非标准节点跳过 + 日志，`play_file` 内 try/except 防护 KeyError
 11. **测试 Mock**：`mock_session` fixture 用 `with respx.mock: yield`，禁止 `@respx.mock` 装饰器
 12. **AI 作业命名**：AI 课程的"考试"统一称为"作业"（homework），代码中使用 `HomeworkCtx`（非 ExamCtx），文件名 `ai/homework.py`（非 `ai/exam.py`）
-13. **CLI 命令式**：使用 `zhs play/homework/exam/fetch` 命令式接口，禁止旧的 `zhs -c ID` 风格
+13. **CLI 命令式**：使用 `zhs init/login/play/homework/exam/fetch/cache` 共 7 个命令式接口，禁止旧的 `zhs -c ID` 风格
 14. **作业 API 加密**：知到作业 API（`studentexam-api`）使用 `exam_key` 加密，**不发送 `dateFormate`** 字段，与知到视频 API（`studyservice-api`）不同
 15. **AI 考试 API 加密**：AI 考试 API（`studentexamtest`）使用 `exam_key` 加密，**发送 `dateFormate`** 字段，检查 `code` 字段（与知到作业 API 不同）
 16. **禁止 asyncio**：项目不再使用 `asyncio`，所有代码同步实现；`session.py` 无 `_async_client`/`async_api_query`/`aclose` 等异步接口

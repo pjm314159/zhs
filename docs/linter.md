@@ -646,21 +646,25 @@ pre-commit install
 每次提交必须通过：
 
 ```bash
-ruff check src/ tests/           # 0 errors
-ruff format --check src/ tests/  # 0 changes needed
-mypy src/ tests/                 # 0 errors
-pytest                            # all green（默认跳过 integration 标记）
+uv run ruff check src/ tests/           # 0 errors
+uv run ruff format --check src/ tests/  # 0 changes needed
+uv run mypy src/ tests/                 # 0 errors
+uv run pytest                           # all green（默认跳过 integration 标记）
 ```
+
+CI 实际执行 `.github/workflows/ci.yml`：Python 3.13 / 3.14 矩阵、`uv sync --dev`、四项检查、`tests-gate` 门禁，以及 wheel 安装冒烟（`user-install`）。
 
 完整命令（含集成测试，需真实 API + 扫码登录）：
 
 ```bash
-pytest -m integration tests/integration/
+uv run pytest -m integration tests/integration/
 ```
 
 ---
 
 ## 9. Git 规范
+
+> **推荐入口**：根目录 [GIT.md](../GIT.md) 是 Git / 分支 / 提交 / PR / 发布规范的完整说明，提交前请先读它；本节保留同步摘录，如有差异以 `GIT.md` 为准。
 
 ### 9.1 Conventional Commits
 
@@ -744,7 +748,7 @@ BREAKING CHANGE: config.toml structure has changed, see docs for migration
 #### 分支流程
 
 ```
-main ──── 稳定代码，只接受 dev 合并
+main ──── 稳定代码，接受 dev 合并与发布 PR
   ▲
   │ merge
   │
@@ -780,7 +784,8 @@ fix/xxx  ── 从 dev 切出，完成后合并回 dev
 
 > 为什么在打 tag 前生成：`main` 受规则集保护（`pull_request` 规则 + 无 bypass actor），机器人
 > 只能把提交推到 `dev`。
-> 必须人工补一次 `dev → main` 同步 PR。改为发布前生成后，发布结束即 `main == dev`，无需收尾。
+> 改为发布前生成后不再需要「发布后补写 CHANGELOG」的收尾 PR；但发布提交只落在 `main`，
+> 仍由 `release.yml` 末尾的快进同步（best effort）回写 `dev`，失败时需人工补一次同步 PR。
 >
 > 注意：发布提交（版本号 + CHANGELOG 段落）只落在 `main`，因此 `release.yml` 末尾会把 `main` **快进**
 > 同步回 `dev`；该步骤允许失败（`dev` 有新提交时会拒绝非快进推送），失败不影响发布结果。
