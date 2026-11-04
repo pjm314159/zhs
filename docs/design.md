@@ -3,13 +3,6 @@
 > 本文档基于 [spec.md](./spec.md) 的功能规格和技术栈决策，给出模块级详细设计。
 > 所有代码均为**同步实现**，禁止使用 `asyncio`。
 
-> **近期实现补充**（正文仍为设计时快照，以下条目以源码为准）：
-> - `src/zhs/api/session_auth.py`：`SessionVerifier` / `SessionStatus` / `verify_session()`；探活前用 CAS 换票建立 `onlineservice-api` 的 `SESSION`，判据只看 `result.uuid` / `result.username`。
-> - `ZhsSession` 门面新增 `get()` / `get_no_redirect()`；`try_restore_cookies()` 只做本地恢复。
-> - AI 课程：`KnowledgeTarget`、`_iter_targets()` / `_find_target()` / `_should_skip_ai_free_exam()`；`[homework] skip_ai_free_exam`（默认 `true`）。
-> - `[ai] stream_timeout` / `stream_idle_timeout`（默认 120.0 / 30.0），`AIConfig.model_validator` 校验大小关系；`OpenAIProvider(idle_timeout=...)`；工厂与 `init_llm` 两条路径传参。
-> - 配置以 `config.toml.example` 为准；本文件的配置类签名、结构树与用例清单为设计时快照。
-
 ---
 
 ## 1. 项目结构
@@ -253,6 +246,9 @@ def _key_generator(key: str) -> Iterator[int]:
 from pydantic import BaseModel, Field
 from pathlib import Path
 
+DEFAULT_STREAM_TIMEOUT = 120.0        # AIConfig / OpenAIProvider 共用
+DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
+
 class VideoConfig(BaseModel):
     """视频播放速度配置"""
     zhidao_speed: float = 1.5    # 知到视频速度
@@ -267,6 +263,7 @@ class HomeworkConfig(BaseModel):
     delay_max: float = Field(2.0, alias="homework_delay_max")
     page_size: int = Field(100, alias="homework_page_size")
     ai_homework_threshold: int = 90            # AI 作业跳过阈值
+    skip_ai_free_exam: bool = True             # 默认跳过 freeExam=1（play 不受影响）
 
 class DisplayConfig(BaseModel):
     """显示设置"""
@@ -316,6 +313,9 @@ class AIConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
     max_token: int = 27900
+    stream_timeout: float = DEFAULT_STREAM_TIMEOUT          # 整个流的总截止时间
+    stream_idle_timeout: float = DEFAULT_STREAM_IDLE_TIMEOUT  # 相邻 chunk 空闲等待 / 首包最长等待
+    # @model_validator(mode="after")：stream_timeout >= stream_idle_timeout，且两者 > 0
 
 class ExamConfig(BaseModel):
     """AI 考试配置"""
@@ -362,6 +362,8 @@ class ConfigManager:
 - `HomeworkConfig` 字段使用 `alias` 兼容旧版扁平字段名（如 `homework_delay_min`）
 - **已删除** 旧版的 `OpenAIConfig`、`MoonShotConfig`、`PptProcessingConfig`、`QrExtraConfig`，统一为 `AIConfig`
 
+> 下方类签名与 TOML 片段为设计时快照；实际字段以 `src/zhs/config.py` 与 `config.toml.example` 为准。
+
 **TOML 配置文件示例** (`config.toml`):
 
 ```toml
@@ -383,6 +385,7 @@ delay_min = 1.0
 delay_max = 2.0
 page_size = 100
 ai_homework_threshold = 90
+skip_ai_free_exam = true
 
 [display]
 log_level = "INFO"
@@ -424,6 +427,8 @@ api_key = ""
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
+stream_timeout = 120.0        # 不得小于 stream_idle_timeout
+stream_idle_timeout = 30.0
 
 [exam]
 save_nums = 5
@@ -461,6 +466,10 @@ class ZhsSession:
         self, url: str, data: dict | None = None,
         method: str = "POST", content_type: str = "form",
     ) -> dict: ...
+
+    # --- 原始 GET（CAS 换票等需控制重定向的场景）---
+    def get(self, url: str, *, params: dict | None = None, follow_redirects: bool = True) -> httpx.Response: ...
+    def get_no_redirect(self, url: str, *, params: dict | None = None) -> httpx.Response: ...
 
     # --- 知到视频 API（video_key 加密，含 dateFormate） ---
     def zhidao_query(
@@ -606,6 +615,11 @@ stateDiagram-v2
 - `login_with_qr` 增加 `_max_retries` 参数防止二维码过期时无限递归
 - `gologin` 返回 HTML 不解析 JSON
 - Cookie 恢复由 CLI 的 `try_restore_cookies()` 负责（纯本地读取）；登录态由 `verify_session()` 校验：先用 `CASTGC` 经 CAS 换票建立 `onlineservice-api` 域的 `SESSION`，再用 `getLoginUserInfo` 能否取到用户信息判定，不再依赖课程列表
+
+**会话校验实现（`src/zhs/api/session_auth.py`）**：
+- `SessionStatus` 三态：`OK` / `EXPIRED` / `UNAVAILABLE`；`SessionVerifier` 与稳定入口 `verify_session(session)`
+- `_establish_session()`：`passport/cas/login?service=<getLoginUserInfo>` 取 302 + ticket，跟随 ticket 让 CAS 校验并种下 `onlineservice-api` 域的 `SESSION`（短时会话，不写入 `cookies.json`）
+- 判据只看 `result.uuid` / `result.username`，不解析 `code`，其它响应默认失败；4xx → `EXPIRED`，5xx / 网络异常 → `UNAVAILABLE`
 
 ### 2.6 cache/ — 统一缓存子包（SQLite 存储）
 
@@ -1179,6 +1193,11 @@ class KnowledgePoint(BaseModel):
     knowledge_id: int
     knowledge_name: str
     study_progress: int = 0       # 0-100
+    free_exam: int = 0            # freeExam：1=免考；空串/null 归一为 0
+
+class KnowledgeTarget(NamedTuple):
+    theme_name: str               # 绑定主题名，直接模式不再出现 theme=None
+    knowledge: KnowledgePoint
 
 class Theme(BaseModel):
     theme_name: str
@@ -1194,7 +1213,7 @@ class ResourceDetail(BaseModel):
     resources_type: int           # 1=视频/PPT, 2=文本/课程视频
     resources_distribute_type: int  # 1=文本, 2=课程视频, 3=视频, 4=PPT
     resources_url: str = ""
-    resources_file_id: int = 0
+    resources_file_id: int = 0    # resourcesFileId 空串 / null 归一为 0（文本、PPT 等非文件资源）
 
 class Resource(BaseModel):
     study_status: int = 0         # 0=未完成, 1=已完成
@@ -1232,6 +1251,12 @@ class OptionVo(BaseModel):
 ```python
 class AiCourseManager:
     def __init__(self, session: ZhsSession) -> None: ...
+    @staticmethod
+    def _iter_targets(course_info: AiCourseInfo) -> Iterator[KnowledgeTarget]: ...
+    @staticmethod
+    def _find_target(course_info: AiCourseInfo, knowledge_id: int) -> KnowledgeTarget | None: ...
+    @staticmethod
+    def _should_skip_ai_free_exam(target: KnowledgeTarget, cfg: HomeworkConfig) -> bool: ...
     def _ai_query(self, url: str, data: dict, content_type: str = "json") -> dict: ...
     def get_ai_course_list(self) -> list[dict]: ...
     def get_exam_tasks(self, course_id: str) -> list[dict]: ...
@@ -1249,6 +1274,8 @@ class AiCourseManager:
         speed: float = 1.5,
     ) -> None: ...
 ```
+
+> 直接模式与扫描模式共用 `_iter_targets()`；派发前按 `skip_ai_free_exam` 跳过免考知识点（在 `query_homework` / LLM 调用之前），`play` 不受影响。
 
 **AI 课程学习流程**：
 
@@ -1608,6 +1635,7 @@ class LLMProviderFactory:
 
 **设计要点**：
 - 统一 LLM 提供者初始化逻辑，消除 `HomeworkCtx`/`ExamCtx` 中的重复代码
+- `create()` 与 `cli.bootstrap.init_llm` 都把 `stream_timeout` / `stream_idle_timeout` 传给 `OpenAIProvider`；运行时按 `min(remaining, idle_timeout)` 判定空闲超时
 - `AiExamBase.__init__` 通过 `LLMProviderFactory.create()` 初始化 `self._provider`
 - `ZhidaoAIProvider` 需要 `session` 参数；`OpenAIProvider` 不需要
 
@@ -1623,6 +1651,8 @@ class OpenAIProvider(LLMProvider):
         base_url: str = "https://api.openai.com/v1",
         model_name: str = "gpt-4o-mini",
         max_token: int = 27900,
+        timeout: float = DEFAULT_STREAM_TIMEOUT,
+        idle_timeout: float = DEFAULT_STREAM_IDLE_TIMEOUT,
         stream: bool = False,
         extra: dict = {},
     ) -> None: ...
@@ -2225,6 +2255,12 @@ flowchart LR
 - ev 编码（无对称解码测试，因 `decode_ev` 已删除）
 - Hike 签名与已知结果对比
 - WatchPoint 生成逻辑
+
+**本轮新增（会话 / 免考 / 超时）**：
+- `tests/api/test_session_auth.py`：三态判定、CAS 换票、HTTP 级 `SESSION` 注入
+- `tests/ai/test_course_free_exam.py`：`skip_ai_free_exam` 两态、`play` 不受影响
+- `tests/test_config.py`：两个超时的默认值、TOML 覆盖、大小约束、round-trip
+- `tests/llm/test_factory.py` / `tests/cli/test_bootstrap.py`：两条路径的超时传参
 
 **session.py**：
 - `zhidao_query` 自动加密和时间戳（`dateFormate` 加入 data 加密 + 独立字段）

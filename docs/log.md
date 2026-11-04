@@ -2,7 +2,7 @@
 
 记录每个 Task 的 TDD 循环状态（Red / Green / Refactor）与完成情况。
 
-> **注意**：本文件是**历史快照**，其中的测试数量、分支名、配置开关与文件引用只代表当时状态，不代表当前实现。当前规范以 [GIT.md](../GIT.md) 为准，当前配置以 `config.toml.example` 为准；文中 `file:///` 本机路径、部分脚本与 `STREAM_IDLE_TIMEOUT` 等条目可能已失效（流式超时已改为 `[ai] stream_timeout` / `stream_idle_timeout` 可配置）。
+> **注意**：本文件是**历史快照**，其中的测试数量、分支名、配置开关与文件引用只代表当时状态，不代表当前实现。当前规范以 [GIT.md](../GIT.md) 为准，当前配置以 `config.toml.example` 为准；文中 `file:///` 本机路径、部分脚本与 `STREAM_IDLE_TIMEOUT` 等条目可能已失效（流式超时已改为 `[ai] stream_timeout` / `stream_idle_timeout` 可配置）；`docs/linter.md §9.x` 指当时的章节，Git 规范现已全部迁移到 `GIT.md`。
 
 ---
 
