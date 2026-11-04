@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import IntEnum
+from typing import NamedTuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -42,6 +43,13 @@ class KnowledgePoint(BaseModel):
         if value is None or value == "":
             return 0
         return value
+
+
+class KnowledgeTarget(NamedTuple):
+    """知识点及其所属主题名，定位知识点时不丢失主题上下文"""
+
+    theme_name: str
+    knowledge: KnowledgePoint
 
 
 class Theme(BaseModel):
