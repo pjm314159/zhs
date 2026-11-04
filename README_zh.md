@@ -62,8 +62,7 @@ cd ZHS
 # 安装依赖（含开发依赖）
 uv sync --dev
 
-# 或使用 pip
-# pip install -e ".[dev]"
+# 开发依赖写在 [dependency-groups] dev；没有 pip 的 `[dev]` extra
 ```
 
 安装后 `zhs` 命令即可使用：
@@ -121,7 +120,7 @@ zhs play --ai-course 1001 --ai-class 2001
 
 # 通过 URL 自动解析（知到视频页 / AI 学习页 / AI 课程页）
 zhs play --url "https://studyvideoh5.zhihuishu.com/stuStudy?recruitAndCourseId=xxx"
-zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/ courseId/nodeUid/classId"
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/courseId/nodeUid/classId"
 zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/courseId/classId"
 
 # 全刷所有课程
@@ -186,7 +185,7 @@ zhs exam --type ai
 | `zhs fetch` | 获取并保存课程列表（输出 `courseId`） |
 | `zhs cache` | 题库缓存管理（`export` 导出 / `import` 导入 JSON） |
 
-每个命令均支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数。`play`/`homework`/`exam` 支持 `--url`（与 `-c` 互斥，自动从浏览器 URL 解析课程参数）。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
+业务命令（`play` / `homework` / `exam` / `fetch`）支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数；`init` / `login` / `cache` 各有自己的参数集，`--version` 不加载配置。`play`/`homework`/`exam` 支持 `--url`（与 `-c` 互斥，自动从浏览器 URL 解析课程参数）。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
 
 ## 配置
 
@@ -258,7 +257,7 @@ stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定�
 | `cookies.json` | 登录 Cookie |
 | `execution.json` | `zhs fetch` 生成的课程列表 |
 | `qrcode.png` | 登录二维码图片 |
-| `logs/` | 日志目录（按天轮转，保留 30 天） |
+| `logs/` | 日志目录（10 MB 轮转，保留 7 天，zip 压缩） |
 | `cache/` | 答案缓存目录（SQLite 数据库，见下） |
 
 ### 缓存存储
@@ -271,10 +270,14 @@ stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定�
 | `ai_questions` | AI 作业/考试答案缓存（单键 question_id，HomeworkCtx 与 ExamCtx 共用） |
 
 可通过 `zhs cache export -c COURSE_ID` 导出为人类可读 JSON 分享，`zhs cache import PATH` 导入。
-旧版 JSON 缓存可通过 `.temp/migrate_cache_to_db.py` 迁移到 SQLite。
+旧版 JSON 缓存可通过 `scripts/migrate_cache.py` 迁移到 SQLite。
 
 
 ## 开发
+
+### 贡献 / Git 规范
+
+提交前请先读 [GIT.md](GIT.md)：分支命名、Conventional Commits、PR base 与模板、发布流程都在里面。`docs/linter.md` 只负责代码风格与 Linter 规则。
 
 ### 开发流程
 
@@ -300,11 +303,13 @@ uv run mypy src/ tests/
 
 | 文档 | 用途 |
 |------|------|
+| [GIT.md](GIT.md) | Git / 分支 / 提交 / PR / 发布规范 |
 | [docs/spec.md](docs/spec.md) | 功能规格、API 端点、数据结构 |
 | [docs/design.md](docs/design.md) | 模块级设计、类签名、流程图 |
 | [docs/tutorial.md](docs/tutorial.md) | 使用教程 |
 | [docs/test.md](docs/test.md) | 测试策略与用例 |
 | [docs/linter.md](docs/linter.md) | 代码规范 |
+| [docs/log.md](docs/log.md) | 开发日志（历史快照） |
 
 ## About
 本项目是使用python开发，我尽量完善代码的注释和写好文档，
