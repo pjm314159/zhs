@@ -157,6 +157,8 @@ zhs homework
 ```
 
 > AI course `learnPage` URLs containing `nodeUid` (knowledge point ID) use **direct mode** (only that knowledge point); `knowledgeStudy` URLs use **scan mode** (all).
+>
+> In homework mode, knowledge points marked `freeExam=1` are skipped by default since they do not count toward mastery. Set `skip_ai_free_exam = false` under `[homework]` to answer them anyway. `play` mode is unaffected.
 
 ### 6. AI Course Exams
 
@@ -211,6 +213,7 @@ max_submit = 0           # Maximum retry count (0 = unlimited)
 delay_min = 1.0          # Minimum delay after saving each question (seconds)
 delay_max = 2.0          # Maximum delay after saving each question (seconds)
 ai_homework_threshold = 90  # AI homework skip threshold
+skip_ai_free_exam = true    # Skip free-exam knowledge points in AI homework
 
 [exam]
 save_nums = 5            # Number of questions saved per batch

@@ -155,6 +155,8 @@ zhs homework
 ```
 
 > AI 课程 `learnPage` URL 含 `nodeUid`（知识点 ID）时走**直接模式**，只做该知识点作业；`knowledgeStudy` URL 走**扫描模式**全刷。
+>
+> 作业模式默认跳过 `freeExam=1`（免考）知识点，这类知识点不计入掌握度考核；如需仍对它们做作业，在 `[homework]` 中设置 `skip_ai_free_exam = false`。`play` 模式不受影响。
 
 ### 6. AI 课程考试
 
@@ -209,6 +211,7 @@ max_submit = 0           # 最大重做次数（0 = 无限）
 delay_min = 1.0          # 每题保存后最小延迟（秒）
 delay_max = 2.0          # 每题保存后最大延迟（秒）
 ai_homework_threshold = 90  # AI 作业跳过阈值
+skip_ai_free_exam = true    # AI 作业是否跳过免考知识点
 
 [exam]
 save_nums = 5            # 每批保存答案的题目数
