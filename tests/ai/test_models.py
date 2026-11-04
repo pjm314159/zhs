@@ -92,6 +92,18 @@ class TestKnowledgePoint:
         kp = KnowledgePoint.model_validate(data)
         assert kp.free_exam == 0
 
+    def test_null_free_exam_normalized(self) -> None:
+        """接口下发 freeExam=null 时归一为 0，避免整批知识点解析失败"""
+        data = {"knowledgeId": 4, "knowledgeName": "普通知识点", "freeExam": None}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+
+    def test_empty_string_free_exam_normalized(self) -> None:
+        """接口下发 freeExam 为空串时归一为 0"""
+        data = {"knowledgeId": 5, "knowledgeName": "普通知识点", "freeExam": ""}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+
 
 class TestTheme:
     """主题模型"""

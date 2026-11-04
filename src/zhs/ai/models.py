@@ -35,6 +35,14 @@ class KnowledgePoint(BaseModel):
     # 免考标记：1 表示该知识点不计入掌握度考核
     free_exam: int = Field(default=0, alias="freeExam")
 
+    @field_validator("free_exam", mode="before")
+    @classmethod
+    def _normalize_empty_free_exam(cls, value: object) -> object:
+        """接口偶发下发空值，归一为 0 以免整批知识点解析失败"""
+        if value is None or value == "":
+            return 0
+        return value
+
 
 class Theme(BaseModel):
     """主题"""
