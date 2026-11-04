@@ -9,7 +9,8 @@ name: Prepare Release
 #   4. 推送 chore/release-vX.Y.Z 分支并开 PR 到 main
 #
 # 合并该 PR 后，在 main 上打 tag 即触发 release.yml（build + GitHub Release + PyPI）。
-# 发布后不再有任何回写提交，main 与 dev 不会再分叉。
+# 发布提交只落在 main，release.yml 末尾会 best-effort 把 main 快进同步回 dev；
+# 若 dev 已有新提交导致非快进，该步骤允许失败，需人工补一次同步 PR。
 on:
   workflow_dispatch:
     inputs:
@@ -24,7 +25,7 @@ concurrency:
 
 permissions:
   contents: write       # 推送发布分支
-  pull-requests: write  # 创建发布 PR（需仓库允许 Actions 创建 PR，见 docs/linter.md §9.3）
+  pull-requests: write  # 创建发布 PR（需仓库允许 Actions 创建 PR，见 docs/GIT.md §4）
 
 jobs:
   prepare:
