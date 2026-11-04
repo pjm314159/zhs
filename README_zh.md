@@ -277,7 +277,7 @@ stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定�
 
 ### 贡献 / Git 规范
 
-提交前请先读 [GIT.md](GIT.md)：分支命名、Conventional Commits、PR base 与模板、发布流程都在里面。`docs/linter.md` 只负责代码风格与 Linter 规则。
+提交前请先读 [docs/GIT.md](docs/GIT.md)：分支命名、Conventional Commits、PR base 与模板、发布流程都在里面。`docs/linter.md` 只负责代码风格与 Linter 规则。
 
 ### 开发流程
 
@@ -303,7 +303,7 @@ uv run mypy src/ tests/
 
 | 文档 | 用途 |
 |------|------|
-| [GIT.md](GIT.md) | Git / 分支 / 提交 / PR / 发布规范 |
+| [docs/GIT.md](docs/GIT.md) | Git / 分支 / 提交 / PR / 发布规范 |
 | [docs/spec.md](docs/spec.md) | 功能规格、API 端点、数据结构 |
 | [docs/design.md](docs/design.md) | 模块级设计、类签名、流程图 |
 | [docs/tutorial.md](docs/tutorial.md) | 使用教程 |

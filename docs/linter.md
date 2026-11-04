@@ -660,4 +660,4 @@ CI 实际执行 `.github/workflows/ci.yml`：Python 3.13 / 3.14 矩阵、`uv syn
 uv run pytest -m integration tests/integration/
 ```
 
-> **Git 规范**：分支 / 提交 / PR / 发布流程统一见根目录 [GIT.md](../GIT.md)，本文件只保留代码风格与 Linter 规则。
+> **Git 规范**：分支 / 提交 / PR / 发布流程统一见 [GIT.md](./GIT.md)，本文件只保留代码风格与 Linter 规则。
