@@ -197,7 +197,7 @@ class RateLimitError(ZhsError):
 - `CaptchaRequired` 对应知到视频 API 的 `code=-12`
 - `SliderVerificationRequired` 对应作业 API 的滑块验证响应
 - `ApiUnavailableError` / `RateLimitError` 用于网络层与限流场景，便于上层重试或降级
-- **已删除** `InvalidCookies`（不再使用，Cookie 失效由 `_try_restore_cookies` 返回 False 处理）
+- **已删除** `InvalidCookies`（不再使用，会话失效由 `verify_session()` 返回 `SessionStatus.EXPIRED` 处理；`try_restore_cookies()` 只负责本地文件恢复）
 
 ### 2.2 crypto.py — 加解密模块
 
@@ -598,7 +598,7 @@ stateDiagram-v2
 - **仅扫码登录**：已删除账号密码登录
 - `login_with_qr` 增加 `_max_retries` 参数防止二维码过期时无限递归
 - `gologin` 返回 HTML 不解析 JSON
-- Cookie 恢复由 CLI 的 `_try_restore_cookies` 处理，通过调用 `ZhidaoCourseManager.get_course_list()` 验证有效性
+- Cookie 恢复由 CLI 的 `try_restore_cookies()` 负责（纯本地读取）；登录态由 `verify_session()` 校验：先用 `CASTGC` 经 CAS 换票建立 `onlineservice-api` 域的 `SESSION`，再用 `getLoginUserInfo` 能否取到用户信息判定，不再依赖课程列表
 
 ### 2.6 cache/ — 统一缓存子包（SQLite 存储）
 

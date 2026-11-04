@@ -1,10 +1,11 @@
-"""CLI 基础设施：日志、代理、配置加载、Cookie 恢复、登录
+"""CLI 基础设施：日志、代理、配置加载、Cookie 恢复、会话校验、登录
 
 从原 __main__.py 抽离的非业务逻辑：
 - setup_logger: 配置 loguru
 - parse_proxy: 解析代理字符串
-- load_config_and_session: 加载配置 + 创建 session + 恢复 cookies
-- try_restore_cookies: 从本地文件恢复 cookies
+- load_config_and_session: 编排配置加载、Cookie 恢复与会话校验
+- try_restore_cookies: 仅从本地文件恢复 cookies（不联网）
+- verify_session: 向服务端校验会话是否有效
 - do_login: 执行扫码登录
 """
 
@@ -15,6 +16,7 @@ from typing import Any
 import typer
 from loguru import logger
 
+from zhs.api.session_auth import SessionStatus, verify_session
 from zhs.config import AppConfig, ConfigManager
 from zhs.session import ZhsSession
 
@@ -75,7 +77,9 @@ def check_ai_provider(config: AppConfig) -> None:
 
 
 def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -> tuple[AppConfig, ZhsSession] | None:
-    """加载配置、创建 session、恢复 cookies。失败返回 None。"""
+    """加载配置、创建 session、恢复 cookies 并校验会话。失败返回 None。"""
+    from zhs.utils.display import msg_done, msg_error
+
     config_mgr = ConfigManager()
     config = config_mgr.load()
 
@@ -88,48 +92,41 @@ def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -
     session = ZhsSession(config)
 
     if not try_restore_cookies(session, config):
-        from zhs.utils.display import msg_error
-
-        print(msg_error("未登录或 Cookie 已过期，请先运行 zhs login 登录"))
+        print(msg_error("未登录，请先运行 zhs login 登录"))
         return None
 
+    status = verify_session(session)
+    if status is SessionStatus.UNAVAILABLE:
+        print(msg_error("登录状态校验失败：接口不可用，请检查网络后重试"))
+        return None
+    if status is SessionStatus.EXPIRED:
+        print(msg_error("登录状态已过期，请重新运行 zhs login 登录"))
+        return None
+
+    print(msg_done("登录状态有效"))
     return config, session
 
 
 def try_restore_cookies(session: ZhsSession, config: AppConfig) -> bool:
-    """尝试恢复 cookies，成功返回 True"""
+    """仅从本地文件恢复 cookies（不联网、不判定登录态）"""
     if not config.save_cookies:
         return False
 
-    from zhs.utils.cookie import list_to_cookies
+    from zhs.utils.cookie import list_to_cookies, read_cookies_file
     from zhs.utils.path import get_data_dir
 
-    cookies_path = get_data_dir() / "cookies.json"
-    if not cookies_path.exists():
+    raw = read_cookies_file(get_data_dir() / "cookies.json")
+    if raw is None:
         return False
 
     try:
-        with open(cookies_path, encoding="utf-8") as f:
-            raw = json.load(f)
         session.cookies = list_to_cookies(raw)
-
-        # 验证 cookies 有效性
-        from zhs.zhidao.course import ZhidaoCourseManager
-
-        mgr = ZhidaoCourseManager(session)
-        courses = mgr.get_course_list()
-        if not courses:
-            logger.info("Cookie 恢复成功但课程列表为空")
-            return False
-        logger.info("Cookie 恢复成功")
-        from zhs.utils.display import msg_done
-
-        print(msg_done("登录状态有效"))
-        return True
-    except Exception as e:
+    except (KeyError, TypeError, ValueError) as e:
         logger.debug(f"Cookie 恢复失败: {e}")
+        return False
 
-    return False
+    logger.info("Cookie 恢复成功")
+    return True
 
 
 def do_login(
@@ -191,6 +188,8 @@ def init_llm(config: AppConfig) -> Any:
         base_url=ai.base_url,
         model_name=ai.model,
         max_token=ai.max_token,
+        timeout=ai.stream_timeout,
+        idle_timeout=ai.stream_idle_timeout,
     )
 
 

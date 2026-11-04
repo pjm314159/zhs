@@ -155,6 +155,8 @@ zhs homework
 ```
 
 > AI 课程 `learnPage` URL 含 `nodeUid`（知识点 ID）时走**直接模式**，只做该知识点作业；`knowledgeStudy` URL 走**扫描模式**全刷。
+>
+> 作业模式默认跳过 `freeExam=1`（免考）知识点，这类知识点不计入掌握度考核；如需仍对它们做作业，在 `[homework]` 中设置 `skip_ai_free_exam = false`。`play` 模式不受影响。
 
 ### 6. AI 课程考试
 
@@ -209,6 +211,7 @@ max_submit = 0           # 最大重做次数（0 = 无限）
 delay_min = 1.0          # 每题保存后最小延迟（秒）
 delay_max = 2.0          # 每题保存后最大延迟（秒）
 ai_homework_threshold = 90  # AI 作业跳过阈值
+skip_ai_free_exam = true    # AI 作业是否跳过免考知识点
 
 [exam]
 save_nums = 5            # 每批保存答案的题目数
@@ -232,12 +235,18 @@ api_key = ""             # OpenAI 兼容 API Key（AI 智慧课程在 use_builti
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
+stream_timeout = 120.0      # 流式响应总时长（秒），不得小于 stream_idle_timeout
+stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定首包最长等待
 
 [crypto]                 # 加密密钥（一般无需修改）
 [urls]                   # API URL（一般无需修改）
 ```
 
 > **AI 答题**：**AI 智慧课程**默认使用智慧树内置 AI，无需任何 API Key，**前提是你有 AI 智慧课程**。内置 AI 性能低下，建议使用自定义的：将 `use_builtin_ai = false` 并填写 `api_key` 与 `base_url`。该 `api_key` 并非只服务知到作业/考试：`use_builtin_ai = false` 时 AI 智慧课程也用它；而**知到作业 / 知到考试没有内置 AI 可用，必须配置 `api_key`**。
+
+> **流式超时**：`stream_timeout` 限制整个流的总时长，`stream_idle_timeout` 限制相邻 chunk 的空闲等待（也就是首包最长等待）。`stream_timeout` 不得小于 `stream_idle_timeout`，否则加载配置时直接报错。两项只作用于 OpenAI 兼容接口；智慧树内置 AI 走另一套 SSE 端点。
+>
+> **登录态判定**：Cookie 从 `~/.zhs/cookies.json` 本地恢复；启动时先用 CAS 票据换取 `onlineservice-api` 会话，再调用 `getLoginUserInfo`，只有响应中能取到用户信息才算登录有效。会话过期与接口不可用会分别给出不同提示。
 
 ## 数据目录
 

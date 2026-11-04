@@ -157,6 +157,8 @@ zhs homework
 ```
 
 > AI course `learnPage` URLs containing `nodeUid` (knowledge point ID) use **direct mode** (only that knowledge point); `knowledgeStudy` URLs use **scan mode** (all).
+>
+> In homework mode, knowledge points marked `freeExam=1` are skipped by default since they do not count toward mastery. Set `skip_ai_free_exam = false` under `[homework]` to answer them anyway. `play` mode is unaffected.
 
 ### 6. AI Course Exams
 
@@ -211,6 +213,7 @@ max_submit = 0           # Maximum retry count (0 = unlimited)
 delay_min = 1.0          # Minimum delay after saving each question (seconds)
 delay_max = 2.0          # Maximum delay after saving each question (seconds)
 ai_homework_threshold = 90  # AI homework skip threshold
+skip_ai_free_exam = true    # Skip free-exam knowledge points in AI homework
 
 [exam]
 save_nums = 5            # Number of questions saved per batch
@@ -234,12 +237,18 @@ api_key = ""             # OpenAI-compatible API Key (used by AI courses when us
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
+stream_timeout = 120.0      # Total stream duration (seconds); must be >= stream_idle_timeout
+stream_idle_timeout = 30.0  # Max idle wait between chunks (seconds); caps first-token wait
 
 [crypto]                 # Encryption keys (generally no modification needed)
 [urls]                   # API URLs (generally no modification needed)
 ```
 
 > **AI Answering**: For **AI smart courses**, the built-in Zhihuishu AI is used by default (no API key required). **Prerequisite: an AI smart course must exist**. The built-in AI performs poorly; a custom LLM is recommended — set `use_builtin_ai = false` and fill in `api_key` and `base_url`. The API key is not limited to that case: AI smart courses also use it when `use_builtin_ai = false`, while **Zhidao homework/exam have no built-in AI and require `api_key`**.
+
+> **Stream timeouts**: `stream_timeout` bounds the whole stream, while `stream_idle_timeout` bounds the wait between chunks (and therefore the first token). `stream_timeout` must not be smaller than `stream_idle_timeout`; an invalid pair fails at config load. Both apply only to OpenAI-compatible providers — the built-in Zhihuishu AI uses a separate SSE endpoint.
+>
+> **Login state**: cookies are restored locally from `~/.zhs/cookies.json`. At startup the CLI exchanges the CAS ticket for an `onlineservice-api` session and then calls `getLoginUserInfo`; only a response containing user info counts as logged in. An expired session and an unreachable endpoint produce different messages.
 
 ## Data Directory
 

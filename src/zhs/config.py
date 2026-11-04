@@ -19,13 +19,17 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from zhs.utils.path import get_config_path
 
 # ============================================================
 # 配置模型（按功能分组）
 # ============================================================
+
+# 流式响应默认超时（秒）：AIConfig 与 OpenAIProvider 共用，避免两处硬编码
+DEFAULT_STREAM_TIMEOUT = 120.0
+DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 
 
 class VideoConfig(BaseModel):
@@ -47,6 +51,7 @@ class HomeworkConfig(BaseModel):
     delay_max: float = Field(default=2.0, alias="homework_delay_max", description="每题保存后最大休息时间（秒）")
     page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
     ai_homework_threshold: int = Field(default=90, description="AI 课程作业跳过阈值（masteryScore > 此值则跳过）")
+    skip_ai_free_exam: bool = Field(default=True, description="AI 课程作业是否跳过免考知识点（freeExam=1）")
 
 
 class DisplayConfig(BaseModel):
@@ -125,6 +130,22 @@ class AIConfig(BaseModel):
     base_url: str = Field(default="https://api.openai.com/v1", description="API Base URL")
     model: str = Field(default="gpt-4o-mini", description="模型名称")
     max_token: int = Field(default=27900, description="最大 Token 数")
+    stream_timeout: float = Field(
+        default=DEFAULT_STREAM_TIMEOUT,
+        gt=0,
+        description="OpenAI 兼容接口流式响应总时长上限（秒），不得小于 stream_idle_timeout",
+    )
+    stream_idle_timeout: float = Field(
+        default=DEFAULT_STREAM_IDLE_TIMEOUT,
+        gt=0,
+        description="OpenAI 兼容接口相邻 chunk 空闲等待上限（秒），决定首包最长等待",
+    )
+
+    @model_validator(mode="after")
+    def _check_timeout_order(self) -> "AIConfig":
+        if self.stream_timeout < self.stream_idle_timeout:
+            raise ValueError("stream_timeout 不能小于 stream_idle_timeout（总时长必须覆盖首包等待）")
+        return self
 
 
 class ExamConfig(BaseModel):
@@ -293,6 +314,8 @@ class ConfigManager:
                 hw_kwargs["page_size"] = hw["page_size"]
             if "ai_homework_threshold" in hw:
                 hw_kwargs["ai_homework_threshold"] = hw["ai_homework_threshold"]
+            if "skip_ai_free_exam" in hw:
+                hw_kwargs["skip_ai_free_exam"] = hw["skip_ai_free_exam"]
             # 兼容旧版字段名（homework_delay_min 等）
             if "homework_delay_min" in hw:
                 hw_kwargs["delay_min"] = hw["homework_delay_min"]

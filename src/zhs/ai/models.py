@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import IntEnum
+from typing import NamedTuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -32,6 +33,23 @@ class KnowledgePoint(BaseModel):
     knowledge_id: int = Field(alias="knowledgeId")
     knowledge_name: str = Field(alias="knowledgeName")
     study_progress: int = Field(default=0, alias="studyProgress")
+    # 免考标记：1 表示该知识点不计入掌握度考核
+    free_exam: int = Field(default=0, alias="freeExam")
+
+    @field_validator("free_exam", mode="before")
+    @classmethod
+    def _normalize_empty_free_exam(cls, value: object) -> object:
+        """接口偶发下发空值，归一为 0 以免整批知识点解析失败"""
+        if value is None or value == "":
+            return 0
+        return value
+
+
+class KnowledgeTarget(NamedTuple):
+    """知识点及其所属主题名，定位知识点时不丢失主题上下文"""
+
+    theme_name: str
+    knowledge: KnowledgePoint
 
 
 class Theme(BaseModel):
@@ -64,6 +82,14 @@ class ResourceDetail(BaseModel):
     resources_url: str = Field(default="", alias="resourcesUrl")
     resources_file_id: int = Field(default=0, alias="resourcesFileId")
     resources_sync_type: int = Field(default=1, alias="resourcesSyncType")
+
+    @field_validator("resources_file_id", mode="before")
+    @classmethod
+    def _normalize_empty_file_id(cls, value: object) -> object:
+        """非文件类资源（文本/PPT）的 resourcesFileId 可能是空串或 null，归一为 0"""
+        if value is None or value == "":
+            return 0
+        return value
 
 
 class Resource(BaseModel):

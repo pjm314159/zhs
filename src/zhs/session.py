@@ -95,6 +95,22 @@ class ZhsSession:
         """通用 API 查询"""
         return self._http.api_query(url, data=data, method=method, content_type=content_type)
 
+    # --- 原始 GET（委托给 HttpClient，供 CAS 换票等需控制重定向的场景）---
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        follow_redirects: bool = True,
+    ) -> httpx.Response:
+        """GET 并返回原始响应（默认跟随重定向）"""
+        return self._http.get(url, params=params, follow_redirects=follow_redirects)
+
+    def get_no_redirect(self, url: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
+        """GET 且不跟随重定向（用于读取 CAS 的 Location）"""
+        return self._http.get_no_redirect(url, params=params)
+
     # --- 6 套加密查询（委托给 EncryptedQuery）---
 
     def zhidao_query(
