@@ -278,7 +278,7 @@ Legacy JSON cache can be migrated to SQLite using `scripts/migrate_cache.py`.
 
 ### Contributing / Git Workflow
 
-Read [GIT.md](GIT.md) before contributing: branch naming, Conventional Commits, PR base/template and release flow all live there. `docs/linter.md` covers code style only.
+Read [docs/GIT.md](docs/GIT.md) before contributing: branch naming, Conventional Commits, PR base/template and release flow all live there. `docs/linter.md` covers code style only.
 
 ### Development Workflow
 
@@ -304,7 +304,7 @@ uv run mypy src/ tests/
 
 | Document | Purpose |
 |----------|---------|
-| [GIT.md](GIT.md) | Git workflow: branches, commits, PRs, releases |
+| [docs/GIT.md](docs/GIT.md) | Git workflow: branches, commits, PRs, releases |
 | [docs/spec.md](docs/spec.md) | Feature specifications, API endpoints, data structures |
 | [docs/design.md](docs/design.md) | Module-level design, class signatures, flowcharts |
 | [docs/tutorial.md](docs/tutorial.md) | User tutorial |
