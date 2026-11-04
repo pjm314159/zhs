@@ -7,11 +7,14 @@ import pytest
 from pydantic import ValidationError
 
 from zhs.config import (
+    DEFAULT_STREAM_IDLE_TIMEOUT,
+    DEFAULT_STREAM_TIMEOUT,
     AIConfig,
     AppConfig,
     ConfigManager,
     CryptoConfig,
     ExamConfig,
+    HomeworkConfig,
     QuestionBankConfig,
     UrlConfig,
 )
@@ -204,6 +207,21 @@ class TestAppConfig:
 
 
 # ---------------------------------------------------------------------------
+# HomeworkConfig — 免考跳过配置
+# ---------------------------------------------------------------------------
+
+
+class TestHomeworkConfig:
+    def test_skip_ai_free_exam_defaults_true(self) -> None:
+        """默认跳过免考知识点"""
+        assert HomeworkConfig().skip_ai_free_exam is True
+
+    def test_skip_ai_free_exam_can_be_disabled(self) -> None:
+        """可显式关闭"""
+        assert HomeworkConfig(skip_ai_free_exam=False).skip_ai_free_exam is False
+
+
+# ---------------------------------------------------------------------------
 # ConfigManager — TOML 加载
 # ---------------------------------------------------------------------------
 
@@ -242,6 +260,31 @@ speed = 1.5
         assert cfg.video.zhidao_speed == 1.5
         assert cfg.video.hike_speed == 1.25
         assert cfg.save_cookies is True  # 默认值
+
+    def test_load_skip_ai_free_exam_from_toml(self, tmp_path: Path) -> None:
+        """[homework] 的 skip_ai_free_exam 经白名单生效，防止配置静默失效"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[homework]
+skip_ai_free_exam = false
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.homework.skip_ai_free_exam is False
+
+    def test_missing_skip_ai_free_exam_uses_default(self, tmp_path: Path) -> None:
+        """[homework] 未写该字段时使用默认 true"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[homework]
+threshold = 80
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.homework.threshold == 80
+        assert cfg.homework.skip_ai_free_exam is True
 
     def test_load_crypto_section(self, tmp_path: Path) -> None:
         """加载 crypto 子配置"""
@@ -386,6 +429,14 @@ class TestConfigManagerSave:
         assert loaded.question_bank.token == "tok-xyz"
         assert loaded.question_bank.scopes == ["ai_homework"]
 
+    def test_save_preserves_skip_ai_free_exam(self, tmp_path: Path) -> None:
+        """保存/加载保留免考跳过配置"""
+        config_file = tmp_path / "config.toml"
+        cfg = AppConfig(homework=HomeworkConfig(skip_ai_free_exam=False))
+        mgr = ConfigManager(config_file)
+        mgr.save(cfg)
+        assert mgr.load().homework.skip_ai_free_exam is False
+
     def test_roundtrip_all_defaults(self, tmp_path: Path) -> None:
         """默认值保存后加载一致"""
         config_file = tmp_path / "config.toml"
@@ -394,6 +445,72 @@ class TestConfigManagerSave:
         mgr.save(cfg)
         loaded = mgr.load()
         assert loaded == cfg
+
+
+# ---------------------------------------------------------------------------
+# AIConfig — 流式超时配置
+# ---------------------------------------------------------------------------
+
+
+class TestStreamTimeoutConfig:
+    def test_defaults_are_single_source(self) -> None:
+        """默认值与 provider 共用模块常量，无第二份硬编码"""
+        ai = AIConfig()
+        assert ai.stream_timeout == DEFAULT_STREAM_TIMEOUT == 120.0
+        assert ai.stream_idle_timeout == DEFAULT_STREAM_IDLE_TIMEOUT == 30.0
+
+    def test_equal_timeouts_allowed(self) -> None:
+        """总时长等于空闲等待是合法的"""
+        ai = AIConfig(stream_timeout=30.0, stream_idle_timeout=30.0)
+        assert ai.stream_timeout == ai.stream_idle_timeout
+
+    def test_total_smaller_than_idle_rejected(self) -> None:
+        """总时长小于首包等待语义矛盾，构造即报错"""
+        with pytest.raises(ValidationError, match="stream_timeout"):
+            AIConfig(stream_timeout=10.0, stream_idle_timeout=30.0)
+
+    def test_zero_or_negative_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            AIConfig(stream_timeout=0)
+        with pytest.raises(ValidationError):
+            AIConfig(stream_idle_timeout=-1)
+
+    def test_toml_override_applies(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[ai]
+stream_timeout = 60.0
+stream_idle_timeout = 15.0
+""",
+            encoding="utf-8",
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.ai.stream_timeout == 60.0
+        assert cfg.ai.stream_idle_timeout == 15.0
+
+    def test_toml_invalid_order_rejected(self, tmp_path: Path) -> None:
+        """非法配置在启动加载阶段就报错，不拖到运行时"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[ai]
+stream_timeout = 5.0
+stream_idle_timeout = 30.0
+""",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValidationError, match="stream_timeout"):
+            ConfigManager(config_file).load()
+
+    def test_roundtrip_preserves_timeouts(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        cfg = AppConfig(ai=AIConfig(stream_timeout=90.0, stream_idle_timeout=20.0))
+        mgr = ConfigManager(config_file)
+        mgr.save(cfg)
+        loaded = mgr.load()
+        assert loaded.ai.stream_timeout == 90.0
+        assert loaded.ai.stream_idle_timeout == 20.0
 
 
 # ---------------------------------------------------------------------------

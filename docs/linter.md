@@ -133,18 +133,18 @@ Python 3.12+ 支持 PEP 695 类型参数语法，ruff `UP046` 要求泛型类使
 
 ```python
 # ✅ 正确：PEP 695 类型参数语法
-class BaseQuestionCache[T](ABC):
+class Repository[T]:
     def get(self, key: str) -> T | None: ...
     def put(self, key: str, value: T) -> None: ...
 
 # ❌ 错误：旧式 TypeVar + Generic
 from typing import Generic, TypeVar
 T = TypeVar("T")
-class BaseQuestionCache(Generic[T], ABC):
+class Repository(Generic[T]):
     ...
 ```
 
-> **项目应用**：`zhs.cache.base.BaseQuestionCache[T]` 使用此语法，子类 `ZhidaoHomeworkCache[HomeworkCacheEntry]` / `AiExamCache[dict[str, Any]]` 显式指定类型参数。
+> **说明**：当前源码中暂无泛型类（原 `zhs.cache.base.BaseQuestionCache[T]` 已随 JSON 缓存基类移除）；新写泛型类时必须使用 PEP 695 语法，ruff UP046 会强制检查。
 
 #### B006 — 可变默认参数
 
@@ -591,7 +591,7 @@ PEP 695 类型参数语法（`class Foo[T]:`）在 mypy 1.13+ 完全支持，无
 
 ```python
 # mypy 正确识别 T 为类型参数
-class BaseQuestionCache[T](ABC):
+class Repository[T]:
     def get(self, key: str) -> T | None: ...
 ```
 
@@ -646,165 +646,18 @@ pre-commit install
 每次提交必须通过：
 
 ```bash
-ruff check src/ tests/           # 0 errors
-ruff format --check src/ tests/  # 0 changes needed
-mypy src/ tests/                 # 0 errors
-pytest                            # all green（默认跳过 integration 标记）
+uv run ruff check src/ tests/           # 0 errors
+uv run ruff format --check src/ tests/  # 0 changes needed
+uv run mypy src/ tests/                 # 0 errors
+uv run pytest                           # all green（默认跳过 integration 标记）
 ```
+
+CI 实际执行 `.github/workflows/ci.yml`：Python 3.13 / 3.14 矩阵、`uv sync --dev`、四项检查、`tests-gate` 门禁，以及 wheel 安装冒烟（`user-install`）。
 
 完整命令（含集成测试，需真实 API + 扫码登录）：
 
 ```bash
-pytest -m integration tests/integration/
+uv run pytest -m integration tests/integration/
 ```
 
----
-
-## 9. Git 规范
-
-### 9.1 Conventional Commits
-
-所有 commit 消息必须遵循 [Conventional Commits](https://www.conventionalcommits.org/) 格式：
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-#### type（必填）
-
-| type | 说明 | changelog 分组 |
-|------|------|---------------|
-| `feat` | 新功能 | Features |
-| `fix` | Bug 修复 | Bug Fixes |
-| `docs` | 文档变更 | Documentation |
-| `perf` | 性能优化 | Performance |
-| `refactor` | 重构（非新功能/非修复） | Refactor |
-| `style` | 格式调整（不影响逻辑） | Styling |
-| `test` | 测试相关 | Testing |
-| `chore` | 构建/工具/依赖变更 | Miscellaneous |
-| `ci` | CI 配置变更 | Miscellaneous |
-| `revert` | 回退提交 | Reverted |
-
-#### scope（可选）
-
-常用 scope：
-
-| scope | 说明 |
-|-------|------|
-| `release` | 版本发布、changelog 更新 |
-| `deps` | 依赖变更 |
-| `config` | 配置文件变更 |
-| `crypto` | 加密模块 |
-| `session` | 会话模块 |
-| `cli` | CLI 接口 |
-| `homework` | 作业功能 |
-| `video` | 视频功能 |
-
-#### 示例
-
-```bash
-feat(homework): add AI exam answer submission
-fix(crypto): resolve padding error in exam_key decryption
-docs: update installation guide
-chore(deps): bump ruff to v0.15
-chore(release): update CHANGELOG.md for v0.1.1
-refactor(cli): merge play/homework into command pattern
-test(session): add mock tests for login flow
-ci: add release workflow with git-cliff
-```
-
-#### Breaking Changes
-
-```bash
-feat(api)!: change homework submit response format
-feat(api)!: redesign config structure
-
-# 或在 footer 中声明
-feat(api): redesign config structure
-
-BREAKING CHANGE: config.toml structure has changed, see docs for migration
-```
-
-### 9.2 分支规范
-
-| 分支 | 用途 | 命名规则 | 生命周期 |
-|------|------|----------|---------|
-| `main` | 生产代码，随时可发布 | — | 永久 |
-| `dev` | 开发主线，功能集成 | — | 永久 |
-| `feat/*` | 新功能开发 | `feat/<short-description>` | 合并后删除 |
-| `fix/*` | Bug 修复 | `fix/<short-description>` | 合并后删除 |
-| `refactor/*` | 代码重构 | `refactor/<short-description>` | 合并后删除 |
-| `test/*` | 测试补充/修复 | `test/<short-description>` | 合并后删除 |
-| `chore/*` | 构建/工具变更 | `chore/<short-description>` | 合并后删除 |
-
-#### 分支流程
-
-```
-main ──── 稳定代码，只接受 dev 合并
-  ▲
-  │ merge
-  │
-dev ──── 开发主线，功能集成
-  ▲
-  │ merge
-  │
-feat/xxx ── 从 dev 切出，完成后合并回 dev
-fix/xxx  ── 从 dev 切出，完成后合并回 dev
-```
-
-### 9.3 Tag 与发布
-
-| 规则 | 说明 |
-|------|------|
-| 格式 | `v<major>.<minor>.<patch>` 或 `v<major>.<minor>.<patch>.<hotfix>`（如 `v0.1.4`、`v0.1.2.2`，PEP 440 允许四段；历史上 `v0.1.2.1` / `v0.1.2.2` 即为四段） |
-| 位置 | 在 `main` 分支上打 tag |
-| 触发 | 推送 tag 自动触发 `release.yml` CI |
-| 版本号 | 与 `pyproject.toml` 的 `version` 字段一致 |
-
-#### 发布流程（CHANGELOG 在打 tag 前生成）
-
-```
-1. 在 dev 分支开发、测试（功能分支 → dev）
-2. 触发发布准备：Actions → Prepare Release → Run workflow，输入版本号（如 0.1.5）
-   自动完成：bump pyproject.toml version（含 uv.lock 中本包自身版本）+ git-cliff 生成 CHANGELOG.md 新段落
-   自动完成：推送 chore/release-vX.Y.Z 分支并开 PR 到 main（标题 release: vX.Y.Z）
-3. 审阅并合并发布 PR（CHANGELOG 内容在此审阅）
-4. 在 main 上打 tag 并推送：git checkout main && git pull && git tag v0.1.5 && git push origin v0.1.5
-5. CI 自动（release.yml）：check → git-cliff 生成 release notes → build → GitHub Release → PyPI
-   → 最后把 main 快进同步回 dev（git push origin origin/main:dev），保证下一次发布准备的 CHANGELOG 完整
-```
-
-> 为什么在打 tag 前生成：`main` 受规则集保护（`pull_request` 规则 + 无 bypass actor），机器人
-> 只能把提交推到 `dev`。
-> 必须人工补一次 `dev → main` 同步 PR。改为发布前生成后，发布结束即 `main == dev`，无需收尾。
->
-> 注意：发布提交（版本号 + CHANGELOG 段落）只落在 `main`，因此 `release.yml` 末尾会把 `main` **快进**
-> 同步回 `dev`；该步骤允许失败（`dev` 有新提交时会拒绝非快进推送），失败不影响发布结果。
->
-> 依赖设置：Prepare Release 需要仓库允许 Actions 创建 PR —— Settings → Actions → General →
-> Workflow permissions → 勾选 *Allow GitHub Actions to create and approve pull requests*（当前已开启）
-> （未开启时分支仍会被推送，工作流会打印手动开 PR 的 compare 链接）。
-
-### 9.4 Changelog 自动化
-
-项目使用 [git-cliff](https://git-cliff.org) 自动生成 `CHANGELOG.md`：
-
-- **配置文件**：`cliff.toml`（项目根目录）
-- **CI 集成**：`prepare-release.yml`（发布前生成）+ `release.yml`（tag 时生成 Release notes）
-- **触发时机**：发布准备（打 tag 之前）与推送 tag 时
-- **输出**：`CHANGELOG.md`（随发布 PR 合入 main）+ GitHub Release body
-- **注意**：标签尚不存在时必须带 `--unreleased`，否则 git-cliff 只渲染已存在的标签
-- **版本号同步**：发布准备会同时更新 `pyproject.toml`、`uv.lock`（其中记录本包自身版本）与 `CHANGELOG.md`
-
-本地预览：
-
-```bash
-# 预览下一个版本的段落（标签还不存在时）
-uvx --from git-cliff git-cliff --config cliff.toml --unreleased --tag v0.1.5 --strip header
-# 预览/写入完整 CHANGELOG（针对已存在的标签）
-uvx --from git-cliff git-cliff --config cliff.toml --tag v0.1.4 -o CHANGELOG.md
-```
+> **Git 规范**：分支 / 提交 / PR / 发布流程统一见 [GIT.md](./GIT.md)，本文件只保留代码风格与 Linter 规则。

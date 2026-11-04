@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.5] - 2026-11-04
+
+### Features
+
+- **ai**: KnowledgePoint 解析 freeExam 免考标记
+- **homework**: 可配置是否跳过免考知识点
+- **ai**: 流式总超时与空闲超时可配置并校验大小关系
+
+### Bug Fixes
+
+- **ai**: 归一化非文件类资源的 resourcesFileId 空值
+- **ai**: FreeExam 空值归一为 0
+- **session**: 探活前用 CAS 换票建立 onlineservice 会话
+
+### Documentation
+
+- **design**: 修复 Prompt 模板 Mermaid 图节点标签反引号渲染错误
+- 补充免考跳过与作业配置项说明
+- 更新 Cookie 恢复与登录态校验说明
+- 同步 CAS 换票的会话校验流程
+- 同步超时配置与登录态判定说明
+- 新增 GIT.md 并清理过时与失效的文档描述
+- 重组 design 章节并移除 linter 中的 Git 规范正文
+- 将 GIT.md 移入 docs 并修正引用路径
+
+### Refactor
+
+- **cache**: 移除已弃用的 BaseQuestionCache JSON 缓存基类
+- **ai**: 统一知识点遍历并修复直接模式主题缺失
+- **cli**: 拆分 Cookie 恢复与会话校验
+
+### Testing
+
+- **cli**: 覆盖会话校验三态与本地 Cookie 恢复
+
+### Miscellaneous
+
+- 修正发布工作流注释中的 Git 规范引用
+
 ## [0.1.4.3] - 2026-10-14
 
 ### Bug Fixes

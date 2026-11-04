@@ -22,8 +22,7 @@ cd ZHS
 # 使用 uv 安装依赖（含开发依赖）
 uv sync --dev
 
-# 或使用 pip 安装为可编辑包
-pip install -e ".[dev]"
+# 开发依赖写在 [dependency-groups] dev；没有 pip 的 `[dev]` extra
 ```
 
 安装完成后，`zhs` 命令即可用：
@@ -60,7 +59,7 @@ zhs init
 ├── execution.json    # 课程列表（zhs fetch 生成）
 ├── cache/            # 答案缓存目录（SQLite）
 │   └── questions_bank.db  # 题库数据库（zhidao_questions + ai_questions 两张表）
-└── logs/             # 日志目录（按日期轮转）
+└── logs/             # 日志目录（10 MB 轮转，保留 7 天，zip 压缩）
 ```
 
 ### 2.2 配置文件说明
@@ -366,9 +365,9 @@ zhs homework -c 1000008156 --max-submit 3
 
 ---
 
-## 7. AI 课程考试：`zhs exam`
+## 7. 课程考试：`zhs exam`
 
-> 目前仅支持 AI 课程的考试功能。
+> 支持 AI 课程与知到课程：`--type ai` / `--type zhidao` / `--type auto`。
 
 ### 7.1 基本用法
 
@@ -438,7 +437,7 @@ zhs fetch --type course
 查看版本号（全局选项，无需子命令）：
 
 ```bash
-zhs --version   # 或 zhs -v，输出形如 zhs 0.1.4.1
+zhs --version   # 或 zhs -v，输出形如 zhs 0.1.4.3
 ```
 
 `play` / `homework` / `exam` 共有参数：
@@ -529,10 +528,10 @@ https = "http://127.0.0.1:7890"
 | `cookies.json` | 登录 Cookie（`zhs login` 生成） |
 | `execution.json` | 课程列表（`zhs fetch` 生成） |
 | `cache/questions_bank.db` | 题库缓存数据库（SQLite，含 `zhidao_questions` + `ai_questions` 两张表） |
-| `logs/` | 日志目录（按日期轮转，保留 30 天，gz 压缩） |
+| `logs/` | 日志目录（按 10 MB 轮转，保留 7 天，zip 压缩） |
 | `qrcode.png` | 登录二维码图片（`zhs login` 生成） |
 
-> **缓存存储**：答案缓存统一存储于 SQLite 数据库 `~/.zhs/cache/questions_bank.db`。可通过 `zhs cache export -c COURSE_ID` 导出为 JSON 分享，`zhs cache import PATH` 导入。从旧版 JSON 缓存升级时，运行 `uv run python .temp/migrate_cache_to_db.py --dry-run` 预览，确认后去掉 `--dry-run` 执行迁移。
+> **缓存存储**：答案缓存统一存储于 SQLite 数据库 `~/.zhs/cache/questions_bank.db`。可通过 `zhs cache export -c COURSE_ID` 导出为 JSON 分享，`zhs cache import PATH` 导入。从旧版 JSON 缓存升级时，运行 `uv run python scripts/migrate_cache.py --dry-run` 预览，确认后去掉 `--dry-run` 执行迁移。
 
 ---
 
@@ -578,8 +577,12 @@ zhs login
 
 ### Q6: 如何只刷视频不答题？
 
-- 知到课程：`zhs play` 只刷视频，作业使用 `zhs homework` 单独执行
-- AI 课程：`zhs play --ai-course X --ai-class Y` 会同时刷视频和作业，目前无法分离
+`zhs play` 只刷视频、`zhs homework` 只做作业，两者已分离（`play` 内部以 `no_homework=True` 运行）：
+
+- 知到课程：`zhs play` 刷视频，`zhs homework` 写作业
+- AI 课程：`zhs play --ai-course X --ai-class Y` 只刷知识点，`zhs homework` 做作业
+
+> 作业默认跳过免考知识点（`freeExam=1`）；设 `[homework] skip_ai_free_exam = false` 可关闭。
 
 ### Q7: 作业如何达标？
 
@@ -594,7 +597,7 @@ zhs login
 
 ### Q9: 日志在哪里？
 
-- 日志文件：`~/.zhs/logs/zhs_YYYY-MM-DD.log`（按日期轮转，保留 30 天，gz 压缩）
+- 日志文件：`~/.zhs/logs/zhs_YYYY-MM-DD.log`（按 10 MB 轮转，保留 7 天，zip 压缩）
 - 控制台输出：默认不输出，使用 `--console-log` 或 `-d` 开启
 
 ### Q10: 如何查看课程 ID？

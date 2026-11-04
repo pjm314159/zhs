@@ -1,12 +1,14 @@
 """AI 课程管理"""
 
 import time
+from collections.abc import Iterator
+from itertools import groupby
 from random import randint
 from typing import Any
 
 from loguru import logger
 
-from zhs.ai.models import AiCourseInfo, ExamInfo, KnowledgePoint, Resource
+from zhs.ai.models import AiCourseInfo, ExamInfo, KnowledgePoint, KnowledgeTarget, Resource
 from zhs.ai.video import AiVideoPlayer
 from zhs.config import AIConfig, HomeworkConfig, VideoConfig
 from zhs.question_bank.client import QuestionBankClient
@@ -207,6 +209,11 @@ class AiCourseManager:
             return False
         return not (exam.mastery_score < 30 and tried > 4)
 
+    @staticmethod
+    def _should_skip_ai_free_exam(target: KnowledgeTarget, homework_config: HomeworkConfig) -> bool:
+        """判断是否为免考知识点且配置允许跳过（仅作业模式调用）"""
+        return homework_config.skip_ai_free_exam and target.knowledge.free_exam == 1
+
     def _collect_completed_ppts(
         self, course_id: int, class_id: int, knowledge_id: int, ppts: list[dict[str, str]]
     ) -> None:
@@ -255,85 +262,77 @@ class AiCourseManager:
         _vc = video_config or VideoConfig()
         threshold = _vc.ai_threshold
 
-        # 直接模式：有 node_uid，只处理该知识点
+        direct_target: KnowledgeTarget | None = None
         if node_uid is not None:
-            knowledge = self._find_knowledge_by_id(course_info, node_uid)
-            if knowledge is None:
+            direct_target = self._find_target(course_info, node_uid)
+            if direct_target is None:
                 logger.warning(f"nodeUid={node_uid} 未匹配任何知识点，回退扫描模式")
-                # 回退到扫描模式（node_uid 置空，走下方遍历）
             else:
-                logger.info(f"直接模式：只处理知识点 {knowledge.knowledge_name}")
+                logger.info(f"直接模式：只处理知识点 {direct_target.knowledge.knowledge_name}")
                 self._reporter.tree_print(
-                    f"知识点: {styled(knowledge.knowledge_name, _C.WHITE)}", depth=2, enabled=True
+                    f"知识点: {styled(direct_target.knowledge.knowledge_name, _C.WHITE)}", depth=2, enabled=True
                 )
-                if no_homework:
-                    self._run_play_only(course_id, class_id, knowledge, video_player, learn_optional, threshold)
-                else:
-                    self._run_homework_only(
-                        course_id,
-                        class_id,
-                        knowledge,
-                        None,
-                        course_info,
-                        ai_config,
-                        homework_config,
-                        question_bank,
-                    )
+
+        is_direct_mode = direct_target is not None
+        targets: list[KnowledgeTarget] = (
+            [direct_target] if direct_target is not None else list(self._iter_targets(course_info))
+        )
+
+        for theme_name, group in groupby(targets, key=lambda target: target.theme_name):
+            if not is_direct_mode:
+                logger.info(f"主题: {theme_name}")
                 self._reporter.print()
-                self._reporter.print(msg_done(f"完成: {knowledge.knowledge_name}"))
-                return
+                self._reporter.tree_print(f"主题: {styled(theme_name, _C.CYAN)}", depth=1, enabled=True)
 
-        # 扫描模式：遍历所有知识点
-        for theme in course_info.cake_theme_list:
-            logger.info(f"主题: {theme.theme_name}")
-            self._reporter.print()
-            self._reporter.tree_print(f"主题: {styled(theme.theme_name, _C.CYAN)}", depth=1, enabled=True)
+            for target in group:
+                if not no_homework and self._should_skip_ai_free_exam(target, homework_config):
+                    self._reporter.tree_print(
+                        msg_skip(f"跳过(免考): {target.knowledge.knowledge_name}"), depth=2, enabled=True
+                    )
+                    continue
 
-            for knowledge in theme.knowledge_list:
                 if no_homework:
-                    # play 模式：只刷知识点，不查询作业
-                    self._run_play_only(course_id, class_id, knowledge, video_player, learn_optional, threshold)
+                    self._run_play_only(course_id, class_id, target.knowledge, video_player, learn_optional, threshold)
                 else:
-                    # homework 模式：只做作业，不刷视频
                     self._run_homework_only(
                         course_id,
                         class_id,
-                        knowledge,
-                        theme,
+                        target,
                         course_info,
                         ai_config,
                         homework_config,
                         question_bank,
                     )
 
-            # 主题间随机延迟
-            time.sleep(randint(1, 2))
+            if not is_direct_mode:
+                # 主题间随机延迟
+                time.sleep(randint(1, 2))
 
         self._reporter.print()
-        self._reporter.print(msg_done(f"课程完成: {course_info.course_name}"))
-        self._reporter.print(styled("=" * 60, _C.DIM))
+        if is_direct_mode:
+            self._reporter.print(msg_done(f"完成: {targets[0].knowledge.knowledge_name}"))
+        else:
+            self._reporter.print(msg_done(f"课程完成: {course_info.course_name}"))
+            self._reporter.print(styled("=" * 60, _C.DIM))
 
-    def _find_knowledge_by_id(self, course_info: AiCourseInfo, knowledge_id: int) -> KnowledgePoint | None:
-        """通过 knowledge_id 查找知识点
-
-        Args:
-            course_info: 课程信息
-            knowledge_id: 知识点 ID
-
-        Returns:
-            匹配的 KnowledgePoint，未找到返回 None
-        """
+    def _iter_targets(self, course_info: AiCourseInfo) -> Iterator[KnowledgeTarget]:
+        """按课程结构顺序产出知识点目标，并保留所属主题名"""
         for theme in course_info.cake_theme_list:
             for knowledge in theme.knowledge_list:
-                if knowledge.knowledge_id == knowledge_id:
-                    return knowledge
-        return None
+                yield KnowledgeTarget(theme_name=theme.theme_name, knowledge=knowledge)
+
+    def _find_target(self, course_info: AiCourseInfo, knowledge_id: int) -> KnowledgeTarget | None:
+        """按知识点 ID 定位目标，同时带回所属主题名"""
+        return next(
+            (target for target in self._iter_targets(course_info) if target.knowledge.knowledge_id == knowledge_id),
+            None,
+        )
 
     def _run_play_only(
         self,
         course_id: int,
         class_id: int,
-        knowledge: Any,
+        knowledge: KnowledgePoint,
         video_player: AiVideoPlayer,
         learn_optional: bool,
         threshold: int = 100,
@@ -381,9 +380,8 @@ class AiCourseManager:
         self,
         course_id: int,
         class_id: int,
-        knowledge: Any,
-        theme: Any,
-        course_info: Any,
+        target: KnowledgeTarget,
+        course_info: AiCourseInfo,
         ai_config: AIConfig,
         homework_config: HomeworkConfig,
         question_bank: QuestionBankClient | None = None,
@@ -392,6 +390,7 @@ class AiCourseManager:
         from zhs.ai.homework import HomeworkCtx
         from zhs.ai.ppt import PptConverter
 
+        knowledge = target.knowledge
         exam = self.query_homework(course_id, class_id, knowledge.knowledge_id)
         homework_done = exam is None or not exam.paper_id or exam.mastery_score >= homework_config.ai_homework_threshold
         if homework_done:
@@ -460,7 +459,7 @@ class AiCourseManager:
                 ai_config=ai_config,
                 op_extra={
                     "courseName": course_info.course_name,
-                    "theme": theme.theme_name,
+                    "theme": target.theme_name,
                     "knowledgePoint": knowledge.knowledge_name,
                 },
                 question_bank=question_bank,

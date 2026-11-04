@@ -75,6 +75,35 @@ class TestKnowledgePoint:
         assert kp.knowledge_name == "面向对象"
         assert kp.study_progress == 50
 
+    def test_free_exam_defaults_to_zero(self) -> None:
+        """接口未下发 freeExam 时默认非免考"""
+        kp = KnowledgePoint(knowledge_id=1, knowledge_name="普通知识点")
+        assert kp.free_exam == 0
+
+    def test_free_exam_from_api_json(self) -> None:
+        """解析免考标记（freeExam=1）"""
+        data = {"knowledgeId": 2, "knowledgeName": "免考知识点", "freeExam": 1}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 1
+
+    def test_free_exam_zero_from_api_json(self) -> None:
+        """freeExam=0 表示需考核"""
+        data = {"knowledgeId": 3, "knowledgeName": "必考知识点", "freeExam": 0}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+
+    def test_null_free_exam_normalized(self) -> None:
+        """接口下发 freeExam=null 时归一为 0，避免整批知识点解析失败"""
+        data = {"knowledgeId": 4, "knowledgeName": "普通知识点", "freeExam": None}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+
+    def test_empty_string_free_exam_normalized(self) -> None:
+        """接口下发 freeExam 为空串时归一为 0"""
+        data = {"knowledgeId": 5, "knowledgeName": "普通知识点", "freeExam": ""}
+        kp = KnowledgePoint.model_validate(data)
+        assert kp.free_exam == 0
+
 
 class TestTheme:
     """主题模型"""
@@ -165,6 +194,42 @@ class TestResourceDetail:
         assert rd.resources_uid == 100
         assert rd.resources_url == "https://example.com/video.mp4"
         assert rd.resources_file_id == 200
+
+    def test_empty_string_file_id_normalized(self) -> None:
+        """非文件类资源（文本/PPT）返回空字符串时归一为 0"""
+        data = {
+            "resourcesUid": 101,
+            "resourcesName": "课件1",
+            "resourcesType": 1,
+            "resourcesDistributeType": 4,
+            "resourcesFileId": "",
+        }
+        rd = ResourceDetail.model_validate(data)
+        assert rd.resources_file_id == 0
+
+    def test_none_file_id_normalized(self) -> None:
+        """resourcesFileId 为 null 时归一为 0"""
+        data = {
+            "resourcesUid": 102,
+            "resourcesName": "文本1",
+            "resourcesType": 2,
+            "resourcesDistributeType": 1,
+            "resourcesFileId": None,
+        }
+        rd = ResourceDetail.model_validate(data)
+        assert rd.resources_file_id == 0
+
+    def test_zero_file_id_preserved(self) -> None:
+        """已是 0 时保持不变"""
+        data = {
+            "resourcesUid": 103,
+            "resourcesName": "课件2",
+            "resourcesType": 1,
+            "resourcesDistributeType": 4,
+            "resourcesFileId": 0,
+        }
+        rd = ResourceDetail.model_validate(data)
+        assert rd.resources_file_id == 0
 
 
 class TestResource:

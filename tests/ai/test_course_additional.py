@@ -14,6 +14,7 @@ from zhs.ai.models import (
     AiCourseInfo,
     ExamInfo,
     KnowledgePoint,
+    KnowledgeTarget,
     Resource,
     ResourceDetail,
     Theme,
@@ -281,35 +282,135 @@ class TestRunHomeworkOnly:
     def test_skips_when_homework_done(self, manager: AiCourseManager) -> None:
         """作业已达标时跳过"""
         knowledge = KnowledgePoint(knowledge_id=1, knowledge_name="测试", study_progress=0)
-        theme = Theme(theme_name="主题1")
         course_info = AiCourseInfo(course_name="课程1")
         homework_config = HomeworkConfig(ai_homework_threshold=90)
 
         # exam.mastery_score >= 90 → 跳过
         exam = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=95)
         with patch.object(manager, "query_homework", return_value=exam):
-            manager._run_homework_only(100, 200, knowledge, theme, course_info, AIConfig(api_key="k"), homework_config)
+            manager._run_homework_only(
+                100, 200, KnowledgeTarget("主题1", knowledge), course_info, AIConfig(api_key="k"), homework_config
+            )
 
     def test_skips_when_no_exam(self, manager: AiCourseManager) -> None:
         """无作业时跳过"""
         knowledge = KnowledgePoint(knowledge_id=1, knowledge_name="测试", study_progress=0)
-        theme = Theme(theme_name="主题1")
         course_info = AiCourseInfo(course_name="课程1")
         homework_config = HomeworkConfig(ai_homework_threshold=90)
 
         with patch.object(manager, "query_homework", return_value=None):
-            manager._run_homework_only(100, 200, knowledge, theme, course_info, AIConfig(api_key="k"), homework_config)
+            manager._run_homework_only(
+                100, 200, KnowledgeTarget("主题1", knowledge), course_info, AIConfig(api_key="k"), homework_config
+            )
 
     def test_skips_when_no_paper_id(self, manager: AiCourseManager) -> None:
         """无 paper_id 时跳过"""
         knowledge = KnowledgePoint(knowledge_id=1, knowledge_name="测试", study_progress=0)
-        theme = Theme(theme_name="主题1")
         course_info = AiCourseInfo(course_name="课程1")
         homework_config = HomeworkConfig(ai_homework_threshold=90)
 
         exam = ExamInfo(exam_test_id=1, paper_id=0, mastery_score=50)
         with patch.object(manager, "query_homework", return_value=exam):
-            manager._run_homework_only(100, 200, knowledge, theme, course_info, AIConfig(api_key="k"), homework_config)
+            manager._run_homework_only(
+                100, 200, KnowledgeTarget("主题1", knowledge), course_info, AIConfig(api_key="k"), homework_config
+            )
+
+
+class TestTargetResolution:
+    """知识点定位：主题名不丢失"""
+
+    @staticmethod
+    def _course_info() -> AiCourseInfo:
+        return AiCourseInfo(
+            course_name="测试课程",
+            cake_theme_list=[
+                Theme(
+                    theme_name="主题A",
+                    knowledge_list=[
+                        KnowledgePoint(knowledge_id=10, knowledge_name="A1"),
+                        KnowledgePoint(knowledge_id=11, knowledge_name="A2"),
+                    ],
+                ),
+                Theme(
+                    theme_name="主题B",
+                    knowledge_list=[KnowledgePoint(knowledge_id=20, knowledge_name="B1")],
+                ),
+            ],
+        )
+
+    def test_iter_targets_keeps_theme_names_in_order(self, manager: AiCourseManager) -> None:
+        """遍历顺序与课程结构一致，每个目标带所属主题名"""
+        targets = list(manager._iter_targets(self._course_info()))
+        assert [(t.theme_name, t.knowledge.knowledge_id) for t in targets] == [
+            ("主题A", 10),
+            ("主题A", 11),
+            ("主题B", 20),
+        ]
+
+    def test_find_target_returns_theme_name(self, manager: AiCourseManager) -> None:
+        """命中时同时返回知识点与真实主题名"""
+        target = manager._find_target(self._course_info(), 11)
+        assert target is not None
+        assert target.theme_name == "主题A"
+        assert target.knowledge.knowledge_id == 11
+
+    def test_find_target_across_themes(self, manager: AiCourseManager) -> None:
+        """跨主题定位也能拿到正确的主题名"""
+        target = manager._find_target(self._course_info(), 20)
+        assert target is not None
+        assert target.theme_name == "主题B"
+
+    def test_find_target_missing_returns_none(self, manager: AiCourseManager) -> None:
+        """未命中返回 None，由 run_course 回退扫描模式"""
+        assert manager._find_target(self._course_info(), 999) is None
+
+    def test_direct_mode_passes_real_theme(self, manager: AiCourseManager) -> None:
+        """直接模式把真实主题名交给作业流程，且不产生主题间延迟"""
+        with (
+            patch.object(manager, "get_knowledge_points", return_value=self._course_info()),
+            patch.object(manager, "_run_homework_only") as mock_hw,
+            patch("zhs.ai.course.time.sleep") as mock_sleep,
+            patch("zhs.ai.course.AiVideoPlayer"),
+        ):
+            manager.run_course(100, 200, AIConfig(api_key="k"), HomeworkConfig(), no_homework=False, node_uid=20)
+
+        mock_hw.assert_called_once()
+        target = mock_hw.call_args[0][2]
+        assert isinstance(target, KnowledgeTarget)
+        assert target.theme_name == "主题B"
+        assert target.knowledge.knowledge_id == 20
+        mock_sleep.assert_not_called()
+
+    def test_scan_mode_sleeps_per_theme(self, manager: AiCourseManager) -> None:
+        """扫描模式按主题分组，主题间保留随机延迟"""
+        with (
+            patch.object(manager, "get_knowledge_points", return_value=self._course_info()),
+            patch.object(manager, "_run_play_only"),
+            patch("zhs.ai.course.time.sleep") as mock_sleep,
+            patch("zhs.ai.course.AiVideoPlayer"),
+        ):
+            manager.run_course(100, 200, AIConfig(api_key="k"), HomeworkConfig(), no_homework=True)
+        assert mock_sleep.call_count == 2
+
+    def test_homework_ctx_receives_theme_from_target(self, manager: AiCourseManager) -> None:
+        """作业上下文的 theme 取自 KnowledgeTarget，不再依赖可空 theme"""
+        knowledge = KnowledgePoint(knowledge_id=1, knowledge_name="测试")
+        target = KnowledgeTarget("主题B", knowledge)
+        course_info = AiCourseInfo(course_name="课程1")
+        low_score = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=10)
+        passed = ExamInfo(exam_test_id=1, paper_id=2, mastery_score=95)
+
+        with (
+            patch.object(manager, "query_homework", side_effect=[low_score, passed]),
+            patch.object(manager, "_collect_completed_ppts"),
+            patch("zhs.ai.homework.HomeworkCtx") as mock_ctx_cls,
+            patch("zhs.ai.course.time.sleep"),
+        ):
+            mock_ctx_cls.return_value.start.return_value = (True, 5, 6)
+            manager._run_homework_only(100, 200, target, course_info, AIConfig(api_key="k"), HomeworkConfig())
+
+        mock_ctx_cls.assert_called_once()
+        assert mock_ctx_cls.call_args.kwargs["op_extra"]["theme"] == "主题B"
 
 
 class TestRunCourse:
@@ -470,8 +571,10 @@ class TestRunCourse:
             )
 
         mock_hw.assert_called_once()
-        args = mock_hw.call_args
-        assert args[0][2].knowledge_id == 10
+        target = mock_hw.call_args[0][2]
+        assert isinstance(target, KnowledgeTarget)
+        assert target.knowledge.knowledge_id == 10
+        assert target.theme_name == "主题1"
 
     def test_node_uid_not_found_fallback_scan(self, manager: AiCourseManager) -> None:
         """node_uid 不匹配任何知识点时回退扫描模式（全刷）"""

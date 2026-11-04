@@ -62,8 +62,7 @@ cd ZHS
 # 安装依赖（含开发依赖）
 uv sync --dev
 
-# 或使用 pip
-# pip install -e ".[dev]"
+# 开发依赖写在 [dependency-groups] dev；没有 pip 的 `[dev]` extra
 ```
 
 安装后 `zhs` 命令即可使用：
@@ -121,7 +120,7 @@ zhs play --ai-course 1001 --ai-class 2001
 
 # 通过 URL 自动解析（知到视频页 / AI 学习页 / AI 课程页）
 zhs play --url "https://studyvideoh5.zhihuishu.com/stuStudy?recruitAndCourseId=xxx"
-zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/ courseId/nodeUid/classId"
+zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/learnPage/courseId/nodeUid/classId"
 zhs play --url "https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/courseId/classId"
 
 # 全刷所有课程
@@ -155,6 +154,8 @@ zhs homework
 ```
 
 > AI 课程 `learnPage` URL 含 `nodeUid`（知识点 ID）时走**直接模式**，只做该知识点作业；`knowledgeStudy` URL 走**扫描模式**全刷。
+>
+> 作业模式默认跳过 `freeExam=1`（免考）知识点，这类知识点不计入掌握度考核；如需仍对它们做作业，在 `[homework]` 中设置 `skip_ai_free_exam = false`。`play` 模式不受影响。
 
 ### 6. AI 课程考试
 
@@ -184,7 +185,7 @@ zhs exam --type ai
 | `zhs fetch` | 获取并保存课程列表（输出 `courseId`） |
 | `zhs cache` | 题库缓存管理（`export` 导出 / `import` 导入 JSON） |
 
-每个命令均支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数。`play`/`homework`/`exam` 支持 `--url`（与 `-c` 互斥，自动从浏览器 URL 解析课程参数）。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
+业务命令（`play` / `homework` / `exam` / `fetch`）支持 `--proxy`、`-d/--debug`、`--console-log` 全局参数；`init` / `login` / `cache` 各有自己的参数集，`--version` 不加载配置。`play`/`homework`/`exam` 支持 `--url`（与 `-c` 互斥，自动从浏览器 URL 解析课程参数）。详细参数说明见 [docs/tutorial.md](docs/tutorial.md)。
 
 ## 配置
 
@@ -209,6 +210,7 @@ max_submit = 0           # 最大重做次数（0 = 无限）
 delay_min = 1.0          # 每题保存后最小延迟（秒）
 delay_max = 2.0          # 每题保存后最大延迟（秒）
 ai_homework_threshold = 90  # AI 作业跳过阈值
+skip_ai_free_exam = true    # AI 作业是否跳过免考知识点
 
 [exam]
 save_nums = 5            # 每批保存答案的题目数
@@ -232,12 +234,18 @@ api_key = ""             # OpenAI 兼容 API Key（AI 智慧课程在 use_builti
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 max_token = 27900
+stream_timeout = 120.0      # 流式响应总时长（秒），不得小于 stream_idle_timeout
+stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定首包最长等待
 
 [crypto]                 # 加密密钥（一般无需修改）
 [urls]                   # API URL（一般无需修改）
 ```
 
 > **AI 答题**：**AI 智慧课程**默认使用智慧树内置 AI，无需任何 API Key，**前提是你有 AI 智慧课程**。内置 AI 性能低下，建议使用自定义的：将 `use_builtin_ai = false` 并填写 `api_key` 与 `base_url`。该 `api_key` 并非只服务知到作业/考试：`use_builtin_ai = false` 时 AI 智慧课程也用它；而**知到作业 / 知到考试没有内置 AI 可用，必须配置 `api_key`**。
+
+> **流式超时**：`stream_timeout` 限制整个流的总时长，`stream_idle_timeout` 限制相邻 chunk 的空闲等待（也就是首包最长等待）。`stream_timeout` 不得小于 `stream_idle_timeout`，否则加载配置时直接报错。两项只作用于 OpenAI 兼容接口；智慧树内置 AI 走另一套 SSE 端点。
+>
+> **登录态判定**：Cookie 从 `~/.zhs/cookies.json` 本地恢复；启动时先用 CAS 票据换取 `onlineservice-api` 会话，再调用 `getLoginUserInfo`，只有响应中能取到用户信息才算登录有效。会话过期与接口不可用会分别给出不同提示。
 
 ## 数据目录
 
@@ -249,7 +257,7 @@ max_token = 27900
 | `cookies.json` | 登录 Cookie |
 | `execution.json` | `zhs fetch` 生成的课程列表 |
 | `qrcode.png` | 登录二维码图片 |
-| `logs/` | 日志目录（按天轮转，保留 30 天） |
+| `logs/` | 日志目录（10 MB 轮转，保留 7 天，zip 压缩） |
 | `cache/` | 答案缓存目录（SQLite 数据库，见下） |
 
 ### 缓存存储
@@ -262,10 +270,14 @@ max_token = 27900
 | `ai_questions` | AI 作业/考试答案缓存（单键 question_id，HomeworkCtx 与 ExamCtx 共用） |
 
 可通过 `zhs cache export -c COURSE_ID` 导出为人类可读 JSON 分享，`zhs cache import PATH` 导入。
-旧版 JSON 缓存可通过 `.temp/migrate_cache_to_db.py` 迁移到 SQLite。
+旧版 JSON 缓存可通过 `scripts/migrate_cache.py` 迁移到 SQLite。
 
 
 ## 开发
+
+### 贡献 / Git 规范
+
+提交前请先读 [docs/GIT.md](docs/GIT.md)：分支命名、Conventional Commits、PR base 与模板、发布流程都在里面。`docs/linter.md` 只负责代码风格与 Linter 规则。
 
 ### 开发流程
 
@@ -291,11 +303,13 @@ uv run mypy src/ tests/
 
 | 文档 | 用途 |
 |------|------|
+| [docs/GIT.md](docs/GIT.md) | Git / 分支 / 提交 / PR / 发布规范 |
 | [docs/spec.md](docs/spec.md) | 功能规格、API 端点、数据结构 |
 | [docs/design.md](docs/design.md) | 模块级设计、类签名、流程图 |
 | [docs/tutorial.md](docs/tutorial.md) | 使用教程 |
 | [docs/test.md](docs/test.md) | 测试策略与用例 |
 | [docs/linter.md](docs/linter.md) | 代码规范 |
+| [docs/log.md](docs/log.md) | 开发日志（历史快照） |
 
 ## About
 本项目是使用python开发，我尽量完善代码的注释和写好文档，

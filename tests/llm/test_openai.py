@@ -105,7 +105,6 @@ class TestStreamEarlyTermination:
 
         assert stream.closed is True
 
-    @patch("zhs.llm.openai.STREAM_IDLE_TIMEOUT", 0.3)
     @patch("zhs.llm.openai.OpenAI")
     def test_thinking_phase_without_content_is_not_a_timeout(self, mock_openai_cls: MagicMock) -> None:
         """思考阶段只发空 delta（reasoning_content）时，不应被空闲超时误杀"""
@@ -115,7 +114,7 @@ class TestStreamEarlyTermination:
         stream = _FakeStream(["", "", "", "", "", "", "```answer\n", "ok", "\n```"], gap=0.1)
         mock_client.chat.completions.create.return_value = stream
 
-        provider = OpenAIProvider(api_key="test-key", model_name="gpt-4", max_retries=1, timeout=5.0)
+        provider = OpenAIProvider(api_key="test-key", model_name="gpt-4", max_retries=1, timeout=5.0, idle_timeout=0.3)
         result = provider.completion("prompt")
 
         assert "```answer" in result
@@ -268,3 +267,23 @@ class TestOpenAICompletion:
         provider.completion("test")
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["model"] == "gpt-3.5-turbo"
+
+
+class TestIdleTimeout:
+    """空闲超时由构造参数控制，不再依赖模块常量"""
+
+    @patch("zhs.llm.openai.OpenAI")
+    def test_idle_timeout_is_effective(self, mock_openai_cls: MagicMock) -> None:
+        """无数据时按 idle_timeout 判定超时，而不是等满总时长"""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        stream = _FakeStream(["late"], gap=1.0)
+        mock_client.chat.completions.create.return_value = stream
+
+        provider = OpenAIProvider(api_key="test-key", model_name="gpt-4", max_retries=1, timeout=5.0, idle_timeout=0.2)
+        started = time.monotonic()
+        with pytest.raises(ZhsError, match="timeout"):
+            provider.completion("prompt")
+
+        assert time.monotonic() - started < 0.9
+        assert stream.closed is True

@@ -2,6 +2,8 @@
 
 记录每个 Task 的 TDD 循环状态（Red / Green / Refactor）与完成情况。
 
+> **注意**：本文件是**历史快照**，其中的测试数量、分支名、配置开关与文件引用只代表当时状态，不代表当前实现。当前规范以 [GIT.md](./GIT.md) 为准，当前配置以 `config.toml.example` 为准；文中 `file:///` 本机路径、部分脚本与 `STREAM_IDLE_TIMEOUT` 等条目可能已失效（流式超时已改为 `[ai] stream_timeout` / `stream_idle_timeout` 可配置）；`docs/linter.md §9.x` 指当时的章节，Git 规范现已全部迁移到 `docs/GIT.md`。
+
 ---
 
 ## 题库（Question Bank）功能
@@ -77,12 +79,12 @@ API 参考：`.temp/questions_bank.md`
 ### Bug 1 — `init_llm` 误判 `use_zhidao_ai` 导致知到作业无 LLM ✅
 - **现象**：`ai.use_zhidao_ai=True` 时，知到作业 `init_llm` 返回 None（无 LLM，退化为随机答题）。
 - **根因**：`init_llm`（仅知到作业调用）`if ai.use_zhidao_ai: return None` 短路；但 `zhidao_ai` 设计上仅在 AI 智慧课程生效（由 `LLMProviderFactory.create` 创建 `ZhidaoAIProvider`），知到课程应忽略它。
-- **修复**（[bootstrap.py](file:///e:/project/python/ZHS/src/zhs/cli/bootstrap.py)）：移除 `use_zhidao_ai` 短路，知到作业仅检查 `ai.enabled` + `api_key`，有 key 则用 OpenAI。
+- **修复**（[bootstrap.py](../src/zhs/cli/bootstrap.py)）：移除 `use_zhidao_ai` 短路，知到作业仅检查 `ai.enabled` + `api_key`，有 key 则用 OpenAI。
 - TDD: `test_use_zhidao_ai_ignored_returns_provider`（RED→GREEN），`test_use_zhidao_ai_no_api_key_returns_none`。
 
 ### Bug 2 — 题库不可用仅 log 不 print ✅
 - **现象**：`init_question_bank` 在 token 空 / AI 未启用时只 `logger.warning`，终端不可见（非 debug 模式无 stderr handler）。
-- **修复**（[bootstrap.py](file:///e:/project/python/ZHS/src/zhs/cli/bootstrap.py)）：两个分支追加 `print(msg_warn(...))`，与 `logger.warning` 并存。
+- **修复**（[bootstrap.py](../src/zhs/cli/bootstrap.py)）：两个分支追加 `print(msg_warn(...))`，与 `logger.warning` 并存。
 - TDD: `test_no_token_returns_none` / `test_ai_disabled_returns_none` 增加 `capsys` 断言（RED→GREEN）。
 
 ### 校验
@@ -95,7 +97,7 @@ API 参考：`.temp/questions_bank.md`
 
 ### Task 12 — 题库统计属性 + 成功 log ✅
 - **需求**：每次题库查询成功后 log 提示用户，统计成功次数/总查询次数。
-- **实现**（[client.py](file:///e:/project/python/ZHS/src/zhs/question_bank/client.py)）：
+- **实现**（[client.py](../src/zhs/question_bank/client.py)）：
   - 新增 `_success_count`、`_total_queries` 属性
   - `query()` 成功（code=1）时 `logger.info(f"题库查询成功: 剩余次数 {times}, 本次使用 1 次（累计成功 {success_count} 次")`
   - 新增 `get_usage_stats()` 返回 `(success, total)` 元组
@@ -104,8 +106,8 @@ API 参考：`.temp/questions_bank.md`
 ### Task 13 — 完成时 print 统计 ✅
 - **需求**：作业/考试完成时 print "题库使用: 成功 X 次 / 总查询 Y 次"。
 - **实现**：
-  - [worker.py](file:///e:/project/python/ZHS/src/zhs/zhidao/homework/worker.py) `run_homework` return 前：`self._reporter.print(msg_info(f"题库使用: 成功 {success} 次 / 总查询 {total} 次"))`
-  - [course.py](file:///e:/project/python/ZHS/src/zhs/ai/course.py) `_run_homework_only` 结束前：`self._reporter.tree_print(msg_info(stats_msg), depth=3)`
+  - [worker.py](../src/zhs/zhidao/homework/worker.py) `run_homework` return 前：`self._reporter.print(msg_info(f"题库使用: 成功 {success} 次 / 总查询 {total} 次"))`
+  - [course.py](../src/zhs/ai/course.py) `_run_homework_only` 结束前：`self._reporter.tree_print(msg_info(stats_msg), depth=3)`
   - 仅当 `question_bank` 存在且 `total > 0` 时显示（避免无查询时打印无意义信息）
 - TDD: `test_run_homework_prints_bank_stats` 验证 capsys.out 包含统计数字
 
@@ -443,3 +445,14 @@ API 参考：`.temp/questions_bank.md`
 - 修正：`delta=0.0` **不是预检专属**——主循环在随机暂停、弹窗答题后会以 `last_submit == played_time` 再次上报，同样打 `delta=0.0`。区分预检应结合紧邻的 `play_video: videoId=..., played=...s` 行（预检是新视频刚开播，紧跟该行）
 - 未测：自然恢复耗时（`-12` 持续多久自动解除）——本次只验证了"被拦后 3 分钟内未恢复"
 - Refactor: ruff check/format 通过；分支 `feat/captcha-observability` + `docs/captcha-recovery`
+
+### Task 39 — 移除已弃用的 cache/base.py JSON 缓存基类 ✅
+- 背景：`BaseQuestionCache[T]`（旧 JSON 文件缓存基类，PEP 695 泛型）自 `ZhidaoHomeworkCache` / `AiExamCache` 迁移到独立 SQLite 实现后已无任何生产代码引用，仅剩自身测试 `tests/cache/test_base.py` "续命"，`docs/design.md` §2.6.4 亦标注"后续可清理"
+- Green（纯删除，无新增代码）
+  - 删除 `src/zhs/cache/base.py` 与 `tests/cache/test_base.py`（13 用例）
+  - `src/zhs/cache/__init__.py`：docstring 移除"提供 BaseQuestionCache 抽象基类"与旧 JSON 路径格式描述，改为仅描述两个 SQLite 实现
+  - `docs/design.md`：结构树删除 `base.py` / `test_base.py` 两行；§2.6.4（已弃用基类）整节删除，§2.6.5 → §2.6.4 重新编号；测试范围清单删除 `BaseQuestionCache` 行；决策记录 #17 由"JSON 路径格式 + BaseQuestionCache 子类"改写为"SQLite questions_bank.db + 双实现"（原文早已过时）
+  - `docs/spec.md` / `docs/test.md`：结构树删除对应行；`test.md` §4.9.1（test_base.py 用例）删除，§4.9.2 → §4.9.1 重新编号
+  - `docs/linter.md`：UP046/§6.2 的 PEP 695 示例类由 `BaseQuestionCache[T]` 换为中性 `Repository[T]`；"项目应用"注改为"当前源码中暂无泛型类"（base.py 是 src 中唯一的 PEP 695 泛型类，删除后原注释失实）
+- Test: 删除测试本身；`tests/cache/` 72 passed，全量 1158 passed（较此前 1170 少 12 = test_base 用例数，符合预期）
+- Refactor: ruff check / format --check / mypy（156 文件）全部通过；分支 `refactor/cache-remove-base`

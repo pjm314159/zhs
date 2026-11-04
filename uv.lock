@@ -1115,7 +1115,7 @@ wheels = [
 
 [[package]]
 name = "zhs"
-version = "0.1.4.3"
+version = "0.1.5"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
