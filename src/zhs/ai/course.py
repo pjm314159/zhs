@@ -209,6 +209,11 @@ class AiCourseManager:
             return False
         return not (exam.mastery_score < 30 and tried > 4)
 
+    @staticmethod
+    def _should_skip_ai_free_exam(target: KnowledgeTarget, homework_config: HomeworkConfig) -> bool:
+        """判断是否为免考知识点且配置允许跳过（仅作业模式调用）"""
+        return homework_config.skip_ai_free_exam and target.knowledge.free_exam == 1
+
     def _collect_completed_ppts(
         self, course_id: int, class_id: int, knowledge_id: int, ppts: list[dict[str, str]]
     ) -> None:
@@ -280,6 +285,12 @@ class AiCourseManager:
                 self._reporter.tree_print(f"主题: {styled(theme_name, _C.CYAN)}", depth=1, enabled=True)
 
             for target in group:
+                if not no_homework and self._should_skip_ai_free_exam(target, homework_config):
+                    self._reporter.tree_print(
+                        msg_skip(f"跳过(免考): {target.knowledge.knowledge_name}"), depth=2, enabled=True
+                    )
+                    continue
+
                 if no_homework:
                     self._run_play_only(course_id, class_id, target.knowledge, video_player, learn_optional, threshold)
                 else:

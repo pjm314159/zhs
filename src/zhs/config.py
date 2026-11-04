@@ -47,6 +47,7 @@ class HomeworkConfig(BaseModel):
     delay_max: float = Field(default=2.0, alias="homework_delay_max", description="每题保存后最大休息时间（秒）")
     page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
     ai_homework_threshold: int = Field(default=90, description="AI 课程作业跳过阈值（masteryScore > 此值则跳过）")
+    skip_ai_free_exam: bool = Field(default=True, description="AI 课程作业是否跳过免考知识点（freeExam=1）")
 
 
 class DisplayConfig(BaseModel):
@@ -293,6 +294,8 @@ class ConfigManager:
                 hw_kwargs["page_size"] = hw["page_size"]
             if "ai_homework_threshold" in hw:
                 hw_kwargs["ai_homework_threshold"] = hw["ai_homework_threshold"]
+            if "skip_ai_free_exam" in hw:
+                hw_kwargs["skip_ai_free_exam"] = hw["skip_ai_free_exam"]
             # 兼容旧版字段名（homework_delay_min 等）
             if "homework_delay_min" in hw:
                 hw_kwargs["delay_min"] = hw["homework_delay_min"]

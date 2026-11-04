@@ -12,6 +12,7 @@ from zhs.config import (
     ConfigManager,
     CryptoConfig,
     ExamConfig,
+    HomeworkConfig,
     QuestionBankConfig,
     UrlConfig,
 )
@@ -204,6 +205,21 @@ class TestAppConfig:
 
 
 # ---------------------------------------------------------------------------
+# HomeworkConfig — 免考跳过配置
+# ---------------------------------------------------------------------------
+
+
+class TestHomeworkConfig:
+    def test_skip_ai_free_exam_defaults_true(self) -> None:
+        """默认跳过免考知识点"""
+        assert HomeworkConfig().skip_ai_free_exam is True
+
+    def test_skip_ai_free_exam_can_be_disabled(self) -> None:
+        """可显式关闭"""
+        assert HomeworkConfig(skip_ai_free_exam=False).skip_ai_free_exam is False
+
+
+# ---------------------------------------------------------------------------
 # ConfigManager — TOML 加载
 # ---------------------------------------------------------------------------
 
@@ -242,6 +258,31 @@ speed = 1.5
         assert cfg.video.zhidao_speed == 1.5
         assert cfg.video.hike_speed == 1.25
         assert cfg.save_cookies is True  # 默认值
+
+    def test_load_skip_ai_free_exam_from_toml(self, tmp_path: Path) -> None:
+        """[homework] 的 skip_ai_free_exam 经白名单生效，防止配置静默失效"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[homework]
+skip_ai_free_exam = false
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.homework.skip_ai_free_exam is False
+
+    def test_missing_skip_ai_free_exam_uses_default(self, tmp_path: Path) -> None:
+        """[homework] 未写该字段时使用默认 true"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[homework]
+threshold = 80
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.homework.threshold == 80
+        assert cfg.homework.skip_ai_free_exam is True
 
     def test_load_crypto_section(self, tmp_path: Path) -> None:
         """加载 crypto 子配置"""
@@ -385,6 +426,14 @@ class TestConfigManagerSave:
         assert loaded.question_bank.enabled is True
         assert loaded.question_bank.token == "tok-xyz"
         assert loaded.question_bank.scopes == ["ai_homework"]
+
+    def test_save_preserves_skip_ai_free_exam(self, tmp_path: Path) -> None:
+        """保存/加载保留免考跳过配置"""
+        config_file = tmp_path / "config.toml"
+        cfg = AppConfig(homework=HomeworkConfig(skip_ai_free_exam=False))
+        mgr = ConfigManager(config_file)
+        mgr.save(cfg)
+        assert mgr.load().homework.skip_ai_free_exam is False
 
     def test_roundtrip_all_defaults(self, tmp_path: Path) -> None:
         """默认值保存后加载一致"""
