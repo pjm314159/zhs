@@ -1,6 +1,7 @@
 """cli/bootstrap.py 单元测试
 
-覆盖 setup_logger / parse_proxy / try_restore_cookies / do_login / init_llm / load_config_and_session。
+覆盖 setup_logger / parse_proxy / try_restore_cookies / do_login / init_llm / load_config_and_session，
+以及本地 Cookie 恢复与会话校验的分工。
 """
 
 import json
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from zhs.api.session_auth import SessionStatus
 from zhs.cli.bootstrap import (
     check_ai_provider,
     do_login,
@@ -122,27 +124,24 @@ class TestParseProxy:
 
 
 class TestTryRestoreCookies:
-    """try_restore_cookies"""
+    """try_restore_cookies：只做本地恢复，不联网、不判定登录态"""
 
     def test_save_cookies_false_returns_false(self) -> None:
         """save_cookies=False 直接返回 False"""
         config = _make_config()
         config.save_cookies = False
-        session = MagicMock()
-        assert try_restore_cookies(session, config) is False
+        assert try_restore_cookies(MagicMock(), config) is False
 
     def test_no_cookies_file_returns_false(self, tmp_path: Path) -> None:
         """cookies.json 不存在返回 False"""
         config = _make_config()
-        session = MagicMock()
         with patch("zhs.utils.path.get_data_dir", return_value=tmp_path):
-            assert try_restore_cookies(session, config) is False
+            assert try_restore_cookies(MagicMock(), config) is False
 
-    def test_valid_cookies_returns_true(self, tmp_path: Path) -> None:
-        """有效 cookies 返回 True"""
+    def test_valid_cookies_returns_true_without_network(self, tmp_path: Path) -> None:
+        """本地恢复成功且不触发任何业务请求"""
         config = _make_config()
         session = MagicMock()
-        # 写入 cookies.json
         cookies_path = tmp_path / "cookies.json"
         cookies_path.write_text(json.dumps([{"name": "foo", "value": "bar"}]), encoding="utf-8")
 
@@ -151,63 +150,42 @@ class TestTryRestoreCookies:
             patch("zhs.utils.cookie.list_to_cookies") as mock_list_to_cookies,
             patch("zhs.zhidao.course.ZhidaoCourseManager") as mock_mgr_cls,
         ):
-            mock_mgr = MagicMock()
-            mock_mgr_cls.return_value = mock_mgr
-            mock_mgr.get_course_list.return_value = [MagicMock()]
             result = try_restore_cookies(session, config)
 
         assert result is True
         mock_list_to_cookies.assert_called_once()
+        mock_mgr_cls.assert_not_called()
 
-    def test_empty_courses_returns_false(self, tmp_path: Path) -> None:
-        """课程列表为空返回 False"""
+    def test_empty_cookie_list_returns_false(self, tmp_path: Path) -> None:
+        """空 cookies 列表视为无凭据"""
         config = _make_config()
-        session = MagicMock()
-        cookies_path = tmp_path / "cookies.json"
-        cookies_path.write_text("[]", encoding="utf-8")
+        (tmp_path / "cookies.json").write_text("[]", encoding="utf-8")
+        with patch("zhs.utils.path.get_data_dir", return_value=tmp_path):
+            assert try_restore_cookies(MagicMock(), config) is False
 
-        with (
-            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
-            patch("zhs.utils.cookie.list_to_cookies"),
-            patch("zhs.zhidao.course.ZhidaoCourseManager") as mock_mgr_cls,
-        ):
-            mock_mgr = MagicMock()
-            mock_mgr_cls.return_value = mock_mgr
-            mock_mgr.get_course_list.return_value = []
-            result = try_restore_cookies(session, config)
-
-        assert result is False
+    def test_non_list_json_returns_false(self, tmp_path: Path) -> None:
+        """非列表 JSON 视为损坏"""
+        config = _make_config()
+        (tmp_path / "cookies.json").write_text('{"foo": "bar"}', encoding="utf-8")
+        with patch("zhs.utils.path.get_data_dir", return_value=tmp_path):
+            assert try_restore_cookies(MagicMock(), config) is False
 
     def test_invalid_json_returns_false(self, tmp_path: Path) -> None:
         """cookies.json 损坏返回 False"""
         config = _make_config()
-        session = MagicMock()
-        cookies_path = tmp_path / "cookies.json"
-        cookies_path.write_text("not-json", encoding="utf-8")
-
+        (tmp_path / "cookies.json").write_text("not-json", encoding="utf-8")
         with patch("zhs.utils.path.get_data_dir", return_value=tmp_path):
-            result = try_restore_cookies(session, config)
+            assert try_restore_cookies(MagicMock(), config) is False
 
-        assert result is False
-
-    def test_get_course_list_exception_returns_false(self, tmp_path: Path) -> None:
-        """get_course_list 抛异常返回 False"""
+    def test_list_to_cookies_error_returns_false(self, tmp_path: Path) -> None:
+        """cookie 项缺少必要字段时返回 False"""
         config = _make_config()
-        session = MagicMock()
-        cookies_path = tmp_path / "cookies.json"
-        cookies_path.write_text("[]", encoding="utf-8")
-
+        (tmp_path / "cookies.json").write_text('[{"name": "foo"}]', encoding="utf-8")
         with (
             patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
-            patch("zhs.utils.cookie.list_to_cookies"),
-            patch("zhs.zhidao.course.ZhidaoCourseManager") as mock_mgr_cls,
+            patch("zhs.utils.cookie.list_to_cookies", side_effect=KeyError("value")),
         ):
-            mock_mgr = MagicMock()
-            mock_mgr_cls.return_value = mock_mgr
-            mock_mgr.get_course_list.side_effect = Exception("network error")
-            result = try_restore_cookies(session, config)
-
-        assert result is False
+            assert try_restore_cookies(MagicMock(), config) is False
 
 
 class TestDoLogin:
@@ -492,6 +470,57 @@ class TestLoadConfigAndSession:
 
         assert result is None
 
+    def test_verify_session_not_called_without_cookies(self, tmp_path: Path) -> None:
+        """无本地凭据时不发起网络校验"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False),
+            patch("zhs.cli.bootstrap.verify_session") as mock_verify,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = _make_config()
+            load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        mock_verify.assert_not_called()
+
+    def test_expired_session_prompts_relogin(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """会话失效提示重新登录"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.EXPIRED),
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = _make_config()
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is None
+        assert "zhs login" in capsys.readouterr().out
+
+    def test_unavailable_session_does_not_blame_cookies(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """网络异常提示检查网络，不误导用户重新登录"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.UNAVAILABLE),
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = _make_config()
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is None
+        output = capsys.readouterr().out
+        assert "接口不可用" in output
+        assert "zhs login" not in output
+
     def test_valid_cookies_returns_config_session(self, tmp_path: Path) -> None:
         """有效 cookies 时返回 (config, session)"""
         mock_session = MagicMock()
@@ -499,6 +528,7 @@ class TestLoadConfigAndSession:
             patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
             patch("zhs.cli.bootstrap.ZhsSession", return_value=mock_session),
             patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.OK),
             patch("zhs.cli.bootstrap.setup_logger"),
             patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
         ):
@@ -517,6 +547,7 @@ class TestLoadConfigAndSession:
             patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
             patch("zhs.cli.bootstrap.ZhsSession"),
             patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.OK),
             patch("zhs.cli.bootstrap.setup_logger"),
             patch("zhs.cli.bootstrap.parse_proxy") as mock_parse_proxy,
             patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
@@ -533,6 +564,7 @@ class TestLoadConfigAndSession:
             patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
             patch("zhs.cli.bootstrap.ZhsSession"),
             patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.OK),
             patch("zhs.cli.bootstrap.setup_logger"),
             patch("zhs.cli.bootstrap.parse_proxy") as mock_parse_proxy,
             patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
@@ -549,6 +581,7 @@ class TestLoadConfigAndSession:
             patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
             patch("zhs.cli.bootstrap.ZhsSession"),
             patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.OK),
             patch("zhs.cli.bootstrap.setup_logger") as mock_setup,
             patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
         ):
@@ -564,6 +597,7 @@ class TestLoadConfigAndSession:
             patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
             patch("zhs.cli.bootstrap.ZhsSession"),
             patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.OK),
             patch("zhs.cli.bootstrap.setup_logger"),
             patch("zhs.cli.bootstrap.check_ai_provider") as mock_check,
             patch("zhs.utils.path.get_data_dir", return_value=tmp_path),

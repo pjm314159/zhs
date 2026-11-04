@@ -1,8 +1,44 @@
 """Task 1.4 — utils/cookie.py 测试用例"""
 
+import json
+from pathlib import Path
+
 import httpx
 
-from zhs.utils.cookie import cookies_to_list, list_to_cookies
+from zhs.utils.cookie import cookies_to_list, list_to_cookies, read_cookies_file
+
+
+class TestReadCookiesFile:
+    """本地 cookies 文件读取（不含网络校验）"""
+
+    def test_missing_file(self, tmp_path: Path) -> None:
+        assert read_cookies_file(tmp_path / "nonexistent.json") is None
+
+    def test_empty_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "cookies.json"
+        path.write_text("", encoding="utf-8")
+        assert read_cookies_file(path) is None
+
+    def test_invalid_json(self, tmp_path: Path) -> None:
+        path = tmp_path / "cookies.json"
+        path.write_text("not-json", encoding="utf-8")
+        assert read_cookies_file(path) is None
+
+    def test_non_list_json(self, tmp_path: Path) -> None:
+        path = tmp_path / "cookies.json"
+        path.write_text('{"name": "foo"}', encoding="utf-8")
+        assert read_cookies_file(path) is None
+
+    def test_empty_list(self, tmp_path: Path) -> None:
+        path = tmp_path / "cookies.json"
+        path.write_text("[]", encoding="utf-8")
+        assert read_cookies_file(path) is None
+
+    def test_valid_list(self, tmp_path: Path) -> None:
+        path = tmp_path / "cookies.json"
+        data = [{"name": "foo", "value": "bar"}]
+        path.write_text(json.dumps(data), encoding="utf-8")
+        assert read_cookies_file(path) == data
 
 
 class TestCookiesToList:

@@ -59,7 +59,7 @@ class TestCLINotLoggedIn:
         """C-11: 未登录时提示需要登录（通过 mock 验证）"""
         from unittest.mock import patch
 
-        with patch("zhs.__main__._try_restore_cookies", return_value=False):
+        with patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False):
             result = runner.invoke(app, [], catch_exceptions=True)
             output_ok = "登录" in result.output or "Cookie" in result.output or "login" in result.output.lower()
             assert output_ok or result.exit_code != 0
