@@ -1,7 +1,7 @@
 """知到视频播放器
 
 ZhidaoVideoPlayer 实现视频播放主循环，包含：
-- 进度模拟（速度控制、随机暂停、人类延迟）
+- 进度模拟（速度控制、人类延迟）
 - 弹窗答题（延迟机制）
 - 进度上报（V2 格式）
 - 线程安全的视频流请求
@@ -92,6 +92,17 @@ def _hms(seconds: int) -> str:
 def _jittered(interval: int) -> int:
     """心跳间隔加 ±CLASSIC_INTERVAL_JITTER 秒抖动"""
     return interval + randint(-CLASSIC_INTERVAL_JITTER, CLASSIC_INTERVAL_JITTER)
+
+
+def _map_unit_ids(lesson: "MapLesson", resource: "MapResource") -> tuple[str, str]:
+    """知识图谱课上报用的 (lessonId, lessonVideoId)
+
+    网页抓包：有子课时时 lessonId 是父课时 hash、lessonVideoId 是知识点节点 hash，
+    视频与课件相同；没有子课时时 lessonId 就是节点自身。
+    """
+    lesson_id = lesson.parent_hash or lesson.id_hash
+    lesson_video_id = resource.node_uid_hash or lesson.id_hash
+    return lesson_id, lesson_video_id
 
 
 def _course_name(ctx: "ZhidaoContext") -> str:
@@ -271,11 +282,13 @@ class ZhidaoVideoPlayer:
                     if self._stop_on_time_limit(ctx, course_name):
                         return
                     try:
+                        lesson_id, lesson_video_id = _map_unit_ids(lesson, resource)
                         study = mgr.query_user_study_info(
                             course_id=ctx.course_id,
                             recruit_id=recruit_id,
-                            lesson_hash=lesson.id_hash,
+                            lesson_hash=lesson_id,
                             data_id=resource.file_id,
+                            lesson_video_id=lesson_video_id,
                         )
                         if study.get("state") == 2:
                             self._print_with_progress(msg_skip(f"跳过(已完成): {resource.name}"), depth=3)
@@ -333,6 +346,7 @@ class ZhidaoVideoPlayer:
         speed = self._speed or DEFAULT_ZHIDAO_SPEED
         learn = min(float(resume_seconds), target)
         recruit_id = ctx.course.recruit_id or 0
+        lesson_id, lesson_video_id = _map_unit_ids(lesson, resource)
 
         logger.debug(
             f"play_map_video: {resource.name}, duration={duration}s, "
@@ -351,8 +365,9 @@ class ZhidaoVideoPlayer:
             course_id=ctx.course_id,
             recruit_id=recruit_id,
             chapter_hash=lesson.chapter_hash,
-            lesson_hash=lesson.id_hash,
+            lesson_hash=lesson_id,
             data_id=resource.file_id,
+            lesson_video_id=lesson_video_id,
         ):
             raise StudyRecordError(-1, "preLearningLoad 未返回成功，学习记录未建立")
 
@@ -371,11 +386,12 @@ class ZhidaoVideoPlayer:
             data = manager.save_study_process(
                 recruit_id=recruit_id,
                 chapter_hash=lesson.chapter_hash,
-                lesson_hash=lesson.id_hash,
+                lesson_hash=lesson_id,
                 data_id=resource.file_id,
                 play_times=delta,
                 total_time=duration,
                 learn_time=min(int(learn) + delta, duration),
+                lesson_video_id=lesson_video_id,
             )
             if data.get("submitSuccess") is False:
                 raise ApiError(-1, f"学习进度上报失败: {data}")
@@ -412,8 +428,7 @@ class ZhidaoVideoPlayer:
             是否本次新标记完成（已完成返回 False）
         """
         recruit_id = ctx.course.recruit_id or 0
-        lesson_id = lesson.parent_hash or lesson.id_hash
-        lesson_video_id = resource.node_uid_hash or lesson.id_hash
+        lesson_id, lesson_video_id = _map_unit_ids(lesson, resource)
         study = manager.query_user_study_info(
             course_id=ctx.course_id,
             recruit_id=recruit_id,

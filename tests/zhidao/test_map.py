@@ -1,6 +1,7 @@
 """新版知识图谱课程（aistudy / share-course-map）测试"""
 
 from collections.abc import Iterator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -40,8 +41,8 @@ def mock_session(mock_config: AppConfig) -> Iterator[ZhsSession]:
         yield session
 
 
-def _query_course_response(course_mode: int = 2) -> dict:
-    """queryCourse 响应；courseMode=2 为新版图谱课，1 为旧版 videolist 课（抓包确认）"""
+def _query_course_response(course_mode: int = 2) -> dict[str, Any]:
+    """queryCourse 响应；course_mode=2 为新版图谱课，1 为旧版 videolist 课（抓包确认）"""
     return {
         "code": 0,
         "data": {
@@ -51,7 +52,7 @@ def _query_course_response(course_mode: int = 2) -> dict:
     }
 
 
-def _tree_payload() -> list[dict]:
+def _tree_payload() -> list[dict[str, Any]]:
     return [
         {
             "id": None,
@@ -107,23 +108,23 @@ def _tree_payload() -> list[dict]:
 
 def _make_map_context() -> ZhidaoContext:
     lesson = MapLesson(
-        idHash="xQzqoBD7NlS8K9wD",
-        idStr="e721d3b2010d3a94e6a1ac0f66f59405",
+        id_hash="xQzqoBD7NlS8K9wD",
+        id_str="e721d3b2010d3a94e6a1ac0f66f59405",
         name="未完成节点",
-        sourceNum=2,
-        finishNum=0,
-        chapterHash="0DzwkJWrOvidx3Ke",
+        source_num=2,
+        finish_num=0,
+        chapter_hash="0DzwkJWrOvidx3Ke",
     )
     chapter = MapChapter(
-        idHash="0DzwkJWrOvidx3Ke",
-        idStr="chapter-str",
+        id_hash="0DzwkJWrOvidx3Ke",
+        id_str="chapter-str",
         name="第一章",
         lessons=[lesson],
     )
     course = ZhidaoCourse(
         secret=RAC,
         course_name="国家安全教育",
-        course_info=CourseInfo(courseId=1100000680, name="国家安全教育"),
+        course_info=CourseInfo(course_id=1100000680, name="国家安全教育"),
         recruit_id=431490,
     )
     return ZhidaoContext(
@@ -192,7 +193,7 @@ class TestGetContextMap:
         assert not videolist.called
 
     def test_classic_course_ignores_map_info(self, mock_session: ZhsSession) -> None:
-        """旧版课（courseMode=1）走 videolist，不调图谱接口
+        """旧版课（course_mode=1）走 videolist，不调图谱接口
 
         抓包确认：旧版课 queryCourseMapInfo 同样返回 mapStr，而 kgCourseTreeInfoList 返回 500。
         若按 mapStr 判断版本，旧版课会被误判成图谱课，整门课无法播放。
@@ -236,7 +237,7 @@ class TestGetContextMap:
         assert not tree.called
 
     def test_map_course_without_map_str_raises(self, mock_session: ZhsSession) -> None:
-        """图谱课（courseMode=2）拿不到 mapStr 时报错，不悄悄退回旧流程"""
+        """图谱课（course_mode=2）拿不到 mapStr 时报错，不悄悄退回旧流程"""
         respx.get(f"{STUDY}/login/gologin").mock(return_value=httpx.Response(200, text="<html>ok</html>"))
         respx.post(f"{STUDY}/gateway/t/v1/learning/queryCourse").mock(
             return_value=httpx.Response(200, json=_query_course_response(course_mode=2))
@@ -285,7 +286,7 @@ class TestMapResources:
                 },
             )
         )
-        lesson = MapLesson(idHash="xQzqoBD7NlS8K9wD", idStr="e721d3b2010d3a94e6a1ac0f66f59405")
+        lesson = MapLesson(id_hash="xQzqoBD7NlS8K9wD", id_str="e721d3b2010d3a94e6a1ac0f66f59405")
 
         resources = ZhidaoCourseManager(mock_session).query_node_resources(lesson)
 
@@ -315,7 +316,7 @@ class TestMapResources:
                 },
             )
         )
-        lesson = MapLesson(idHash="x", idStr="y")
+        lesson = MapLesson(id_hash="x", id_str="y")
 
         resources = ZhidaoCourseManager(mock_session).query_node_resources(lesson)
 
@@ -399,10 +400,10 @@ class TestPlayMapVideo:
         ctx = _make_map_context()
         lesson = ctx.map_chapters[0].leaf_nodes()[0]
         resource = MapResource(
-            resourcesFileId="78780595",
-            resourcesName="导论第二节.mp4",
-            resourcesTime="60",
-            resourcesSuffix="mp4",
+            file_id="78780595",
+            name="导论第二节.mp4",
+            resources_time="60",
+            suffix="mp4",
         )
 
         with (
@@ -418,6 +419,7 @@ class TestPlayMapVideo:
             chapter_hash="0DzwkJWrOvidx3Ke",
             lesson_hash="xQzqoBD7NlS8K9wD",
             data_id="78780595",
+            lesson_video_id="xQzqoBD7NlS8K9wD",
         )
         assert manager.save_study_process.call_count == 1
         kwargs = manager.save_study_process.call_args.kwargs
@@ -428,13 +430,73 @@ class TestPlayMapVideo:
         assert kwargs["data_id"] == "78780595"
         assert kwargs["chapter_hash"] == "0DzwkJWrOvidx3Ke"
 
+    def test_sub_lesson_video_uses_parent_lesson_and_node(self) -> None:
+        """有子课时时，视频与课件一样：lessonId 用父课时 hash，lessonVideoId 用知识点 hash
+
+        网页抓包（国家安全教育）：叶子节点 DjnEJ9O0qKSEjDb9 下的视频，
+        preLearningLoad / queryUserStudyInfo / saveUserStudyProcess 都是
+        lessonId=kzLNoE0xA7h8dKV6（父课时）、lessonVideoId=DjnEJ9O0qKSEjDb9（叶子）。
+        """
+        manager = MagicMock()
+        manager.save_study_process.return_value = {"submitSuccess": True, "learnTime": 30}
+        player = ZhidaoVideoPlayer(MagicMock(), speed=1.0, end_threshold=0.5)
+        ctx = _make_map_context()
+        parent = MapLesson(id_hash="kzLNoE0xA7h8dKV6", id_str="parent-str", name="父课时")
+        parent.small_lessons = [MapLesson(id_hash="DjnEJ9O0qKSEjDb9", id_str="leaf-str", name="子节点")]
+        ctx.map_chapters[0].lessons = [parent]
+        leaf = ctx.map_chapters[0].leaf_nodes()[0]
+        resource = MapResource(
+            file_id="78780791",
+            name="第四章第一节.mp4",
+            resources_time="60",
+            node_uid_hash="DjnEJ9O0qKSEjDb9",
+        )
+
+        with (
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print"),
+            patch("zhs.zhidao.video.random", return_value=0),
+        ):
+            assert player.play_map_video(manager, ctx, leaf, resource) is True
+
+        preload = manager.pre_learning_load.call_args.kwargs
+        assert preload["lesson_hash"] == "kzLNoE0xA7h8dKV6"
+        assert preload["lesson_video_id"] == "DjnEJ9O0qKSEjDb9"
+        save = manager.save_study_process.call_args.kwargs
+        assert save["lesson_hash"] == "kzLNoE0xA7h8dKV6"
+        assert save["lesson_video_id"] == "DjnEJ9O0qKSEjDb9"
+
+    def test_sub_lesson_video_study_info_uses_parent_lesson(self) -> None:
+        """跳过/续播判断查学习记录时同样用父课时 + 知识点，否则查不到网页端已学的进度"""
+        player = ZhidaoVideoPlayer(MagicMock())
+        ctx = _make_map_context()
+        parent = MapLesson(id_hash="kzLNoE0xA7h8dKV6", id_str="parent-str", name="父课时")
+        parent.small_lessons = [MapLesson(id_hash="DjnEJ9O0qKSEjDb9", id_str="leaf-str", name="子节点")]
+        ctx.map_chapters[0].lessons = [parent]
+        manager = MagicMock()
+        manager.query_node_resources.return_value = [
+            MapResource(file_id="78780791", name="v.mp4", resources_time="60", node_uid_hash="DjnEJ9O0qKSEjDb9")
+        ]
+        manager.query_user_study_info.return_value = {"state": 2}
+
+        with (
+            patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=manager),
+            patch("zhs.zhidao.video.tree_print"),
+            patch("zhs.zhidao.video.print"),
+        ):
+            player._play_map_course(ctx)
+
+        kwargs = manager.query_user_study_info.call_args.kwargs
+        assert kwargs["lesson_hash"] == "kzLNoE0xA7h8dKV6"
+        assert kwargs["lesson_video_id"] == "DjnEJ9O0qKSEjDb9"
+
     def test_preload_failure_raises(self) -> None:
         manager = MagicMock()
         manager.pre_learning_load.return_value = False
         player = ZhidaoVideoPlayer(MagicMock(), speed=1.0, end_threshold=0.5)
         ctx = _make_map_context()
         lesson = ctx.map_chapters[0].leaf_nodes()[0]
-        resource = MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
+        resource = MapResource(file_id="1", name="v.mp4", resources_time="60")
 
         with (
             patch("zhs.zhidao.video.time.sleep"),
@@ -448,7 +510,7 @@ class TestPlayMapVideo:
         player = ZhidaoVideoPlayer(MagicMock(), end_threshold=0.5)
         ctx = _make_map_context()
         lesson = ctx.map_chapters[0].leaf_nodes()[0]
-        resource = MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
+        resource = MapResource(file_id="1", name="v.mp4", resources_time="60")
 
         with patch("zhs.zhidao.video.print"):
             assert player.play_map_video(manager, ctx, lesson, resource, resume_seconds=40) is False
@@ -475,7 +537,7 @@ class TestPlayMapVideo:
         ctx = _make_map_context()
         ctx.fucked_time = 10
         lesson = ctx.map_chapters[0].leaf_nodes()[0]
-        resource = MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
+        resource = MapResource(file_id="1", name="v.mp4", resources_time="60")
 
         with patch("zhs.zhidao.video.print"):
             assert player.play_map_video(manager, ctx, lesson, resource) is False
@@ -492,9 +554,7 @@ class TestPlayMapCourse:
         ctx.map_chapters[0].lessons[0].finish_num = 2
 
         manager = MagicMock()
-        manager.query_node_resources.return_value = [
-            MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
-        ]
+        manager.query_node_resources.return_value = [MapResource(file_id="1", name="v.mp4", resources_time="60")]
         manager.query_user_study_info.return_value = {"state": 1, "learnTime": "00:00:00"}
 
         with (
@@ -513,9 +573,7 @@ class TestPlayMapCourse:
         player = ZhidaoVideoPlayer(MagicMock())
         ctx = _make_map_context()
         manager = MagicMock()
-        manager.query_node_resources.return_value = [
-            MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
-        ]
+        manager.query_node_resources.return_value = [MapResource(file_id="1", name="v.mp4", resources_time="60")]
         manager.query_user_study_info.return_value = {"state": 2, "learnTime": "00:00:59"}
 
         with (
@@ -533,9 +591,7 @@ class TestPlayMapCourse:
         player = ZhidaoVideoPlayer(MagicMock())
         ctx = _make_map_context()
         manager = MagicMock()
-        manager.query_node_resources.return_value = [
-            MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
-        ]
+        manager.query_node_resources.return_value = [MapResource(file_id="1", name="v.mp4", resources_time="60")]
         manager.query_user_study_info.return_value = {"state": 1, "learnTime": "00:01:00"}
 
         with (
@@ -555,9 +611,7 @@ class TestPlayMapCourse:
 
         manager = MagicMock()
         manager.query_last_knowledge.return_value = {}
-        manager.query_node_resources.return_value = [
-            MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
-        ]
+        manager.query_node_resources.return_value = [MapResource(file_id="1", name="v.mp4", resources_time="60")]
 
         with (
             patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=manager),
@@ -578,12 +632,12 @@ class TestPlayMapCourse:
         manager = MagicMock()
         manager.query_node_resources.return_value = [
             MapResource(
-                resourcesFileId="70587241",
-                resourcesName="选学视频",
-                resourcesTime="450",
-                resourcesSyncType=0,
+                file_id="70587241",
+                name="选学视频",
+                resources_time="450",
+                sync_type=0,
             ),
-            MapResource(resourcesFileId="1", resourcesName="必修视频", resourcesTime="60", resourcesSyncType=1),
+            MapResource(file_id="1", name="必修视频", resources_time="60", sync_type=1),
         ]
         manager.query_user_study_info.return_value = {"state": 1, "learnTime": "00:00:00"}
 
@@ -606,28 +660,28 @@ class TestPlayMapCourse:
         """PPT 用知识点节点报一次完成，不走视频播放"""
         player = ZhidaoVideoPlayer(MagicMock())
         ctx = _make_map_context()
-        parent = MapLesson(idHash="parentHash", idStr="parent-str", name="父课时")
+        parent = MapLesson(id_hash="parentHash", id_str="parent-str", name="父课时")
         leaf = MapLesson(
-            idHash="leafHash",
-            idStr="leaf-str",
+            id_hash="leafHash",
+            id_str="leaf-str",
             name="子节点",
-            sourceNum=2,
-            finishNum=0,
-            chapterHash="chapterHash",
-            parentHash="parentHash",
+            source_num=2,
+            finish_num=0,
+            chapter_hash="chapterHash",
+            parent_hash="parentHash",
         )
         ctx.map_chapters[0].lessons = [parent]
         parent.small_lessons = [leaf]
         manager = MagicMock()
         manager.query_node_resources.return_value = [
             MapResource(
-                resourcesFileId="1162691753",
-                resourcesName="第一章第二节.pptx",
-                resourcesSuffix="pptx",
-                resourcesSyncType=1,
-                nodeUidHash="leafHash",
+                file_id="1162691753",
+                name="第一章第二节.pptx",
+                suffix="pptx",
+                sync_type=1,
+                node_uid_hash="leafHash",
             ),
-            MapResource(resourcesFileId="1", resourcesName="必修视频", resourcesTime="60", resourcesSyncType=1),
+            MapResource(file_id="1", name="必修视频", resources_time="60", sync_type=1),
         ]
         manager.query_user_study_info.return_value = {"state": None, "learnTime": "00:00:00"}
         manager.pre_learning_load.return_value = True
@@ -660,11 +714,11 @@ class TestPlayMapCourse:
         manager = MagicMock()
         manager.query_node_resources.return_value = [
             MapResource(
-                resourcesFileId="1162691753",
-                resourcesName="已完成.pptx",
-                resourcesSuffix="pptx",
-                resourcesSyncType=1,
-                nodeUidHash="node",
+                file_id="1162691753",
+                name="已完成.pptx",
+                suffix="pptx",
+                sync_type=1,
+                node_uid_hash="node",
             )
         ]
         manager.query_user_study_info.return_value = {"state": 2, "learnTime": ""}
@@ -684,9 +738,7 @@ class TestPlayMapCourse:
         player = ZhidaoVideoPlayer(MagicMock())
         ctx = _make_map_context()
         manager = MagicMock()
-        manager.query_node_resources.return_value = [
-            MapResource(resourcesFileId="1", resourcesName="v.mp4", resourcesTime="60")
-        ]
+        manager.query_node_resources.return_value = [MapResource(file_id="1", name="v.mp4", resources_time="60")]
         manager.query_user_study_info.side_effect = ApiError(2043, "参数异常")
 
         with (

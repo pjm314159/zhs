@@ -4,17 +4,18 @@ Task 3.4 — zhidao/video.py
 TDD 步骤:
 1. 已看完视频 → 跳过
 2. played_time = min(played_time + speed, end_time) 截断
-3. 随机暂停 0.25% → played_time 不前进
-4. saveDatabaseIntervalTimeV2 initial=True 格式
-5. saveDatabaseIntervalTimeV2 initial=False 格式（ewssw/sdsew/zwsds）
-6. _watch_video 使用独立 httpx.Client
-7. _watch_video daemon=True + timeout
-8. 弹窗答题 answer_delay 机制
-9. 人类延迟 sleep(random+1)
+3. saveDatabaseIntervalTimeV2 initial=True 格式
+4. saveDatabaseIntervalTimeV2 initial=False 格式（ewssw/sdsew/zwsds）
+5. _watch_video 使用独立 httpx.Client
+6. _watch_video daemon=True + timeout
+7. 弹窗答题 answer_delay 机制
+8. 人类延迟 sleep(random+1)
+9. 心跳节奏与网页端一致（Cache ~180s / Database ~300s，共用增量链）
 """
 
 from collections.abc import Iterator
 from datetime import timedelta
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -125,24 +126,6 @@ class TestPlayedTimeCapped:
         speed = 1.5
         end_time = 100.0
         assert min(played_time + speed, end_time) == 51.5
-
-
-class TestRandomPause:
-    """随机暂停 0.25% → played_time 不前进"""
-
-    def test_pause_no_progress(self) -> None:
-        """暂停期间 played_time = last_submit（不前进）"""
-        last_submit = 50
-        played_time = 50
-        # 暂停时 played_time 回退到 last_submit
-        played_time = last_submit
-        assert played_time == 50
-
-    def test_pause_countdown(self) -> None:
-        """暂停倒计时递减"""
-        pause = 60
-        pause -= 1
-        assert pause == 59
 
 
 class TestReportV2Initial:
@@ -759,7 +742,7 @@ class TestClassicHeartbeatCadence:
             keys = _key_generator(mock_session.crypto.ev_key)
             return "".join(chr(int(ev[i : i + 2], 16) ^ next(keys)) for i in range(0, len(ev), 2)).split(";")
 
-        def fake_query(url: str, data: dict, *args: object, **kwargs: object) -> dict:
+        def fake_query(url: str, data: dict[str, Any], *args: object, **kwargs: object) -> dict[str, Any]:
             calls.append((url.rsplit("/", 1)[1], decode(data["sdsew"])))
             return {"code": 0}
 

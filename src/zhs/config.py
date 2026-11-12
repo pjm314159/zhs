@@ -33,7 +33,7 @@ DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 
 
 class CoursePlanConfig(BaseModel):
-    """单门知到课程的分天学习设置（配置里的 [video.courses.<课程>]）
+    """单门知到课程的分天学习设置（配置里的 [video.zhidao_courses.<课程>]）
 
     课程键可以是 courseId、课程名或 recruitAndCourseId，三者任一匹配即生效。
     默认跟随课程自身的学习习惯分：有习惯分才分天学，没有就一次刷完。

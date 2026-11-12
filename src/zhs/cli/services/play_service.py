@@ -207,7 +207,7 @@ def resolve_plan(config: AppConfig, ctx: "ZhidaoContext", rac_id: str) -> tuple[
     """这门课今天是否按天限时，以及每天多少分钟
 
     规则：没有习惯分的课一次刷完，不受每日配额限制（它们本来就不看「每天学多少」）。
-    课程级配置（[video.courses.<课程>]）优先，其次看课程自身的 hasHabbitScore。
+    课程级配置（[video.zhidao_courses.<课程>]）优先，其次看课程自身的 hasHabbitScore。
     """
     course = ctx.course
     override = _plan_override(config, rac_id, ctx.course_id, course.course_name)
@@ -224,8 +224,17 @@ def resolve_plan(config: AppConfig, ctx: "ZhidaoContext", rac_id: str) -> tuple[
 
 
 def _needs_daily_plan(mgr: "ZhidaoCourseManager", course: "ZhidaoCourse", config: AppConfig) -> bool:
-    """列表里还没上下文时估算是否分天学：课程级配置优先，否则看习惯分"""
-    override = _plan_override(config, course.secret, course.course_id, course.course_name)
+    """列表里还没上下文时判断是否分天学（用于 run_all 分轮），规则与 resolve_plan 一致
+
+    总开关关闭时一律不分天；课程级配置优先；否则看习惯分，列表里没有时补查 queryCourse，
+    仍取不到按无习惯分处理。课程列表顶层 courseId 可能为 0，用 extract_course_id 回退 courseInfo。
+    """
+    from zhs.zhidao.models import extract_course_id
+
+    if not config.video.zhidao_plan:
+        return False
+
+    override = _plan_override(config, course.secret, extract_course_id(course), course.course_name)
     plan = getattr(override, "plan", None)
     if plan is not None:
         return bool(plan)
@@ -235,9 +244,10 @@ def _needs_daily_plan(mgr: "ZhidaoCourseManager", course: "ZhidaoCourse", config
     # 从 queryCourse 补查
     try:
         data = mgr.query_course(course.secret)
-        return bool(data.get("hasHabbitScore", True))
-    except Exception:
-        return True
+    except Exception as e:
+        logger.debug(f"补查习惯分失败，按无习惯分处理: {course.course_name}: {e}")
+        return False
+    return data.get("hasHabbitScore") is True
 
 
 def _safe_course_list(mgr: "ZhidaoCourseManager") -> list["ZhidaoCourse"]:
