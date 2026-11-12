@@ -87,7 +87,37 @@ zhs 旧实现把 `studyTotalTime` 当播放位置用：重看过的视频起点�
   服务端回读 `studyTotalTime=400`、`learnTimeSec=400`（`00:06:40`），**没有 `-8`**，与实际观看秒数完全一致。
 - 共用增量链之前（各自算增量）实测会多算：同一视频跑 330 秒，服务端累计 660 并报 `-8`。
 
+## 新版图谱课考试/习题（网页抓包）
+
+**接口**：
+- 开始答题：`GET /gateway/t/v1/student/exam/start`，参数密文（`secretStr`），含 `courseId`/`recruitId`/`knowledeId`
+- 提交答案：`POST /gateway/t/v1/student/exam/submit`，**明文 JSON**
+
+**题目结构**（与旧版基本一致）：
+- `questionId`：题目 ID
+- `questionType`：题型（1=单选，2=多选，3=判断等）
+- `questionName`：题干（HTML）
+- `optionVos`：选项列表，每项含 `id`/`name`/`isCorrect`（答题前为 `null`）
+- `analysis`：解析（HTML）
+
+**提交格式**：
+```json
+{
+  "recruitId": "431490",
+  "examId": 286515617,
+  "knowledgeId": "jKLkdgvMDGHoWld7",
+  "answerVos": [
+    {"questionId": 1100898079, "answer": 487745330},  // 单选
+    {"questionId": 1100898238, "answer": "487745824,487745830"}  // 多选，逗号分隔
+  ]
+}
+```
+
+**与旧版的差异**：
+- 旧版用 `testId`/`paperId`，新版用 `examId`/`knowledgeId`
+- 接口域名不同：新版 `aistudy.zhihuishu.com`，旧版 `studyvideoh5.zhihuishu.com`
+- 其他字段和提交逻辑基本一致
+
 ## 尚未取得
 
 - 1.5 倍速下网页端心跳（录制浏览器中途关闭，未录到）。
-- 新版图谱课 PPT 的完成上报。
