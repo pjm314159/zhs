@@ -118,6 +118,21 @@ def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
     play_zhidao_course(session, config, rac_id, ctx, end_ms)
 
 
+def _needs_daily_plan(mgr: "ZhidaoCourseManager", course: "ZhidaoCourse") -> bool:
+    """判断课程是否需要分天学习（有习惯分）
+
+    取不到 hasHabbitScore 时保守处理：假设需要分天（避免一次刷完导致习惯分拿不到）。
+    """
+    if course.has_habbit_score is not None:
+        return course.has_habbit_score
+    # 从 queryCourse 补查
+    try:
+        data = mgr.query_course(course.secret)
+        return bool(data.get("hasHabbitScore", True))
+    except Exception:
+        return True
+
+
 def _safe_course_list(mgr: "ZhidaoCourseManager") -> list["ZhidaoCourse"]:
     """课程列表（只用来取截止时间，取不到不影响播放）"""
     try:
@@ -225,19 +240,36 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
     from zhs.utils.display import course_tag
     from zhs.zhidao.course import ZhidaoCourseManager
 
-    # 知到
+    # 知到：分两轮，优先刷完有习惯分的课（需要分天学），再刷没有习惯分的课（可一次刷完）
     if course_type in (None, "auto", "zhidao"):
         try:
             zhidao_mgr = ZhidaoCourseManager(session)
             courses = zhidao_mgr.get_course_list()
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
-            for c in courses:
-                try:
-                    ctx = zhidao_mgr.get_context(c.secret)
-                    play_zhidao_course(session, config, c.secret, ctx, c.course_end_time)
-                except Exception as e:
-                    logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
-                    print(f"知到课程 {c.course_name} 处理失败: {e}")
+
+            # 第一轮：有习惯分的课（需要分天学，优先）
+            habbit_courses = [c for c in courses if _needs_daily_plan(zhidao_mgr, c)]
+            if habbit_courses:
+                print(f"\n优先刷 {len(habbit_courses)} 门有习惯分的课程（分天学习）")
+                for c in habbit_courses:
+                    try:
+                        ctx = zhidao_mgr.get_context(c.secret)
+                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time)
+                    except Exception as e:
+                        logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
+                        print(f"知到课程 {c.course_name} 处理失败: {e}")
+
+            # 第二轮：没有习惯分的课（可一次刷完）
+            non_habbit = [c for c in courses if not _needs_daily_plan(zhidao_mgr, c)]
+            if non_habbit:
+                print(f"\n刷 {len(non_habbit)} 门无习惯分的课程（可一次刷完）")
+                for c in non_habbit:
+                    try:
+                        ctx = zhidao_mgr.get_context(c.secret)
+                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time)
+                    except Exception as e:
+                        logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
+                        print(f"知到课程 {c.course_name} 处理失败: {e}")
         except Exception as e:
             logger.error(f"获取知到课程列表失败: {e}")
             print(f"获取知到课程列表失败: {e}")

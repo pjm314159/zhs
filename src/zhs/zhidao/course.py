@@ -177,6 +177,7 @@ class ZhidaoCourseManager:
             course_name=course_info.name if course_info else "",
             course_info=course_info,
             recruit_id=recruit_id,
+            has_habbit_score=course_data.get("hasHabbitScore"),
         )
         ctx = ZhidaoContext(
             course=course,

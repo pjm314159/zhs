@@ -46,6 +46,8 @@ class ZhidaoCourse(BaseModel):
     course_id: int = Field(default=0, alias="courseId")
     # 课程学习截止时间（毫秒时间戳，来自 queryShareCourseInfo；超过后学习不记进度）
     course_end_time: int | None = Field(default=None, alias="courseEndTime")
+    # 是否有学习习惯分（来自 queryCourse；True 表示需要分天学，False 可以一次刷完）
+    has_habbit_score: bool | None = Field(default=None, alias="hasHabbitScore")
 
     model_config = {"populate_by_name": True}
 
