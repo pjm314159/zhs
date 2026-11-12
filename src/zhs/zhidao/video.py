@@ -241,8 +241,6 @@ class ZhidaoVideoPlayer:
 
                 try:
                     resources = mgr.query_node_resources(lesson)
-                    videos = [r for r in resources if r.is_video and not r.is_elective]
-                    elective = [r for r in resources if r.is_video and r.is_elective]
                 except KeyboardInterrupt:
                     raise
                 except Exception as exc:
@@ -250,9 +248,24 @@ class ZhidaoVideoPlayer:
                         return
                     failed += 1
                     continue
-                has_videos = has_videos or bool(videos)
+
+                videos = [r for r in resources if r.is_video and not r.is_elective]
+                materials = [r for r in resources if r.is_courseware and not r.is_elective]
+                elective = [r for r in resources if r.is_elective]
+                has_videos = has_videos or bool(videos or materials)
                 for resource in elective:
                     self._print_with_progress(msg_skip(f"跳过(选学，不计入进度): {resource.name}"), depth=3)
+
+                for resource in materials:
+                    # 课件一次上报就完成，不占今天的学习时长，不因为视频时间上限停掉
+                    try:
+                        self.complete_map_material(mgr, ctx, lesson, resource)
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as exc:
+                        if self._handle_unit_error(exc, course_name, resource.name, _map_stop_reason):
+                            return
+                        failed += 1
 
                 for resource in videos:
                     if self._stop_on_time_limit(ctx, course_name):
@@ -380,6 +393,64 @@ class ZhidaoVideoPlayer:
 
         logger.info(f"play_map_video done: {resource.name}, learn={learn:.0f}s/{duration}s")
         time.sleep(random() + 1)
+        return True
+
+    def complete_map_material(
+        self,
+        manager: "ZhidaoCourseManager",
+        ctx: "ZhidaoContext",
+        lesson: "MapLesson",
+        resource: "MapResource",
+    ) -> bool:
+        """标记图谱课 PPT/课件完成
+
+        网页实测：先 preLearningLoad，再按 dataType=2 上报一次
+        （playTimes=0，时长传空串），服务端直接返回 state=2。
+        不需要打开课件内容，也不占今天的学习时长。
+
+        Returns:
+            是否本次新标记完成（已完成返回 False）
+        """
+        recruit_id = ctx.course.recruit_id or 0
+        lesson_id = lesson.parent_hash or lesson.id_hash
+        lesson_video_id = resource.node_uid_hash or lesson.id_hash
+        study = manager.query_user_study_info(
+            course_id=ctx.course_id,
+            recruit_id=recruit_id,
+            lesson_hash=lesson_id,
+            data_id=resource.file_id,
+            lesson_video_id=lesson_video_id,
+        )
+        if study.get("state") == 2:
+            self._print_with_progress(msg_skip(f"跳过(已完成): {resource.name}"), depth=3)
+            return False
+
+        if not manager.pre_learning_load(
+            course_id=ctx.course_id,
+            recruit_id=recruit_id,
+            chapter_hash=lesson.chapter_hash,
+            lesson_hash=lesson_id,
+            data_id=resource.file_id,
+            lesson_video_id=lesson_video_id,
+        ):
+            raise StudyRecordError(-1, "preLearningLoad 未返回成功，学习记录未建立")
+
+        data = manager.save_study_process(
+            recruit_id=recruit_id,
+            chapter_hash=lesson.chapter_hash,
+            lesson_hash=lesson_id,
+            data_id=resource.file_id,
+            play_times=0,
+            total_time=0,
+            learn_time=0,
+            data_type=2,
+            lesson_video_id=lesson_video_id,
+        )
+        if data.get("submitSuccess") is False or data.get("state") != 2:
+            raise ApiError(-1, f"课件完成上报失败: {data}")
+
+        self._print_with_progress(msg_done(f"课件完成: {resource.name}"), depth=3)
+        logger.info(f"complete_map_material: {resource.name} state={data.get('state')}")
         return True
 
     def play_video(self, rac_id: str, video_id: int, ctx: "ZhidaoContext") -> None:

@@ -358,6 +358,38 @@ class TestSaveStudyProcess:
         assert payload["studyTotalTime"] == "297"
         assert payload["learnTime"] == "00:01:49"
 
+    def test_courseware_payload(self, mock_session: ZhsSession) -> None:
+        """PPT 上报 dataType=2、playTimes=0、时长为空，并带知识点节点"""
+        route = respx.post(f"{AISTUDY}/gateway/t/v1/learning/saveUserStudyProcess").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": 200, "message": "success", "data": {"state": 2, "submitSuccess": True}},
+            )
+        )
+
+        data = ZhidaoCourseManager(mock_session).save_study_process(
+            recruit_id=431490,
+            chapter_hash="N0y63nqNRlhd0b5r",
+            lesson_hash="zoOrZvGwbKFKbQGN",
+            data_id="1162689757",
+            play_times=0,
+            total_time=0,
+            learn_time=0,
+            data_type=2,
+            lesson_video_id="8l7xQ9A0wvSAvQ6y",
+        )
+
+        assert data["state"] == 2
+        import json
+
+        payload = json.loads(route.calls[0].request.read().decode())
+        assert payload["dataType"] == 2
+        assert payload["playTimes"] == 0
+        assert payload["studyTotalTime"] == ""
+        assert payload["learnTime"] == ""
+        assert payload["lessonVideoId"] == "8l7xQ9A0wvSAvQ6y"
+        assert payload["dataId"] == "1162689757"
+
 
 class TestPlayMapVideo:
     def test_sends_heartbeat_until_threshold(self) -> None:
@@ -569,6 +601,83 @@ class TestPlayMapCourse:
         assert "选学" in texts
         assert "章节 1:" in texts
         assert "课时 1.1:" in texts
+
+    def test_completes_courseware_before_video(self) -> None:
+        """PPT 用知识点节点报一次完成，不走视频播放"""
+        player = ZhidaoVideoPlayer(MagicMock())
+        ctx = _make_map_context()
+        parent = MapLesson(idHash="parentHash", idStr="parent-str", name="父课时")
+        leaf = MapLesson(
+            idHash="leafHash",
+            idStr="leaf-str",
+            name="子节点",
+            sourceNum=2,
+            finishNum=0,
+            chapterHash="chapterHash",
+            parentHash="parentHash",
+        )
+        ctx.map_chapters[0].lessons = [parent]
+        parent.small_lessons = [leaf]
+        manager = MagicMock()
+        manager.query_node_resources.return_value = [
+            MapResource(
+                resourcesFileId="1162691753",
+                resourcesName="第一章第二节.pptx",
+                resourcesSuffix="pptx",
+                resourcesSyncType=1,
+                nodeUidHash="leafHash",
+            ),
+            MapResource(resourcesFileId="1", resourcesName="必修视频", resourcesTime="60", resourcesSyncType=1),
+        ]
+        manager.query_user_study_info.return_value = {"state": None, "learnTime": "00:00:00"}
+        manager.pre_learning_load.return_value = True
+        manager.save_study_process.return_value = {"state": 2, "submitSuccess": True}
+
+        with (
+            patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=manager),
+            patch.object(player, "play_map_video", return_value=True) as mock_play,
+            patch("zhs.zhidao.video.tree_print"),
+            patch("zhs.zhidao.video.print") as mock_print,
+        ):
+            player._play_map_course(ctx)
+
+        manager.save_study_process.assert_called_once()
+        kwargs = manager.save_study_process.call_args.kwargs
+        assert kwargs["data_type"] == 2
+        assert kwargs["play_times"] == 0
+        assert kwargs["data_id"] == "1162691753"
+        assert kwargs["lesson_hash"] == "parentHash"
+        assert kwargs["lesson_video_id"] == "leafHash"
+        assert kwargs["chapter_hash"] == ctx.map_chapters[0].id_hash
+        mock_play.assert_called_once()
+        texts = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+        assert "课件完成" in texts
+
+    def test_skips_finished_courseware(self) -> None:
+        """课件 state=2 时不再上报"""
+        player = ZhidaoVideoPlayer(MagicMock())
+        ctx = _make_map_context()
+        manager = MagicMock()
+        manager.query_node_resources.return_value = [
+            MapResource(
+                resourcesFileId="1162691753",
+                resourcesName="已完成.pptx",
+                resourcesSuffix="pptx",
+                resourcesSyncType=1,
+                nodeUidHash="node",
+            )
+        ]
+        manager.query_user_study_info.return_value = {"state": 2, "learnTime": ""}
+
+        with (
+            patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=manager),
+            patch("zhs.zhidao.video.tree_print"),
+            patch("zhs.zhidao.video.print"),
+        ):
+            player._play_map_course(ctx)
+
+        manager.pre_learning_load.assert_not_called()
+        manager.save_study_process.assert_not_called()
 
     def test_study_info_error_does_not_replay(self) -> None:
         """学习记录查询失败时记失败，不从 0 重播"""

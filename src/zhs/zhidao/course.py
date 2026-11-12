@@ -280,11 +280,13 @@ class ZhidaoCourseManager:
         chapter_hash: str,
         lesson_hash: str,
         data_id: str,
+        lesson_video_id: str = "",
     ) -> bool:
         """开始学习前置调用（aistudy）
 
         必须在首次 saveUserStudyProcess 之前调用，否则服务端没有学习记录，
         会返回 NPE 或 2021「多端观看异常」。
+        课件要带上知识点节点的 lessonVideoId，否则学习记录对不上节点。
         """
         url = f"{self._session.urls.aistudy}/gateway/t/v1/learning/preLearningLoad"
         payload: dict[str, Any] = {
@@ -294,6 +296,8 @@ class ZhidaoCourseManager:
             "lessonId": lesson_hash,
             "dataId": data_id,
         }
+        if lesson_video_id:
+            payload["lessonVideoId"] = lesson_video_id
         result = self._session.aistudy_query(url, payload)
         return bool(result.get("data"))
 
@@ -304,11 +308,12 @@ class ZhidaoCourseManager:
         recruit_id: int,
         lesson_hash: str,
         data_id: str,
+        lesson_video_id: str = "",
     ) -> dict[str, Any]:
-        """查询某节点、某视频的学习记录（aistudy）
+        """查询某节点、某资源的学习记录（aistudy）
 
-        进度是按「节点 + dataId」分别记录的；同一视频挂在多个节点下时，
-        每个节点有独立的 learnTime/state。
+        进度是按「节点 + dataId」分别记录的；同一资源挂在多个节点下时，
+        每个节点有独立的 learnTime/state。课件查询要带 lessonVideoId。
 
         Returns:
             data: {knowledgeHashId, knowledgeStrId, dataId, state, learnTime}
@@ -321,6 +326,8 @@ class ZhidaoCourseManager:
             "lessonId": lesson_hash,
             "dataId": data_id,
         }
+        if lesson_video_id:
+            payload["lessonVideoId"] = lesson_video_id
         # 不吞 ApiError：业务码拒绝不能当成“没学过”，否则会从 0 重播已完成视频。
         # 响应成功但 data 为空，才表示该节点尚未学习。
         result = self._session.aistudy_query(url, payload)
@@ -350,13 +357,18 @@ class ZhidaoCourseManager:
         play_times: int,
         total_time: int,
         learn_time: int,
+        data_type: int = 1,
+        lesson_video_id: str = "",
     ) -> dict[str, Any]:
         """上报学习进度（aistudy，明文 JSON）
 
         Args:
             play_times: 本次上报的学习秒数。服务端以此累计 learnTime
                 （实测 playTimes=30 则 learnTime +30），必须传本次新增秒数，
-                不能只传自增计数。
+                不能只传自增计数。视频传本次新增秒；课件传 0。
+            data_type: 1=视频，2=PPT/课件。课件必须传 2，否则不会标完成。
+            lesson_video_id: 网页抓包里是知识点节点 hash（nodeUidHash）。
+                视频心跳传空也能累计；课件完成必须带上，否则记不到对应节点。
 
         Returns:
             data: {state, submitSuccess, learnTime, totalTime}
@@ -366,12 +378,12 @@ class ZhidaoCourseManager:
             "recruitId": recruit_id,
             "chapterId": chapter_hash,
             "lessonId": lesson_hash,
-            "lessonVideoId": "",
+            "lessonVideoId": lesson_video_id,
             "dataId": data_id,
-            "dataType": 1,
+            "dataType": data_type,
             "playTimes": play_times,
-            "studyTotalTime": str(total_time),
-            "learnTime": _format_learn_time(learn_time),
+            "studyTotalTime": "" if data_type == 2 else str(total_time),
+            "learnTime": "" if data_type == 2 else _format_learn_time(learn_time),
             "sourceType": 1,
         }
         result = self._session.map_post(url, payload)

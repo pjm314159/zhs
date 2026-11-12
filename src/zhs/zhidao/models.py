@@ -173,6 +173,8 @@ class MapLesson(BaseModel):
     small_lessons: list["MapLesson"] = Field(default_factory=list, alias="smallLessons")
     chapter_hash: str = ""
     chapter_name: str = ""
+    # 有子课时时，上报里的 lessonId 是父课时 hash，叶子节点自己不是课时
+    parent_hash: str = ""
 
     model_config = {"populate_by_name": True}
 
@@ -203,6 +205,8 @@ class MapChapter(BaseModel):
             for leaf in lesson.leaves():
                 leaf.chapter_hash = self.id_hash
                 leaf.chapter_name = self.name
+                if leaf.id_hash != lesson.id_hash:
+                    leaf.parent_hash = lesson.id_hash
                 result.append(leaf)
         return result
 
@@ -213,6 +217,8 @@ class MapResource(BaseModel):
     id_hash: str = Field(default="", alias="idHash")
     id_str: str = Field(default="", alias="idStr")
     file_id: str = Field(default="", alias="resourcesFileId")
+    # 知识点节点 hash。课件上报的 lessonVideoId 用这个，不是资源自己的 idHash
+    node_uid_hash: str = Field(default="", alias="nodeUidHash")
     name: str = Field(default="", alias="resourcesName")
     suffix: str = Field(default="", alias="resourcesSuffix")
     resources_time: str = Field(default="", alias="resourcesTime")
@@ -239,3 +245,8 @@ class MapResource(BaseModel):
     def is_elective(self) -> bool:
         """是否为选学资源（不计入课程进度，上报会被拒绝）"""
         return self.sync_type == 0
+
+    @property
+    def is_courseware(self) -> bool:
+        """是否为 PPT/课件（点开即完成，dataType=2）"""
+        return self.suffix.lower() in {"ppt", "pptx"}

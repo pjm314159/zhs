@@ -77,8 +77,9 @@ zhs 旧实现把 `studyTotalTime` 当播放位置用：重看过的视频起点�
 - 抓包里心跳间隔不固定（有同一秒发 3 次的，有 74 秒才发的），需要更多样本确认节奏
 
 **字段对照**：
-- `chapterId`/`lessonId` 用节点 `idHash`
-- `dataId` 用资源的 `resourcesFileId`（视频）或 `id`（PPT）
+- `dataId` 用资源的 `resourcesFileId`（视频和 PPT 都是这个，不是资源自己的 idHash）
+- 有子课时时：`chapterId` 是章 hash，`lessonId` 是父课时 hash，`lessonVideoId` 是知识点 `nodeUidHash`
+- PPT 上报 `dataType=2`、`playTimes=0`、`studyTotalTime=""`、`learnTime=""`，响应 `state=2`
 - `learnTime` 为 `HH:MM:SS`，`studyTotalTime` 为累计秒数
 
 ## zhs 实测（旧版 videolist，新实现，1.0x）
