@@ -12,7 +12,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const out = resolve(process.argv[2] ?? join(repo, ".capture", `capture-${Date.now()}.jsonl`));
+const url = process.argv[2];
+const out = resolve(process.argv[3] ?? join(repo, ".capture", `capture-${Date.now()}.jsonl`));
 mkdirSync(dirname(out), { recursive: true });
 
 // CHROME_EXE 可换成系统 Google Chrome：chrome-win 是开源 Chromium 快照，不带 H.264/AAC 解码器，放不了知到的视频

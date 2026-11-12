@@ -61,7 +61,27 @@ zhs 旧实现把 `studyTotalTime` 当播放位置用：重看过的视频起点�
   习惯分规则文案只有“合理规划学习行为”，没有给出具体分钟数，也没有对应的拒收接口，属于后台事后统计。
   因此“每天学一段、分多天学完”需要客户端自己控制，服务端不会用 `-9` 帮你截断。
 
-## zhs 实测（新实现，1.0x）
+## 新版图谱课（map）心跳与资源（网页抓包）
+
+**PPT/课件完成逻辑**（实测：点开就算完成）：
+- 资源类型：`dataType=2`（PPT/课件），`dataType=1`（视频）
+- 上报接口：`saveUserStudyProcess`，明文 JSON
+- 必须先调 `preLearningLoad`（同一 `dataId`），否则返回 NPE 或 `2021 多端观看异常`
+- PPT 上报：`playTimes=0`，`studyTotalTime=""`，`learnTime=""`，响应 `state=2`（完成）
+- **只要发一次请求就标为完成**，不需要真的打开 PPT 内容
+
+**视频心跳**（抓包 5 条，待补充更多样本）：
+- 同一接口 `saveUserStudyProcess`
+- `playTimes` 是**本次新增学习秒数**：第 1 次 0 秒，74 秒后第 2 次上报增加 72 秒
+- 服务端按 `playTimes` 累加 `learnTime`，`totalTime` 是视频总秒数
+- 抓包里心跳间隔不固定（有同一秒发 3 次的，有 74 秒才发的），需要更多样本确认节奏
+
+**字段对照**：
+- `chapterId`/`lessonId` 用节点 `idHash`
+- `dataId` 用资源的 `resourcesFileId`（视频）或 `id`（PPT）
+- `learnTime` 为 `HH:MM:SS`，`studyTotalTime` 为累计秒数
+
+## zhs 实测（旧版 videolist，新实现，1.0x）
 
 - 视频 70796843（1213 秒，从 0 开始）跑 400 秒：Cache 在 ~183 秒上报，弹题时 Database 补报剩余 88 秒，
   服务端回读 `studyTotalTime=400`、`learnTimeSec=400`（`00:06:40`），**没有 `-8`**，与实际观看秒数完全一致。
