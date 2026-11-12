@@ -456,3 +456,60 @@ API 参考：`.temp/questions_bank.md`
   - `docs/linter.md`：UP046/§6.2 的 PEP 695 示例类由 `BaseQuestionCache[T]` 换为中性 `Repository[T]`；"项目应用"注改为"当前源码中暂无泛型类"（base.py 是 src 中唯一的 PEP 695 泛型类，删除后原注释失实）
 - Test: 删除测试本身；`tests/cache/` 72 passed，全量 1158 passed（较此前 1170 少 12 = test_base 用例数，符合预期）
 - Refactor: ruff check / format --check / mypy（156 文件）全部通过；分支 `refactor/cache-remove-base`
+
+---
+
+## 知到共享课：新旧版本适配、心跳对齐网页端、分天学习计划
+
+抓包依据见 [capture-findings.md](./capture-findings.md)。
+
+### Task 40 — 新旧版本判定改用 `courseMode` ✅
+- 现象：旧版课（军事理论）被误判为知识图谱课，`kgCourseTreeInfoList` 报 500「章节结构查询出错」，整门课无法播放
+- 原因：此前以 `queryCourseMapInfo` 是否返回 `mapStr` 判定，实测旧版课同样返回 `mapStr`
+- Green: `zhidao/models.py` 的 `CourseInfo` 新增 `course_mode` / `is_map_course`；`zhidao/course.py` 的 `_build_map_context` 只看 `courseMode == 2`；已判定为图谱课后 `mapStr` / 章节树缺失直接抛 `ApiError`，不回退旧流程
+- Test: `tests/zhidao/test_map.py::TestGetContextMap`（旧版课不调图谱接口 / 图谱课缺 `mapStr` 报错 / 树不可解析不回退）
+- 实测：军事理论（旧）59 个视频、国家安全教育（新）110 个节点均正常加载
+
+### Task 41 — 旧版课心跳节奏与网页端一致 ✅
+- 背景：旧实现每 30±5 秒报一次 Database，是网页端的 10 倍；Cache 与 Database 各自计算增量，服务端重复累加后返回 `-8`；`studyTotalTime` 被当作播放位置，重看过的视频一次心跳即结束
+- Green（`zhidao/video.py`）
+  - `CLASSIC_DB_INTERVAL = 300`、`CLASSIC_CACHE_INTERVAL = 180`，各自计时，±5 秒抖动；弹题时立即补报 Database
+  - 两种上报共用增量基准 `last_submit`
+  - `_resume_position` 取 `learnTimeSec` 续播，ev 累计秒在 `studyTotalTime` 上继续加
+  - 删除随机暂停；`zhidao_speed` 默认值 1.5 → 1.0（上报秒数等于真实经过秒数）
+- Test: `tests/zhidao/test_video.py::TestClassicHeartbeatCadence` / `TestResumeAndTotalSplit`
+- 实测：1213 秒视频从 0 播放 400 秒，服务端回读 `studyTotalTime=400`、`learnTimeSec=400`，无 `-8`；修复前同一视频播放 330 秒被记为 660 并返回 `-8`
+
+### Task 42 — 分天学习计划 ✅
+- 需求：学习习惯分要求分多天学习，单日时长过短不计为当天学过
+- Green
+  - 新增 `zhidao/schedule.py`：`plan_today`（首日留够之后配额、之后每天平摊不低于配额、截止日学完）与 `StudyLedger`（数据目录 `study_plan.json`，按课程 + 日期累计）
+  - `config.py`：`VideoConfig` 新增 `zhidao_plan`（默认 true）、`zhidao_daily_minutes`（默认 40，≥ 30）
+  - `cli/services/play_service.py`：`play_zhidao_course` 把当天预算作为播放器时间上限（与 `--limit` 取小），播完记账；开播前打印课程统计与每日建议
+- Test: `tests/zhidao/test_schedule.py`（`TestPlanToday` / `TestStudyLedger`）
+
+### Task 43 — 分天只对有习惯分的课生效，支持按课程配置 ✅
+- 现象：`zhidao_plan` 开启时所有知到课都被套上每日配额，无习惯分的课也提示「今天的学习时长已完成」后跳过
+- Green
+  - `resolve_plan`：按课程自身 `hasHabbitScore` 判断；图谱课上下文补传 `hasHabbitScore`（此前漏传）
+  - `config.py` 新增 `CoursePlanConfig` 与 `VideoConfig.zhidao_courses`，`[video.zhidao_courses."<courseId|课程名|rac_id>"]` 覆盖 `plan` / `daily_minutes`
+  - `run_all`：知到课程分两轮，先刷需分天的课，再刷一次刷完的课
+  - 课程统计行标出「分天学习」或「一次刷完」
+- Test: `tests/cli/services/test_play_service.py`
+- 实测：军事理论 `hasHabbitScore=true`（分天），国家安全教育 `hasHabbitScore=false`（一次刷完）
+
+### Task 44 — 知识图谱课进度与课件 ✅
+- 现象：图谱课进度在章节树 `finishNum` 上，旧统计读空的 `ctx.videos` 得出剩余 0 秒，学习计划直接跳过整门课；PPT 课件从未计入进度
+- Green
+  - `course_progress`：图谱课用 `sourceNum` / `finishNum` 统计；`plan_today(progress_unknown=True)` 时按一天配额学，不把 0 秒当学完
+  - 跳过 `resourcesSyncType == 0` 的选学资源（上报返回 `2025`）
+  - `complete_map_material`：课件先查学习记录，未完成则 `preLearningLoad` 后以 `dataType=2`、`playTimes=0` 上报一次；不计入当天学习时长
+- Test: `tests/zhidao/test_map.py::TestPlayMapCourse`（课件先于视频 / 已完成课件跳过 / 选学跳过）、`tests/zhidao/test_schedule.py`（时长未知）
+
+### 已知缺口
+- 知识图谱课视频心跳固定 30 秒，未与网页端对照
+- 知识图谱课章节测验（`exam/start` / `exam/submit`）未实现
+- 1.5 倍速下网页端心跳未取得
+
+### 校验
+- `pytest`（全量）：**1312 passed, 49 deselected** ✅

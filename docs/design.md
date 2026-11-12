@@ -31,10 +31,11 @@
 │       │   └── ai_cache.py     # AiExamCache（SQLite 单键 question_id，UPSERT）
 │       ├── zhidao/             # 知到共享课程
 │       │   ├── __init__.py
-│       │   ├── models.py       # 数据模型
-│       │   ├── course.py       # 课程列表与上下文
+│       │   ├── models.py       # 数据模型（含知识图谱 Map* 模型）
+│       │   ├── course.py       # 课程列表与上下文（旧版 videolist / 知识图谱分流）
 │       │   ├── video.py        # 视频刷课
 │       │   ├── quiz.py         # 弹窗答题
+│       │   ├── schedule.py     # 分天学习计划
 │       │   └── homework/       # 知到作业子包
 │       │       ├── __init__.py
 │       │       ├── models.py   # 作业数据模型
@@ -102,6 +103,8 @@
 │   │   ├── test_video.py
 │   │   ├── test_quiz.py
 │   │   ├── test_models.py
+│   │   ├── test_map.py         # 知识图谱课
+│   │   ├── test_schedule.py    # 分天学习计划
 │   │   └── homework/           # 作业测试
 │   │       ├── test_models.py
 │   │       ├── test_scanner.py
@@ -249,11 +252,19 @@ from pathlib import Path
 DEFAULT_STREAM_TIMEOUT = 120.0        # AIConfig / OpenAIProvider 共用
 DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 
+class CoursePlanConfig(BaseModel):
+    """单门知到课程的分天设置（[video.zhidao_courses."<课程>"]）"""
+    plan: bool | None = None                 # None 时按 hasHabbitScore 判断
+    daily_minutes: int | None = None         # ≥ 30
+
 class VideoConfig(BaseModel):
     """视频播放速度配置"""
-    zhidao_speed: float = 1.5    # 知到视频速度
+    zhidao_speed: float = 1.0    # 知到视频速度（与网页端一致）
     hike_speed: float = 1.25     # Hike 视频速度
     ai_speed: float = 1.5        # AI 课程视频速度
+    zhidao_plan: bool = True     # 知到分天学习总开关
+    zhidao_daily_minutes: int = 40           # ≥ 30
+    zhidao_courses: dict[str, CoursePlanConfig] = {}  # 键：courseId / 课程名 / recruitAndCourseId
 
 class HomeworkConfig(BaseModel):
     """作业配置"""
@@ -304,6 +315,8 @@ class UrlConfig(BaseModel):
     homework: str = "https://studentexam-api.zhihuishu.com"
     ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"
     newbase: str = "https://newbase.zhihuishu.com"
+    aistudy: str = "https://aistudy.zhihuishu.com"                   # 知识图谱课
+    share_map: str = "https://share-course-map-service.zhihuishu.com"  # 知识图谱节点资源
 
 class AIConfig(BaseModel):
     """AI 配置"""
@@ -374,9 +387,11 @@ limit = 0
 threshold = 0.91
 
 [video]
-zhidao_speed = 1.5
+zhidao_speed = 1.0
 hike_speed = 1.25
 ai_speed = 1.5
+zhidao_plan = true
+zhidao_daily_minutes = 40
 
 [homework]
 threshold = 100
@@ -419,6 +434,8 @@ exam = "https://studentexamtest.zhihuishu.com"
 homework = "https://studentexam-api.zhihuishu.com"
 ai_analysis = "https://ai-course-assistant-api.zhihuishu.com"
 newbase = "https://newbase.zhihuishu.com"
+aistudy = "https://aistudy.zhihuishu.com"
+share_map = "https://share-course-map-service.zhihuishu.com"
 
 [ai]
 enabled = true
@@ -777,6 +794,9 @@ class CourseInfo(BaseModel):
     """课程基本信息"""
     course_id: int
     name: str
+    course_mode: int | None = None   # courseMode，2 = 知识图谱课
+    @property
+    def is_map_course(self) -> bool: ...
 
 class ZhidaoCourse(BaseModel):
     """知到课程"""
@@ -784,6 +804,8 @@ class ZhidaoCourse(BaseModel):
     course_name: str
     course_info: CourseInfo | None = None
     recruit_id: int | None = None
+    course_end_time: int | None = None     # courseEndTime（毫秒），分天计划的截止日
+    has_habbit_score: bool | None = None   # hasHabbitScore，决定是否分天学
 
 class VideoChapter(BaseModel):
     """章节"""
@@ -832,9 +854,50 @@ class QuestionOption(BaseModel):
 class ZhidaoContext(BaseModel):
     """知到课程上下文（缓存）"""
     course: ZhidaoCourse
-    chapters: VideoChapterList
+    chapters: list[VideoChapter]
     videos: dict[int, VideoSmallLesson]
-    fucked_time: int = 0
+    course_id: int = 0
+    fucked_time: int = 0                     # 本次已用秒数（真实时间）
+    mode: Literal["classic", "map"] = "classic"
+    map_chapters: list[MapChapter] = []      # mode="map" 时的章节树
+    map_str: str = ""
+    map_hash: str = ""
+
+class MapChapter(BaseModel):
+    """知识图谱章节"""
+    id_hash: str
+    id_str: str
+    name: str = ""
+    lessons: list[MapLesson] = []
+    def leaf_nodes(self) -> list[MapLesson]: ...   # 展开叶子并回填 chapter_hash / parent_hash
+
+class MapLesson(BaseModel):
+    """知识图谱节点（课时或子课时）"""
+    id_hash: str
+    id_str: str
+    name: str = ""
+    source_num: int | None = None    # 资源总数
+    finish_num: int | None = None    # 已完成资源数
+    small_lessons: list[MapLesson] = []
+    chapter_hash: str = ""
+    parent_hash: str = ""            # 有子课时时为父课时 hash（课件上报的 lessonId 用它）
+
+class MapResource(BaseModel):
+    """节点资源（视频/课件）"""
+    file_id: str                     # resourcesFileId，上报的 dataId
+    node_uid_hash: str = ""          # 课件上报的 lessonVideoId
+    name: str = ""
+    suffix: str = ""                 # resourcesSuffix，ppt / pptx 视为课件
+    resources_time: str = ""         # 视频时长（秒），非视频为空
+    sync_type: int | None = None     # resourcesSyncType，0 = 选学
+    @property
+    def duration(self) -> int: ...
+    @property
+    def is_video(self) -> bool: ...
+    @property
+    def is_courseware(self) -> bool: ...
+    @property
+    def is_elective(self) -> bool: ...
 ```
 
 **设计要点**：
@@ -849,13 +912,37 @@ class ZhidaoCourseManager:
     """知到课程管理"""
 
     def __init__(self, session: ZhsSession) -> None: ...
-    def get_course_list(self) -> list[ZhidaoCourse]: ...
+    def get_course_list(self, force: bool = False) -> list[ZhidaoCourse]: ...
     def get_context(self, rac_id: str, force: bool = False) -> ZhidaoContext: ...
     def gologin(self, rac_id: str) -> None: ...
-    def query_course(self, rac_id: str) -> CourseInfo: ...
-    def video_list(self, rac_id: str) -> VideoChapterList: ...
+    def query_course(self, rac_id: str) -> dict: ...
+    def video_list(self, rac_id: str) -> dict: ...
     def query_study_info(self, lesson_ids: list, video_ids: list, recruit_id: int) -> dict: ...
+
+    # 知识图谱课（aistudy / share-course-map）
+    def _build_map_context(self, rac_id, course_info, recruit_id, course_data) -> ZhidaoContext | None: ...
+    def query_course_map(self, course_id: int, recruit_id: int) -> dict: ...
+    def kg_course_tree(self, course_id: int, recruit_id: int) -> list[MapChapter]: ...
+    def query_node_resources(self, lesson: MapLesson) -> list[MapResource]: ...
+    def pre_learning_load(self, *, course_id, recruit_id, chapter_hash, lesson_hash, data_id, lesson_video_id="") -> bool: ...
+    def query_user_study_info(self, *, course_id, recruit_id, lesson_hash, data_id, lesson_video_id="") -> dict: ...
+    def save_study_process(self, *, recruit_id, chapter_hash, lesson_hash, data_id,
+                           play_times, total_time, learn_time, data_type=1, lesson_video_id="") -> dict: ...
 ```
+
+**版本分流**（`get_context`）：
+
+- `queryCourse` 后由 `_build_map_context` 判定：`courseInfo.courseMode == 2` 为知识图谱课，返回 `mode="map"` 的上下文；否则返回 None，继续旧版 `videolist` 流程
+- 不以 `queryCourseMapInfo` 是否返回 `mapStr` 判定：旧版课同样返回 `mapStr`，随后 `kgCourseTreeInfoList` 报 500「章节结构查询出错」
+- 已判定为图谱课后，`mapStr` / `mapHashStr` 缺失或章节树为空直接抛 `ApiError`，不回退旧版流程
+- 两种上下文都记录 `hasHabbitScore`，供分天学习计划判断
+
+**加密策略**（`api/encrypted_query.py`）：
+
+| 策略 | 用于 | 说明 |
+|------|------|------|
+| `aistudy` | aistudy 查询类接口 | `video_key` 加密，GET，`code` 认 `"200"` 与 `200` |
+| `map_json` | `saveUserStudyProcess` / `queryNodeDescription` | 明文 JSON，`dateFormate` 放 body，`code=200` |
 
 #### 2.7.3 video.py
 
@@ -868,18 +955,43 @@ class ZhidaoVideoPlayer:
         session: ZhsSession,
         speed: float | None = None,
         end_threshold: float = 0.91,
-        time_limit: int = 0,           # 分钟
-        progressbar_view: bool = True,
+        time_limit: int = 0,           # 秒，0 = 不限
     ) -> None: ...
 
-    def play_course(self, rac_id: str, ctx: ZhidaoContext) -> None: ...
-    def play_video(self, rac_id: str, video_id: int) -> None: ...
+    def play_course(self, rac_id: str, ctx: ZhidaoContext) -> None: ...   # 按 ctx.mode 分流
+    def play_video(self, rac_id: str, video_id: int, ctx: ZhidaoContext) -> None: ...
+    def play_map_video(self, manager, ctx, lesson, resource, resume_seconds: int = 0) -> bool: ...
+    def complete_map_material(self, manager, ctx, lesson, resource) -> bool: ...
 
     # 内部方法
-    def _main_loop(self, ctx: ZhidaoContext, video: VideoSmallLesson, ...) -> None: ...
+    def _main_loop(self, rac_id, video_id, ctx, played_time, end_time, real_end_time,
+                   token_id, questions, total_base: int = 0) -> int: ...
+    def _play_map_course(self, ctx: ZhidaoContext) -> None: ...
+    def _resume_position(self, video_sec: int) -> float: ...
     def _watch_video(self, video_id: int) -> None: ...
-    def _report_progress_v2(self, ...) -> None: ...
+    def _report_cache_progress(self, ...) -> bool: ...
+    def _report_progress_v2(self, ...) -> tuple[int, bool]: ...
 ```
+
+**旧版课心跳**（与网页端 `ableVideoPlayer6.0` 一致，依据 [capture-findings.md](./capture-findings.md)）：
+
+| 常量 | 值 | 含义 |
+|------|----|------|
+| `CLASSIC_DB_INTERVAL` | 300 | `saveDatabaseIntervalTimeV2` 间隔（秒） |
+| `CLASSIC_CACHE_INTERVAL` | 180 | `saveCacheIntervalTimeV2` 间隔（秒） |
+| `CLASSIC_INTERVAL_JITTER` | 5 | 间隔抖动（±秒） |
+| `DEFAULT_ZHIDAO_SPEED` | 1.0 | 未配置倍速时的默认值 |
+
+- 两种上报各自计时，但共用增量基准 `last_submit`：本段秒 = 距上一次任意上报的位置差。服务端把两者的本段秒都累加进 `studyTotalTime`，各自算增量会重复累加并触发 `-8 学习总时长下降了`
+- 同一秒两者都到期时只报 Database；弹题出现时立即补一次 Database
+- 播放位置（`learnTimeSec`，用于 `HH:MM:SS` 与弹题时间）与累计学习时长（`studyTotalTime`，可大于视频时长）分开：`_resume_position` 取前者续播，ev 的累计秒在后者上继续加
+- 上报失败不更新 `last_submit`，下次上报时增量完整
+
+**知识图谱课播放**（`_play_map_course`）：
+
+- 选学资源（`is_elective`）跳过；课件（`is_courseware`）先于视频处理：`preLearningLoad` 后以 `dataType=2`、`playTimes=0` 上报一次，响应 `state=2` 即完成，不计入 `fucked_time`
+- 视频每 `MAP_HEARTBEAT_INTERVAL`（30）秒上报一次 `saveUserStudyProcess`，`playTimes` = 本次新增秒数；以响应 `learnTime` 推进，服务端未推进时本地兜底
+- 停课条件（`_map_stop_reason`）：`preLearningLoad` 失败（`StudyRecordError`）、`2021 多端观看`，以及通用的验证码与时间上限
 
 **线程安全设计**（`_watch_video`）：
 
@@ -909,18 +1021,18 @@ flowchart TD
     subgraph Loop[主循环]
         LoopStart{played_time < end_time?} -->|否| LoopEnd[退出循环]
         LoopStart -->|是| Sleep[sleep 1]
-        Sleep --> IncTime[played_time += speed]
-        IncTime --> RandomPause{随机暂停 0.25%?}
-        RandomPause -->|是| Pause60[sleep 60s]
-        RandomPause -->|否| UpdateWP[每 2s 更新 WatchPoint]
-        Pause60 --> UpdateWP
+        Sleep --> IncTime[played_time += speed，答题中不推进]
+        IncTime --> UpdateWP[每 2s 更新 WatchPoint]
         UpdateWP --> CheckQ{检查弹窗题目?}
-        CheckQ -->|有题目| AnswerQ[答题]
-        CheckQ -->|无| Report{每 30s?}
-        AnswerQ --> Report
-        Report -->|是| Upload[上报进度]
-        Report -->|否| ShowBar[显示进度条]
-        Upload --> ShowBar
+        CheckQ -->|有题目| AnswerQ[答题，立即补报 Database]
+        CheckQ -->|无| Cache{Cache 到期且 Database 未到期?}
+        AnswerQ --> Cache
+        Cache -->|是| UploadC[saveCacheIntervalTimeV2]
+        Cache -->|否| DB{Database 到期?}
+        UploadC --> DB
+        DB -->|是| UploadD[saveDatabaseIntervalTimeV2]
+        DB -->|否| ShowBar[显示进度条]
+        UploadD --> ShowBar
         ShowBar --> LoopStart
     end
 
@@ -928,7 +1040,39 @@ flowchart TD
     HumanDelay --> End
 ```
 
-#### 2.7.4 quiz.py
+#### 2.7.4 schedule.py — 分天学习计划
+
+```python
+MIN_DAILY_MINUTES = 30
+DEFAULT_DAILY_MINUTES = 40
+
+@dataclass(frozen=True)
+class DailyPlan:
+    budget_seconds: int          # 今天还能学的秒数；0 = 今天已完成
+    is_first_day: bool
+    remaining_days: int          # 含今天
+    daily_seconds: int
+    duration_unknown: bool = False
+    def describe(self, remaining_minutes: int = 0) -> str: ...
+
+def plan_today(*, remaining_seconds, today, first_day, end_day, studied_today,
+               daily_minutes=DEFAULT_DAILY_MINUTES, progress_unknown=False) -> DailyPlan: ...
+
+class StudyLedger:
+    """按课程记录每天已学秒数，保存在数据目录的 study_plan.json"""
+    def first_day(self, key: str, today: date) -> date: ...
+    def studied(self, key: str, day: date) -> int: ...
+    def add(self, key: str, day: date, seconds: int) -> None: ...
+```
+
+**调用方**（`cli/services/play_service.py`）：
+
+- `resolve_plan`：`zhidao_plan` 关闭时一律不分天；否则课程级配置优先，再看 `hasHabbitScore`
+- `play_zhidao_course`：计算当天预算，作为播放器 `time_limit`（与 `--limit` 取小）；播放结束后把 `ctx.fucked_time` 增量记入 `StudyLedger`
+- `run_all`：知到课程分两轮，先刷需分天的课，再刷一次刷完的课
+- 预算单位是真实经过的秒数，与 `ctx.fucked_time` 一致
+
+#### 2.7.5 quiz.py
 
 ```python
 class ZhidaoQuizzer:
@@ -941,7 +1085,7 @@ class ZhidaoQuizzer:
     def save_answer(self, rac_id: str, video_id: int, question_id: int, answer: str) -> None: ...
 ```
 
-#### 2.7.5 zhidao/homework/ — 知到作业子包
+#### 2.7.6 zhidao/homework/ — 知到作业子包
 
 ##### models.py
 
@@ -1770,7 +1914,7 @@ def list_to_cookies(data: list[dict]) -> httpx.Cookies: ...
 
 ```python
 def get_data_dir() -> Path:
-    """获取数据目录（~/.zhs/ 或项目目录）"""
+    """获取数据目录（当前工作目录下的 .zhs/）"""
 
 def get_config_path() -> Path: ...
 def get_real_path(path: str) -> Path: ...
@@ -2160,7 +2304,8 @@ flowchart LR
         VP -->|watchVideo 新线程| NB[newbase.zhihuishu.com]
         VP -->|lessonPopupExam| SS
         VP -->|saveLessonPopupExamSaveAnswer| SS
-        VP -->|saveDatabaseIntervalTimeV2 每30s| SS
+        VP -->|saveCacheIntervalTimeV2 约每180s| SS
+        VP -->|saveDatabaseIntervalTimeV2 约每300s| SS
         VP -->|progressBar| UI[终端显示]
     end
 ```
@@ -2276,6 +2421,13 @@ flowchart LR
 - 旧版 JSON 配置迁移
 - 默认值填充
 - alias 字段兼容
+
+**zhidao/video.py / course.py / schedule.py**：
+- `courseMode` 分流：旧版课不调 `kgCourseTreeInfoList`，图谱课取不到树时不回退
+- 旧版课心跳节奏（Cache ~180s / Database ~300s）与共用增量链
+- 播放位置与累计学习时长分开
+- 图谱课：课件一次完成、选学跳过、`state=2` 跳过、`learnTime` 续播、`2021` 停课
+- `plan_today` 首日 / 之后每天 / 截止日 / 时长未知；`StudyLedger` 跨运行累计
 
 **zhidao/homework/**：
 - `HomeworkScanner` 扫描和过滤
