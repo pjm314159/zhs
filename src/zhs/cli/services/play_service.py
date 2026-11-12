@@ -159,7 +159,7 @@ def course_progress(ctx: "ZhidaoContext") -> dict[str, int]:
     }
 
 
-def _print_course_summary(ctx: "ZhidaoContext", rac_id: str) -> None:
+def _print_course_summary(ctx: "ZhidaoContext", rac_id: str, use_plan: bool | None = None) -> None:
     """打印课程统计信息"""
     from zhs.utils.display import msg_info
 
@@ -177,14 +177,59 @@ def _print_course_summary(ctx: "ZhidaoContext", rac_id: str) -> None:
             f"剩余 {_fmt_time(progress['remaining_seconds'])} | "
             f"已完成 {progress['done']}/{progress['total']} 个"
         )
+    if use_plan is not None:
+        summary += " | 分天学习" if use_plan else " | 一次刷完（无习惯分或已关闭计划）"
     print(msg_info(summary))
 
 
-def _needs_daily_plan(mgr: "ZhidaoCourseManager", course: "ZhidaoCourse") -> bool:
-    """判断课程是否需要分天学习（有习惯分）
+def _plan_override(config: AppConfig, rac_id: str, course_id: object, course_name: object) -> object | None:
+    """按 courseId / 课程名 / recruitAndCourseId 找课程级配置（先匹配先得）"""
+    plans = getattr(config.video, "zhidao_courses", None) or {}
+    if not isinstance(plans, dict):
+        return None
 
-    取不到 hasHabbitScore 时保守处理：假设需要分天（避免一次刷完导致习惯分拿不到）。
+    keys: list[str] = []
+    if isinstance(course_id, int) and course_id > 0:
+        keys.append(str(course_id))
+
+    for value in (course_name, rac_id):
+        if isinstance(value, str) and value:
+            keys.append(value)
+
+    for key in keys:
+        if key in plans:
+            found: object = plans[key]
+            return found
+    return None
+
+
+def resolve_plan(config: AppConfig, ctx: "ZhidaoContext", rac_id: str) -> tuple[bool, int]:
+    """这门课今天是否按天限时，以及每天多少分钟
+
+    规则：没有习惯分的课一次刷完，不受每日配额限制（它们本来就不看「每天学多少」）。
+    课程级配置（[video.courses.<课程>]）优先，其次看课程自身的 hasHabbitScore。
     """
+    course = ctx.course
+    override = _plan_override(config, rac_id, ctx.course_id, course.course_name)
+    daily_minutes = config.video.zhidao_daily_minutes
+
+    plan = getattr(override, "plan", None)
+    use_plan = bool(plan) if plan is not None else course.has_habbit_score is True
+
+    custom_minutes = getattr(override, "daily_minutes", None)
+    if isinstance(custom_minutes, int):
+        daily_minutes = custom_minutes
+
+    return (bool(config.video.zhidao_plan) and use_plan, daily_minutes)
+
+
+def _needs_daily_plan(mgr: "ZhidaoCourseManager", course: "ZhidaoCourse", config: AppConfig) -> bool:
+    """列表里还没上下文时估算是否分天学：课程级配置优先，否则看习惯分"""
+    override = _plan_override(config, course.secret, course.course_id, course.course_name)
+    plan = getattr(override, "plan", None)
+    if plan is not None:
+        return bool(plan)
+
     if course.has_habbit_score is not None:
         return course.has_habbit_score
     # 从 queryCourse 补查
@@ -226,11 +271,14 @@ def play_zhidao_course(
     time_limit = config.limit * 60
     ledger: StudyLedger | None = None
     today = date.today()
+    use_plan, daily_minutes = resolve_plan(config, ctx, rac_id)
 
     # 打印课程统计
-    _print_course_summary(ctx, rac_id)
+    _print_course_summary(ctx, rac_id, use_plan)
+    if not use_plan:
+        logger.info(f"{rac_id} 不分天：课程无习惯分或已在配置里关闭")
 
-    if config.video.zhidao_plan:
+    if use_plan:
         ledger = StudyLedger(get_data_dir() / "study_plan.json")
         remaining = _remaining_seconds(ctx, config.threshold)
         plan = plan_today(
@@ -239,7 +287,7 @@ def play_zhidao_course(
             first_day=ledger.first_day(rac_id, today),
             end_day=end_date_from_ms(end_ms),
             studied_today=ledger.studied(rac_id, today),
-            daily_minutes=config.video.zhidao_daily_minutes,
+            daily_minutes=daily_minutes,
             progress_unknown=ctx.mode == "map",
         )
         remaining_min = 0 if ctx.mode == "map" else remaining // 60
@@ -316,7 +364,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
 
             # 第一轮：有习惯分的课（需要分天学，优先）
-            habbit_courses = [c for c in courses if _needs_daily_plan(zhidao_mgr, c)]
+            habbit_courses = [c for c in courses if _needs_daily_plan(zhidao_mgr, c, config)]
             if habbit_courses:
                 print(f"\n优先刷 {len(habbit_courses)} 门有习惯分的课程（分天学习）")
                 for c in habbit_courses:
@@ -328,7 +376,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
                         print(f"知到课程 {c.course_name} 处理失败: {e}")
 
             # 第二轮：没有习惯分的课（可一次刷完）
-            non_habbit = [c for c in courses if not _needs_daily_plan(zhidao_mgr, c)]
+            non_habbit = [c for c in courses if not _needs_daily_plan(zhidao_mgr, c, config)]
             if non_habbit:
                 print(f"\n刷 {len(non_habbit)} 门无习惯分的课程（可一次刷完）")
                 for c in non_habbit:

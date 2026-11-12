@@ -141,11 +141,31 @@ src/zhs/
   - 随机暂停（0.25% 概率暂停 60 秒，模拟真人）
   - 每 2 秒更新 WatchPoint
   - 遇到弹窗题目时：获取题目详情 → 自动答题 → 保存答案
-  - 每 30 秒向数据库上报进度（`saveDatabaseIntervalTimeV2`）
+  - 正式上报约每 300 秒（`saveDatabaseIntervalTimeV2`）、缓存上报约每 180 秒
+    （`saveCacheIntervalTimeV2`），两者共用一条增量链，与网页端一致
   - 显示进度条
 - 已观看视频自动跳过（`watchState == 1` 且 `end_thre <= 1.0`）
 - 调用 `watchVideo` 初始化视频播放（在新线程中请求视频流）
 - 调用 `threeDimensionalCourseWare` 模拟课件访问
+
+#### 3.3.3.1 分天学习（学习习惯分）
+
+- 只有**有习惯分**的课（`queryCourse.hasHabbitScore == true`）才按天学：首日刷大部分，
+  剩余时长平均分到之后每天，每天至少 30 分钟；无习惯分的课一次刷完，不受每日配额限制。
+- 状态存在 `~/.zhs/study_plan.json`，按课程 + 日期累计当天已学秒数，同一天多次运行会累加。
+- 每门课都可以在配置里单独覆盖，键是 courseId、课程名或 recruitAndCourseId：
+
+```toml
+[video]
+zhidao_plan = true          # 总开关；false 则所有课程都不分天
+zhidao_daily_minutes = 40   # 默认每天分钟数
+
+[video.zhidao_courses."1100000680"]
+plan = false                # 这门课一次刷完
+
+[video.zhidao_courses."军事理论-综合版"]
+daily_minutes = 60
+```
 
 #### 3.3.4 弹窗答题
 

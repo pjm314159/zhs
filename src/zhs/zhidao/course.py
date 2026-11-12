@@ -112,7 +112,7 @@ class ZhidaoCourseManager:
         course_info = CourseInfo.model_validate(course_info_data) if course_info_data else None
 
         # 2.5 新版共享课（知识图谱）：树和视频资源走 aistudy / share-course-map
-        map_ctx = self._build_map_context(rac_id, course_info, recruit_id)
+        map_ctx = self._build_map_context(rac_id, course_info, recruit_id, course_data)
         if map_ctx is not None:
             self._context_cache[rac_id] = map_ctx
             return map_ctx
@@ -193,6 +193,7 @@ class ZhidaoCourseManager:
         rac_id: str,
         course_info: CourseInfo | None,
         recruit_id: int,
+        course_data: dict[str, Any] | None = None,
     ) -> ZhidaoContext | None:
         """构建新版知识图谱课程上下文；旧版 videolist 课返回 None
 
@@ -223,6 +224,8 @@ class ZhidaoCourseManager:
             course_info=course_info,
             recruit_id=recruit_id,
             course_id=course_info.course_id,
+            # 分天学习要看这个：图谱课漏掉会让「有习惯分」的课被当成一次刷完
+            has_habbit_score=(course_data or {}).get("hasHabbitScore"),
         )
         node_count = sum(len(chapter.leaf_nodes()) for chapter in chapters)
         logger.info(f"知识图谱课程: {len(chapters)} chapters, {node_count} nodes")

@@ -50,7 +50,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 - **最快开始**，使用`pip install zhs`,最推荐**用户**使用
 - 或者使用[uv](https://docs.astral.sh/uv/) 包管理器（开发推荐）
   - 注意使用`uv`要使用`uv run zhs`command 或者直接进入环境使用
-- 或者直接使用打包好的.whl 直接使用 `pip install [version].whl` [**Release**](https://github.com/pjm314159/zhs/releases)
+- 或者直接使用打包好的.whl 直接使用 `pip install [version].whl` [**Release**](https://github.com/ignvex/zhs/releases)
 
 ### 步骤
 

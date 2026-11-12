@@ -52,7 +52,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Quickest start**: install with `pip install zhs` — most recommended for **users**
 - Or use the [uv](https://docs.astral.sh/uv/) package manager (recommended for development)
   - Note: When using `uv`, run with `uv run zhs` command or enter the environment directly
-- Or use the pre-built .whl file: `pip install [version].whl` [**Release**](https://github.com/pjm314159/zhs/releases)
+- Or use the pre-built .whl file: `pip install [version].whl` [**Release**](https://github.com/ignvex/zhs/releases)
 
 ### Steps
 

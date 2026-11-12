@@ -436,3 +436,100 @@ class TestRunAll:
         run_all(session, config, "ai")
         captured = capsys.readouterr()
         assert "缺少 courseId 或 classId" in captured.out
+
+
+class TestResolvePlan:
+    """resolve_plan：没有习惯分的课不该被每日配额拦住"""
+
+    @staticmethod
+    def _ctx(has_habbit: bool | None, course_id: int = 1100000680, name: str = "国家安全教育"):
+        from zhs.zhidao.models import CourseInfo, ZhidaoContext, ZhidaoCourse
+
+        course = ZhidaoCourse(
+            secret="RAC1",
+            courseName=name,
+            courseInfo=CourseInfo(courseId=course_id, name=name),
+            recruitId=431490,
+            courseId=course_id,
+            hasHabbitScore=has_habbit,
+        )
+        return ZhidaoContext(course=course, chapters=[], videos={}, course_id=course_id)
+
+    def test_no_habit_score_means_no_daily_limit(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig
+
+        use_plan, _ = resolve_plan(AppConfig(), self._ctx(False), "RAC1")
+        assert use_plan is False
+
+    def test_habit_score_enables_plan(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig
+
+        use_plan, minutes = resolve_plan(AppConfig(), self._ctx(True), "RAC1")
+        assert use_plan is True
+        assert minutes == 40
+
+    def test_unknown_habit_score_does_not_limit(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig
+
+        use_plan, _ = resolve_plan(AppConfig(), self._ctx(None), "RAC1")
+        assert use_plan is False
+
+    def test_global_switch_off_disables_all(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig, VideoConfig
+
+        config = AppConfig(video=VideoConfig(zhidao_plan=False))
+        use_plan, _ = resolve_plan(config, self._ctx(True), "RAC1")
+        assert use_plan is False
+
+    def test_course_override_by_course_id(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig, CoursePlanConfig, VideoConfig
+
+        config = AppConfig(
+            video=VideoConfig(zhidao_courses={"1100000680": CoursePlanConfig(plan=True, daily_minutes=60)})
+        )
+        use_plan, minutes = resolve_plan(config, self._ctx(False), "RAC1")
+        assert use_plan is True
+        assert minutes == 60
+
+    def test_course_override_by_name_disables_plan(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig, CoursePlanConfig, VideoConfig
+
+        config = AppConfig(video=VideoConfig(zhidao_courses={"国家安全教育": CoursePlanConfig(plan=False)}))
+        use_plan, _ = resolve_plan(config, self._ctx(True), "RAC1")
+        assert use_plan is False
+
+
+class TestPlayZhidaoCourseNoPlan:
+    """没有习惯分的课不应打印「今天已完成」并跳过"""
+
+    @patch("zhs.utils.path.get_data_dir")
+    @patch("zhs.zhidao.video.ZhidaoVideoPlayer")
+    def test_plays_without_daily_limit(self, mock_player_cls: MagicMock, mock_data_dir: MagicMock, tmp_path) -> None:
+        from zhs.cli.services.play_service import play_zhidao_course
+        from zhs.config import AppConfig
+        from zhs.zhidao.models import CourseInfo, ZhidaoContext, ZhidaoCourse
+
+        mock_data_dir.return_value = tmp_path
+        course = ZhidaoCourse(
+            secret="RAC1",
+            courseName="国家安全教育",
+            courseInfo=CourseInfo(courseId=1100000680, name="国家安全教育"),
+            recruitId=431490,
+            courseId=1100000680,
+            hasHabbitScore=False,
+        )
+        ctx = ZhidaoContext(course=course, chapters=[], videos={}, course_id=1100000680)
+
+        play_zhidao_course(MagicMock(), AppConfig(), "RAC1", ctx, None)
+
+        mock_player_cls.assert_called_once()
+        assert mock_player_cls.call_args.kwargs["time_limit"] == 0  # 不限时
+        mock_player_cls.return_value.play_course.assert_called_once()
+        # 没有习惯分就不该写学习记录
+        assert not (tmp_path / "study_plan.json").exists()

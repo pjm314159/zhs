@@ -46,6 +46,15 @@ zhidao_plan = true
 # 分天之后每天的目标分钟数（默认 40，最少 30）
 zhidao_daily_minutes = 40
 
+# 按课程覆盖分天设置（键可以是 courseId、课程名或 recruitAndCourseId）
+# 不写则自动判断：有学习习惯分的课分天学，没有习惯分的课一次刷完
+# [video.zhidao_courses."1100000680"]
+# plan = false          # 这门课不分天，一次刷完
+#
+# [video.zhidao_courses."军事理论-综合版"]
+# plan = true
+# daily_minutes = 60    # 这门课每天 60 分钟
+
 # AI 视频完成阈值（0-100，默认 90）
 # 视频进度达到此百分比视为已完成，无需播放到结尾
 # 例如设为 90 则视频播放到 90% 即跳过

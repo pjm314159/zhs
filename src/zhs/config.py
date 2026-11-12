@@ -32,6 +32,17 @@ DEFAULT_STREAM_TIMEOUT = 120.0
 DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 
 
+class CoursePlanConfig(BaseModel):
+    """单门知到课程的分天学习设置（配置里的 [video.courses.<课程>]）
+
+    课程键可以是 courseId、课程名或 recruitAndCourseId，三者任一匹配即生效。
+    默认跟随课程自身的学习习惯分：有习惯分才分天学，没有就一次刷完。
+    """
+
+    plan: bool | None = Field(default=None, description="是否分天学；不填则跟随习惯分自动判断")
+    daily_minutes: int | None = Field(default=None, ge=30, description="该课程每天的目标分钟数")
+
+
 class VideoConfig(BaseModel):
     """视频播放速度配置"""
 
@@ -48,6 +59,10 @@ class VideoConfig(BaseModel):
     )
     zhidao_daily_minutes: int = Field(
         default=40, ge=30, description="分天学时之后每天的目标分钟数（至少 30，单日太短不被记为学过）"
+    )
+    # 按课程覆盖：键为 courseId / 课程名 / recruitAndCourseId
+    zhidao_courses: dict[str, CoursePlanConfig] = Field(
+        default_factory=dict, description="按课程覆盖分天设置；只有有习惯分的课默认才分天"
     )
 
 
