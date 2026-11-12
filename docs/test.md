@@ -969,7 +969,7 @@ class TestResumeAndTotalSplit:
 | `TestGetContextMap` | `courseMode == 2` 才走图谱；旧版课不看 `mapStr`；图谱课缺 `mapStr` / 树不可解析时报错不回退 |
 | `TestMapResources` | 资源解析；`resourcesSyncType == 0` 识别为选学 |
 | `TestSaveStudyProcess` | 视频与课件的上报 payload |
-| `TestPlayMapVideo` | 心跳直到阈值；`preLearningLoad` 失败抛错；续播已达阈值跳过；时间上限先于 preload 生效 |
+| `TestPlayMapVideo` | 心跳直到阈值；子课时视频的查询/预加载/上报用父课时 + 知识点；`preLearningLoad` 失败抛错；续播已达阈值跳过；时间上限先于 preload 生效 |
 | `TestPlayMapCourse` | `state=2` 跳过、`learnTime` 续播、`2021` 停课、选学跳过、课件先于视频、学习记录查询失败不重播 |
 | `TestQueryUserStudyInfo` / `TestPreLearningLoad` / `TestParseLearnTime` | 接口解析与 `HH:MM:SS` 转换 |
 
@@ -987,6 +987,7 @@ class TestResumeAndTotalSplit:
 | `TestResolvePlan` | 无习惯分不限时；有习惯分分天；习惯分未知不限时；总开关关闭全部不分天；按 courseId / 课程名覆盖 |
 | `TestPlayZhidaoCourseNoPlan` | 不分天时不设每日时间上限 |
 | `TestRunZhidao` | 传入课程截止时间 |
+| `TestNeedsDailyPlan` | 顶层 courseId 为 0 时回退 `courseInfo.courseId`；总开关关闭；习惯分补查与失败均按无习惯分 |
 
 ### 4.7 hike/video.py
 

@@ -506,10 +506,22 @@ API 参考：`.temp/questions_bank.md`
   - `complete_map_material`：课件先查学习记录，未完成则 `preLearningLoad` 后以 `dataType=2`、`playTimes=0` 上报一次；不计入当天学习时长
 - Test: `tests/zhidao/test_map.py::TestPlayMapCourse`（课件先于视频 / 已完成课件跳过 / 选学跳过）、`tests/zhidao/test_schedule.py`（时长未知）
 
+### Task 45 — 知识图谱课子课时视频上报单元、全刷分轮判定与残留清理 ✅
+- 现象 1：有子课时时，视频的 `queryUserStudyInfo` / `preLearningLoad` / `saveUserStudyProcess` 用叶子节点 `idHash` 作 `lessonId`，且不带 `lessonVideoId`；网页抓包为父课时 `idHash` + 知识点 `nodeUidHash`（与课件一致）。查询对不上网页端已学进度，上报可能记到错误节点
+- 现象 2：`run_all` 分轮的 `_needs_daily_plan` 与 `resolve_plan` 规则不一致——忽略 `zhidao_plan` 总开关、习惯分未知时默认分天、课程列表顶层 `courseId` 为 0 时按 courseId 写的课程级配置不生效
+- Green
+  - `zhidao/video.py`：新增 `_map_unit_ids(lesson, resource)`，视频与课件、查询与上报统一取 `(parent_hash or id_hash, node_uid_hash or id_hash)`；模块 docstring 移除「随机暂停」
+  - `cli/services/play_service.py`：`_needs_daily_plan` 先看总开关，courseId 用 `extract_course_id`，补查失败或取不到按无习惯分处理
+  - `config.py` / `play_service.py` docstring 中 `[video.courses.<课程>]` 更正为 `[video.zhidao_courses.<课程>]`
+  - `README.md` / `README_zh.md` 移除「随机暂停」；删除测试已不存在行为的 `TestRandomPause`
+  - 测试改用字段名构造 pydantic 模型并补全类型注解，`mypy src tests` 恢复无错误（此前 `test_map.py` / `test_play_service.py` 有 22 处 `call-arg` 等错误）
+- Test: `tests/zhidao/test_map.py::TestPlayMapVideo::test_sub_lesson_video_uses_parent_lesson_and_node` / `test_sub_lesson_video_study_info_uses_parent_lesson`；`tests/cli/services/test_play_service.py::TestNeedsDailyPlan`（4 用例）
+
 ### 已知缺口
 - 知识图谱课视频心跳固定 30 秒，未与网页端对照
 - 知识图谱课章节测验（`exam/start` / `exam/submit`）未实现
 - 1.5 倍速下网页端心跳未取得
 
 ### 校验
-- `pytest`（全量）：**1312 passed, 49 deselected** ✅
+- `ruff check` / `ruff format --check` / `mypy src tests`：全部通过 ✅
+- `pytest`（全量）：**1316 passed, 49 deselected** ✅

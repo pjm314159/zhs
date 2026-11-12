@@ -108,8 +108,10 @@ Database: recruitId;lessonId;lessonVideoId;videoId;chapterId;"0";本段秒;累�
 |------|------|
 | `dataId` | 资源的 `resourcesFileId`（视频与课件相同，不是资源自己的 `idHash`） |
 | `chapterId` | 章节 `idHash` |
-| `lessonId` | 课时 `idHash`；课件样本在有子课时时为父课时 `idHash`（视频样本未覆盖子课时） |
-| `lessonVideoId` | 知识点节点 `nodeUidHash` |
+| `lessonId` | 课时 `idHash`；有子课时时为父课时 `idHash`（视频与课件样本一致） |
+| `lessonVideoId` | 知识点节点 `nodeUidHash`（即叶子节点 `idHash`） |
+
+- 样本：父课时 `kzLNoE0xA7h8dKV6` 下的叶子 `DjnEJ9O0qKSEjDb9`，视频的 `queryUserStudyInfo` / `preLearningLoad` / `saveUserStudyProcess` 均为 `lessonId=kzLNoE0xA7h8dKV6`、`lessonVideoId=DjnEJ9O0qKSEjDb9`
 
 ### 5.4 进度与资源
 

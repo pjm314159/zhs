@@ -15,7 +15,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Three Course Types Supported**: Zhidao / Hike / AI Smart Courses
 - **Command-line Interface**: Clear subcommand separation with `zhs init / login / play / homework / exam / fetch / cache`, plus `zhs --version` (`-v`) to print the version
 - **QR Code Login**: Auto-saves cookies to avoid repeated logins
-- **Auto Video Watching**: Simulates human viewing behavior (random pauses, random delays, progress bar display)
+- **Auto Video Watching**: Simulates human viewing behavior (random delays, progress bar display)
 - **Popup Quiz Answering**: Automatically selects correct answers for popup questions during video playback
 - **Auto Homework**: Zhidao homework + AI course homework, supports LLM answering and answer caching
 - **AI Exams**: Auto-answer AI course exams, batch save answers, heartbeat keep-alive

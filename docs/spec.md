@@ -177,6 +177,7 @@ src/zhs/
 - 当天预算作为播放器的时间上限；`--limit` 同时给出时取较小值
 - 计划状态保存在数据目录的 `study_plan.json`（`StudyLedger`），按课程 + 日期累计已学秒数，同一天多次运行累加
 - 截止日取课程列表的 `courseEndTime`；取不到时不考虑截止日，首日即学完全部剩余时长
+- 全刷分轮与单课播放使用同一判定；课程列表顶层 `courseId` 为 0 时按 `courseInfo.courseId` 匹配课程级配置；补查 `hasHabbitScore` 失败按无习惯分处理
 - 配置：`[video]` 的 `zhidao_plan`（总开关）、`zhidao_daily_minutes`；`[video.zhidao_courses."<课程>"]` 按课程覆盖 `plan` / `daily_minutes`，键可为 courseId、课程名或 recruitAndCourseId，优先级为 courseId → 课程名 → recruitAndCourseId
 
 ```toml
@@ -665,7 +666,7 @@ zhs cache import PATH [PATH ...]
 |------|------|------|------|
 | `/gateway/t/v1/learning/queryCourseMapInfo` | GET | 课程图谱信息（`mapStr` / `mapHashStr`） | video_key（`code="200"`） |
 | `/gateway/t/v1/learning/kgCourseTreeInfoList` | GET | 章节/节点树（`sourceNum` / `finishNum`） | video_key（`code="200"`） |
-| `/gateway/t/v1/learning/queryUserRecruitIdLastKnowledgeInfo` | GET | 上次学习节点 | video_key（`code="200"`） |
+| `/gateway/t/v1/learning/queryUserRecruitIdLastKnowledgeInfo` | GET | 上次学习节点（已封装，播放流程未使用） | video_key（`code="200"`） |
 | `/gateway/t/v1/learning/queryUserStudyInfo` | GET | 单节点单资源的学习记录（`state` / `learnTime`） | video_key（`code="200"`） |
 | `/gateway/t/v1/learning/preLearningLoad` | GET | 建立学习记录（首次上报前必调） | video_key（`code="200"`） |
 | `/gateway/t/v1/learning/saveUserStudyProcess` | POST | 上报学习进度（视频/课件） | 明文 JSON（`code=200`） |
@@ -675,12 +676,13 @@ zhs cache import PATH [PATH ...]
 - 加密查询以 `secretStr` + `dateFormate` 发送；`code` 先后出现过字符串 `"200"` 与数字 `200`，两者均视为成功
 - 明文 JSON 接口不加密，`dateFormate`（毫秒）放在 body 内
 - `saveUserStudyProcess` 字段：
-  - `chapterId` 用章节 `idHash`；`lessonId` 视频上报用叶子节点 `idHash`，课件上报在有子课时时用父课时 `idHash`
+  - `chapterId` 用章节 `idHash`；`lessonId` 有子课时时用父课时 `idHash`，否则用节点自身 `idHash`（视频与课件相同）
   - `dataId` 用资源的 `resourcesFileId`（视频与课件相同）
   - `dataType`：`1` 视频，`2` 课件
   - `playTimes`：本次新增学习秒数，服务端据此累加 `learnTime`；课件传 `0`
   - `learnTime` 为 `HH:MM:SS`，`studyTotalTime` 为视频总秒数；课件两者均传空串
-  - `lessonVideoId`：知识点节点 `nodeUidHash`，课件必填
+  - `lessonVideoId`：知识点节点 `nodeUidHash`（缺省时用叶子节点 `idHash`）
+- `preLearningLoad` / `queryUserStudyInfo` 的 `lessonId` / `lessonVideoId` 取值与 `saveUserStudyProcess` 相同
 - 首次 `saveUserStudyProcess` 前必须先调 `preLearningLoad`（同一 `dataId`），否则返回 NPE 或 `2021 多端观看异常`
 - 进度按「节点 + `dataId`」独立记录，同一 `resourcesFileId` 可挂在多个节点下；`state=2` 表示已完成
 - `resourcesSyncType=0` 为选学资源，上报返回 `2025 禁止选学资源提交进度`

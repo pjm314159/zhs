@@ -880,7 +880,7 @@ class MapLesson(BaseModel):
     finish_num: int | None = None    # 已完成资源数
     small_lessons: list[MapLesson] = []
     chapter_hash: str = ""
-    parent_hash: str = ""            # 有子课时时为父课时 hash（课件上报的 lessonId 用它）
+    parent_hash: str = ""            # 有子课时时为父课时 hash（上报的 lessonId 用它）
 
 class MapResource(BaseModel):
     """节点资源（视频/课件）"""
@@ -990,6 +990,7 @@ class ZhidaoVideoPlayer:
 **知识图谱课播放**（`_play_map_course`）：
 
 - 选学资源（`is_elective`）跳过；课件（`is_courseware`）先于视频处理：`preLearningLoad` 后以 `dataType=2`、`playTimes=0` 上报一次，响应 `state=2` 即完成，不计入 `fucked_time`
+- 上报单元由 `_map_unit_ids` 统一给出：`lessonId = parent_hash or id_hash`，`lessonVideoId = node_uid_hash or id_hash`，视频与课件、查询与上报一致
 - 视频每 `MAP_HEARTBEAT_INTERVAL`（30）秒上报一次 `saveUserStudyProcess`，`playTimes` = 本次新增秒数；以响应 `learnTime` 推进，服务端未推进时本地兜底
 - 停课条件（`_map_stop_reason`）：`preLearningLoad` 失败（`StudyRecordError`）、`2021 多端观看`，以及通用的验证码与时间上限
 
@@ -1069,7 +1070,7 @@ class StudyLedger:
 
 - `resolve_plan`：`zhidao_plan` 关闭时一律不分天；否则课程级配置优先，再看 `hasHabbitScore`
 - `play_zhidao_course`：计算当天预算，作为播放器 `time_limit`（与 `--limit` 取小）；播放结束后把 `ctx.fucked_time` 增量记入 `StudyLedger`
-- `run_all`：知到课程分两轮，先刷需分天的课，再刷一次刷完的课
+- `run_all`：知到课程分两轮，先刷需分天的课，再刷一次刷完的课；分轮用 `_needs_daily_plan`，判定规则与 `resolve_plan` 一致（总开关、课程级配置、习惯分；courseId 经 `extract_course_id` 回退 `courseInfo`）
 - 预算单位是真实经过的秒数，与 `ctx.fucked_time` 一致
 
 #### 2.7.5 quiz.py
