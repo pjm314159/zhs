@@ -160,10 +160,10 @@ class ZhidaoVideoPlayer:
         logger.info(f"play_course: {course_name}, chapters={len(ctx.chapters)}")
         self._print_with_progress(f"{course_tag('zhidao')} 新课程: {course_name}")
 
-        for chapter in ctx.chapters:
-            self._print_with_progress(f"章节: {chapter.name}", depth=1)
-            for lesson in chapter.video_lessons:
-                self._print_with_progress(f"课时: {lesson.name}", depth=2)
+        for ch_idx, chapter in enumerate(ctx.chapters, 1):
+            self._print_with_progress(f"章节 {ch_idx}: {chapter.name}", depth=1)
+            for ls_idx, lesson in enumerate(chapter.video_lessons, 1):
+                self._print_with_progress(f"课时 {ch_idx}.{ls_idx}: {lesson.name}", depth=2)
                 for video in lesson.video_small_lessons:
                     try:
                         self.play_video(rac_id, video.video_id, ctx)

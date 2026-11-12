@@ -118,6 +118,27 @@ def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
     play_zhidao_course(session, config, rac_id, ctx, end_ms)
 
 
+def _print_course_summary(ctx: "ZhidaoContext", rac_id: str) -> None:
+    """打印课程统计信息"""
+    from zhs.utils.display import msg_info
+
+    total_sec = sum(v.video_sec for v in ctx.videos.values())
+    watched_sec = sum(min(v.study_total_time, v.video_sec) for v in ctx.videos.values())
+    remaining_sec = total_sec - watched_sec
+    done_count = sum(1 for v in ctx.videos.values() if v.watch_state == 1)
+
+    def fmt_time(sec: int) -> str:
+        h, m = divmod(sec // 60, 60)
+        return f"{h}h{m}min" if h > 0 else f"{m}min"
+
+    summary = (
+        f"课程: {ctx.course.course_name} ({len(ctx.chapters)} 章 {len(ctx.videos)} 视频) | "
+        f"总时长 {fmt_time(total_sec)}，已学 {fmt_time(watched_sec)}，剩余 {fmt_time(remaining_sec)} | "
+        f"已完成 {done_count}/{len(ctx.videos)} 个"
+    )
+    print(msg_info(summary))
+
+
 def _needs_daily_plan(mgr: "ZhidaoCourseManager", course: "ZhidaoCourse") -> bool:
     """判断课程是否需要分天学习（有习惯分）
 
@@ -165,6 +186,9 @@ def play_zhidao_course(
     ledger: StudyLedger | None = None
     today = date.today()
 
+    # 打印课程统计
+    _print_course_summary(ctx, rac_id)
+
     if config.video.zhidao_plan:
         ledger = StudyLedger(get_data_dir() / "study_plan.json")
         plan = plan_today(
@@ -175,11 +199,12 @@ def play_zhidao_course(
             studied_today=ledger.studied(rac_id, today),
             daily_minutes=config.video.zhidao_daily_minutes,
         )
+        remaining_min = _remaining_seconds(ctx, config.threshold) // 60
         logger.info(f"学习计划 {rac_id}: {plan}")
         if plan.budget_seconds <= 0:
-            print(msg_skip(plan.describe()))
+            print(msg_skip(plan.describe(remaining_min)))
             return
-        print(msg_info(plan.describe()))
+        print(msg_info(plan.describe(remaining_min)))
         time_limit = min(time_limit, plan.budget_seconds) if time_limit > 0 else plan.budget_seconds
 
     player = ZhidaoVideoPlayer(

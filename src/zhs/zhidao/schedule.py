@@ -33,14 +33,22 @@ class DailyPlan:
     remaining_days: int  # 含今天在内到截止日还剩几天
     daily_seconds: int  # 之后每天的配额
 
-    def describe(self) -> str:
+    def describe(self, remaining_minutes: int = 0) -> str:
+        """返回计划描述
+
+        Args:
+            remaining_minutes: 课程剩余分钟数（用于建议每天学习时长）
+        """
         if self.budget_seconds <= 0:
             return f"今天的学习时长已完成（之后每天 {self.daily_seconds // 60} 分钟）"
         head = "首日，刷大部分" if self.is_first_day else "按计划"
-        return (
-            f"{head}：今天学 {self.budget_seconds // 60} 分钟，"
-            f"之后每天 {self.daily_seconds // 60} 分钟，剩 {self.remaining_days} 天"
-        )
+        daily = self.daily_seconds // 60
+        msg = f"{head}：今天学 {self.budget_seconds // 60} 分钟，之后每天 {daily} 分钟，剩 {self.remaining_days} 天"
+        if remaining_minutes > 0 and self.remaining_days > 0:
+            suggest = (remaining_minutes + self.remaining_days - 1) // self.remaining_days
+            if suggest != daily:
+                msg += f"（建议每天 {suggest} 分钟可按时完成）"
+        return msg
 
 
 def plan_today(
