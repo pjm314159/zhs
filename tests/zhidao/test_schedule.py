@@ -88,6 +88,31 @@ class TestPlanToday:
         )
         assert plan.budget_seconds == 40 * 60
 
+    def test_unknown_duration_is_not_treated_as_finished(self) -> None:
+        """图谱课时长未查出时，剩余 0 不能当成已经学完"""
+        plan = plan_today(
+            remaining_seconds=0,
+            today=TODAY,
+            first_day=TODAY,
+            end_day=END,
+            studied_today=0,
+            progress_unknown=True,
+        )
+        assert plan.budget_seconds == 40 * 60
+        assert plan.duration_unknown
+        assert "今天先学 40 分钟" in plan.describe()
+
+    def test_unknown_duration_respects_studied_today(self) -> None:
+        plan = plan_today(
+            remaining_seconds=0,
+            today=TODAY,
+            first_day=TODAY,
+            end_day=END,
+            studied_today=40 * 60,
+            progress_unknown=True,
+        )
+        assert plan.budget_seconds == 0
+
 
 class TestStudyLedger:
     def test_first_day_persists(self, tmp_path: Path) -> None:

@@ -167,6 +167,9 @@ class MapLesson(BaseModel):
     name: str = ""
     source_num: int | None = Field(default=None, alias="sourceNum")
     finish_num: int | None = Field(default=None, alias="finishNum")
+    # freeExam=2 且 haveDone=1 表示该节点可以免考；章节树上这两个字段常为 null
+    free_exam: int | None = Field(default=None, alias="freeExam")
+    have_done: int | None = Field(default=None, alias="haveDone")
     small_lessons: list["MapLesson"] = Field(default_factory=list, alias="smallLessons")
     chapter_hash: str = ""
     chapter_name: str = ""
@@ -214,6 +217,9 @@ class MapResource(BaseModel):
     suffix: str = Field(default="", alias="resourcesSuffix")
     resources_time: str = Field(default="", alias="resourcesTime")
     url: str = Field(default="", alias="resourcesUrl")
+    # 0=选学资源。上报进度会被服务端以 2025「禁止选学资源提交进度」拒绝
+    sync_type: int | None = Field(default=None, alias="resourcesSyncType")
+    data_type: int | None = Field(default=None, alias="resourcesDataType")
 
     model_config = {"populate_by_name": True}
 
@@ -228,3 +234,8 @@ class MapResource(BaseModel):
     @property
     def is_video(self) -> bool:
         return self.duration > 0
+
+    @property
+    def is_elective(self) -> bool:
+        """是否为选学资源（不计入课程进度，上报会被拒绝）"""
+        return self.sync_type == 0

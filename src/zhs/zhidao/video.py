@@ -228,15 +228,21 @@ class ZhidaoVideoPlayer:
         logger.info(f"play_map_course: {course_name}, chapters={len(ctx.map_chapters)}")
         self._print_with_progress(f"{course_tag('zhidao')} 新课程(知识图谱): {course_name}")
 
-        for chapter in ctx.map_chapters:
-            self._print_with_progress(f"章节: {chapter.name}", depth=1)
-            for lesson in chapter.leaf_nodes():
+        for ch_idx, chapter in enumerate(ctx.map_chapters, 1):
+            done = sum(leaf.finish_num or 0 for leaf in chapter.leaf_nodes())
+            total = sum(leaf.source_num or 0 for leaf in chapter.leaf_nodes())
+            self._print_with_progress(f"章节 {ch_idx}: {chapter.name} ({done}/{total})", depth=1)
+            for ls_idx, lesson in enumerate(chapter.leaf_nodes(), 1):
                 if self._stop_on_time_limit(ctx, course_name):
                     return
-                self._print_with_progress(f"节点: {lesson.name}", depth=2)
+                done_node = lesson.finish_num or 0
+                total_node = lesson.source_num or 0
+                self._print_with_progress(f"课时 {ch_idx}.{ls_idx}: {lesson.name} ({done_node}/{total_node})", depth=2)
 
                 try:
-                    videos = [r for r in mgr.query_node_resources(lesson) if r.is_video]
+                    resources = mgr.query_node_resources(lesson)
+                    videos = [r for r in resources if r.is_video and not r.is_elective]
+                    elective = [r for r in resources if r.is_video and r.is_elective]
                 except KeyboardInterrupt:
                     raise
                 except Exception as exc:
@@ -245,6 +251,8 @@ class ZhidaoVideoPlayer:
                     failed += 1
                     continue
                 has_videos = has_videos or bool(videos)
+                for resource in elective:
+                    self._print_with_progress(msg_skip(f"跳过(选学，不计入进度): {resource.name}"), depth=3)
 
                 for resource in videos:
                     if self._stop_on_time_limit(ctx, course_name):

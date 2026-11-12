@@ -118,24 +118,65 @@ def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
     play_zhidao_course(session, config, rac_id, ctx, end_ms)
 
 
+def _fmt_time(sec: int) -> str:
+    """秒数格式化为 h/min，不足一小时只显示分钟"""
+    h, m = divmod(max(sec, 0) // 60, 60)
+    return f"{h}h{m}min" if h > 0 else f"{m}min"
+
+
+def course_progress(ctx: "ZhidaoContext") -> dict[str, int]:
+    """课程进度统计，供展示和学习计划共用
+
+    旧版课用视频列表里的时长和已学位置。
+    图谱课的视频目录是空的，进度在章节树的 sourceNum/finishNum 上，
+    不能拿空目录算出「已完成」再跳过整门课。
+    """
+    if ctx.mode == "map":
+        leaves = [leaf for chapter in ctx.map_chapters for leaf in chapter.leaf_nodes()]
+        total = sum(leaf.source_num or 0 for leaf in leaves)
+        done = sum(min(leaf.finish_num or 0, leaf.source_num or 0) for leaf in leaves)
+        return {
+            "chapters": len(ctx.map_chapters),
+            "units": len(leaves),
+            "total": total,
+            "done": done,
+            "remaining_seconds": 0,
+            "known_duration": 0,
+        }
+
+    total_sec = sum(v.video_sec for v in ctx.videos.values())
+    watched_sec = sum(min(v.study_total_time, v.video_sec) for v in ctx.videos.values())
+    done_count = sum(1 for v in ctx.videos.values() if v.watch_state == 1)
+    return {
+        "chapters": len(ctx.chapters),
+        "units": len(ctx.videos),
+        "total": len(ctx.videos),
+        "done": done_count,
+        "remaining_seconds": max(total_sec - watched_sec, 0),
+        "known_duration": 1,
+        "total_seconds": total_sec,
+        "watched_seconds": watched_sec,
+    }
+
+
 def _print_course_summary(ctx: "ZhidaoContext", rac_id: str) -> None:
     """打印课程统计信息"""
     from zhs.utils.display import msg_info
 
-    total_sec = sum(v.video_sec for v in ctx.videos.values())
-    watched_sec = sum(min(v.study_total_time, v.video_sec) for v in ctx.videos.values())
-    remaining_sec = total_sec - watched_sec
-    done_count = sum(1 for v in ctx.videos.values() if v.watch_state == 1)
-
-    def fmt_time(sec: int) -> str:
-        h, m = divmod(sec // 60, 60)
-        return f"{h}h{m}min" if h > 0 else f"{m}min"
-
-    summary = (
-        f"课程: {ctx.course.course_name} ({len(ctx.chapters)} 章 {len(ctx.videos)} 视频) | "
-        f"总时长 {fmt_time(total_sec)}，已学 {fmt_time(watched_sec)}，剩余 {fmt_time(remaining_sec)} | "
-        f"已完成 {done_count}/{len(ctx.videos)} 个"
-    )
+    progress = course_progress(ctx)
+    if ctx.mode == "map":
+        summary = (
+            f"课程: {ctx.course.course_name} (知识图谱，{progress['chapters']} 章 {progress['units']} 节点) | "
+            f"资源已完成 {progress['done']}/{progress['total']} 个 | "
+            "视频时长要逐节点查询，开始播放后按节点显示"
+        )
+    else:
+        summary = (
+            f"课程: {ctx.course.course_name} ({progress['chapters']} 章 {progress['units']} 视频) | "
+            f"总时长 {_fmt_time(progress['total_seconds'])}，已学 {_fmt_time(progress['watched_seconds'])}，"
+            f"剩余 {_fmt_time(progress['remaining_seconds'])} | "
+            f"已完成 {progress['done']}/{progress['total']} 个"
+        )
     print(msg_info(summary))
 
 
@@ -191,15 +232,17 @@ def play_zhidao_course(
 
     if config.video.zhidao_plan:
         ledger = StudyLedger(get_data_dir() / "study_plan.json")
+        remaining = _remaining_seconds(ctx, config.threshold)
         plan = plan_today(
-            remaining_seconds=_remaining_seconds(ctx, config.threshold),
+            remaining_seconds=remaining,
             today=today,
             first_day=ledger.first_day(rac_id, today),
             end_day=end_date_from_ms(end_ms),
             studied_today=ledger.studied(rac_id, today),
             daily_minutes=config.video.zhidao_daily_minutes,
+            progress_unknown=ctx.mode == "map",
         )
-        remaining_min = _remaining_seconds(ctx, config.threshold) // 60
+        remaining_min = 0 if ctx.mode == "map" else remaining // 60
         logger.info(f"学习计划 {rac_id}: {plan}")
         if plan.budget_seconds <= 0:
             print(msg_skip(plan.describe(remaining_min)))
@@ -225,8 +268,8 @@ def _remaining_seconds(ctx: "ZhidaoContext", threshold: float) -> int:
     """课程还需观看的秒数（真实时间，按 1.0 倍估算）
 
     旧版课：未完成视频的 (时长 × 阈值 − 已看位置)；位置用 studyTotalTime 夹在时长内估算。
-    新版图谱课：视频进度要逐节点查询，这里按全部节点时长未知处理，返回 0 表示不限
-    （由 plan_today 的最低配额兜底）。
+    新版图谱课：视频时长要逐节点查询，这里返回 0，由调用方用 progress_unknown 区分
+    「真的学完了」和「时长还没查到」。
     """
     if ctx.mode == "map":
         return 0

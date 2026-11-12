@@ -293,6 +293,34 @@ class TestMapResources:
         assert [r.is_video for r in resources] == [True, False]
         assert resources[0].file_id == "78780595"
         assert resources[0].duration == 297
+        assert resources[0].is_elective is False
+
+    def test_sync_type_zero_is_elective(self, mock_session: ZhsSession) -> None:
+        """resourcesSyncType=0 是选学资源，上报会被 2025 拒绝"""
+        respx.post(f"{SHARE_MAP}/gateway/t/node/queryNodeDescription").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": 200,
+                    "data": {
+                        "nodeRespResourceVos": [
+                            {
+                                "resourcesFileId": "70587241",
+                                "resourcesName": "我国国家安全形势总体概况（上）",
+                                "resourcesTime": "450",
+                                "resourcesSyncType": 0,
+                            }
+                        ]
+                    },
+                },
+            )
+        )
+        lesson = MapLesson(idHash="x", idStr="y")
+
+        resources = ZhidaoCourseManager(mock_session).query_node_resources(lesson)
+
+        assert resources[0].is_video
+        assert resources[0].is_elective
 
 
 class TestSaveStudyProcess:
@@ -510,6 +538,37 @@ class TestPlayMapCourse:
         assert mock_play.call_count == 1
         texts = " ".join(str(call.args[0]) for call in mock_tree.call_args_list)
         assert "多窗口" in texts
+
+    def test_skips_elective_video(self) -> None:
+        """选学视频不计入进度，不能拿去上报（否则 2025）"""
+        player = ZhidaoVideoPlayer(MagicMock())
+        ctx = _make_map_context()
+        manager = MagicMock()
+        manager.query_node_resources.return_value = [
+            MapResource(
+                resourcesFileId="70587241",
+                resourcesName="选学视频",
+                resourcesTime="450",
+                resourcesSyncType=0,
+            ),
+            MapResource(resourcesFileId="1", resourcesName="必修视频", resourcesTime="60", resourcesSyncType=1),
+        ]
+        manager.query_user_study_info.return_value = {"state": 1, "learnTime": "00:00:00"}
+
+        with (
+            patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=manager),
+            patch.object(player, "play_map_video", return_value=True) as mock_play,
+            patch("zhs.zhidao.video.tree_print"),
+            patch("zhs.zhidao.video.print") as mock_print,
+        ):
+            player._play_map_course(ctx)
+
+        assert mock_play.call_count == 1
+        assert mock_play.call_args.args[3].file_id == "1"
+        texts = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+        assert "选学" in texts
+        assert "章节 1:" in texts
+        assert "课时 1.1:" in texts
 
     def test_study_info_error_does_not_replay(self) -> None:
         """学习记录查询失败时记失败，不从 0 重播"""

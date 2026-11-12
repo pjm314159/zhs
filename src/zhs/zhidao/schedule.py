@@ -32,6 +32,7 @@ class DailyPlan:
     is_first_day: bool
     remaining_days: int  # 含今天在内到截止日还剩几天
     daily_seconds: int  # 之后每天的配额
+    duration_unknown: bool = False  # 图谱课还没逐节点查出视频时长
 
     def describe(self, remaining_minutes: int = 0) -> str:
         """返回计划描述
@@ -39,10 +40,15 @@ class DailyPlan:
         Args:
             remaining_minutes: 课程剩余分钟数（用于建议每天学习时长）
         """
-        if self.budget_seconds <= 0:
-            return f"今天的学习时长已完成（之后每天 {self.daily_seconds // 60} 分钟）"
-        head = "首日，刷大部分" if self.is_first_day else "按计划"
         daily = self.daily_seconds // 60
+        if self.budget_seconds <= 0:
+            return f"今天的学习时长已完成（之后每天 {daily} 分钟）"
+        if self.duration_unknown:
+            return (
+                f"图谱课进度按节点统计，今天先学 {self.budget_seconds // 60} 分钟"
+                f"（之后每天 {daily} 分钟，剩 {self.remaining_days} 天）"
+            )
+        head = "首日，刷大部分" if self.is_first_day else "按计划"
         msg = f"{head}：今天学 {self.budget_seconds // 60} 分钟，之后每天 {daily} 分钟，剩 {self.remaining_days} 天"
         if remaining_minutes > 0 and self.remaining_days > 0:
             suggest = (remaining_minutes + self.remaining_days - 1) // self.remaining_days
@@ -59,6 +65,7 @@ def plan_today(
     end_day: date | None,
     studied_today: int,
     daily_minutes: int = DEFAULT_DAILY_MINUTES,
+    progress_unknown: bool = False,
 ) -> DailyPlan:
     """计算今天的学习预算
 
@@ -69,10 +76,22 @@ def plan_today(
         end_day: 课程学习截止日；None 时不考虑截止
         studied_today: 今天已经学过的秒数（之前几次运行累计）
         daily_minutes: 之后每天的目标分钟数，不低于 MIN_DAILY_MINUTES
+        progress_unknown: 剩余时长尚未查到（图谱课逐节点才知道视频时长）。
+            不能把 0 当成「已经学完」，否则今天的配额会被直接跳过。
     """
     daily = max(daily_minutes, MIN_DAILY_MINUTES) * 60
     days_left = (end_day - today).days + 1 if end_day else None  # 含今天
     is_first = today <= first_day
+
+    if progress_unknown:
+        # 时长未知：先按一天配额学，边播边由播放器的时间上限停下来
+        return DailyPlan(
+            max(daily - studied_today, 0),
+            is_first,
+            max(days_left or 0, 0),
+            daily,
+            duration_unknown=True,
+        )
 
     if remaining_seconds <= 0:
         return DailyPlan(0, is_first, max(days_left or 0, 0), daily)
