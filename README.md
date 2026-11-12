@@ -202,7 +202,7 @@ limit = 0                # Time limit in minutes (0 = no limit)
 threshold = 0.91         # Video end threshold (0.0-1.0)
 
 [video]
-zhidao_speed = 1.5       # Zhidao video speed (max 2.0)
+zhidao_speed = 1.0       # Zhidao video speed (default 1.0, max 2.0)
 hike_speed = 1.25        # Hike video speed
 ai_speed = 1.5           # AI course video speed
 

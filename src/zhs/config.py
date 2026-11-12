@@ -19,7 +19,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zhs.utils.path import get_config_path
 
@@ -35,11 +35,20 @@ DEFAULT_STREAM_IDLE_TIMEOUT = 30.0
 class VideoConfig(BaseModel):
     """视频播放速度配置"""
 
-    zhidao_speed: float = Field(default=1.5, description="知到视频播放速度（默认 1.5，最高 2.0）")
+    zhidao_speed: float = Field(
+        default=1.0, description="知到视频播放速度（默认 1.0，与网页一致；上报的学习时长 = 真实时长 × 倍速，最高 2.0）"
+    )
     hike_speed: float = Field(default=1.25, description="Hike 视频播放速度（默认 1.25，最高 2.0）")
     ai_speed: float = Field(default=1.5, description="AI 课程视频播放速度（默认 1.5，最高 2.0）")
     ai_learn_optional: bool = Field(default=False, description="AI 课程是否学习选学资源（resourcesSyncType != 1）")
     ai_threshold: int = Field(default=90, description="AI 视频完成阈值（0-100，进度达到此百分比视为完成）")
+    zhidao_plan: bool = Field(
+        default=True,
+        description="知到共享课按计划分天学：首日刷大部分，剩余平均分到之后每天（学习习惯分要求每天都学）",
+    )
+    zhidao_daily_minutes: int = Field(
+        default=40, ge=30, description="分天学时之后每天的目标分钟数（至少 30，单日太短不被记为学过）"
+    )
 
 
 class HomeworkConfig(BaseModel):
@@ -52,6 +61,9 @@ class HomeworkConfig(BaseModel):
     page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
     ai_homework_threshold: int = Field(default=90, description="AI 课程作业跳过阈值（masteryScore > 此值则跳过）")
     skip_ai_free_exam: bool = Field(default=True, description="AI 课程作业是否跳过免考知识点（freeExam=1）")
+
+    # 字段名（delay_min）与旧版 alias（homework_delay_min）都可用于构造
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DisplayConfig(BaseModel):
@@ -115,6 +127,9 @@ class UrlConfig(BaseModel):
     taurusexam: str = "https://taurusexam-api.zhihuishu.com"
     ai_analysis: str = "https://ai-course-assistant-api.zhihuishu.com"
     newbase: str = "https://newbase.zhihuishu.com"
+    # 新版共享课（知识图谱）接口域名
+    aistudy: str = "https://aistudy.zhihuishu.com"
+    share_map: str = "https://share-course-map-service.zhihuishu.com"
 
 
 class AIConfig(BaseModel):
@@ -193,27 +208,32 @@ class AppConfig(BaseModel):
 # 配置管理器
 # ============================================================
 
-# TOML 字段映射（用于兼容旧版扁平结构）
-_FLAT_KEYS = (
-    "save_cookies",
-    "limit",
-    "threshold",
-    "zhidao_speed",
-    "hike_speed",
-    "ai_speed",
-    "homework_threshold",
-    "max_submit",
-    "homework_delay_min",
-    "homework_delay_max",
-    "homework_page_size",
-    "log_level",
-    "image_path",
-)
+# 顶层直接字段
+_TOP_KEYS = ("save_cookies", "limit", "threshold")
 
-_MIGRATE_KEYS = (
-    "save_cookies",
-    "image_path",
-)
+# 旧版扁平键 → (嵌套段, 字段名)；pydantic 不会自动把顶层键放进嵌套模型，需显式路由
+_FLAT_KEY_ROUTES: dict[str, tuple[str, str]] = {
+    "zhidao_speed": ("video", "zhidao_speed"),
+    "hike_speed": ("video", "hike_speed"),
+    "ai_speed": ("video", "ai_speed"),
+    "homework_threshold": ("homework", "threshold"),
+    "max_submit": ("homework", "max_submit"),
+    "homework_delay_min": ("homework", "delay_min"),
+    "homework_delay_max": ("homework", "delay_max"),
+    "homework_page_size": ("homework", "page_size"),
+    "log_level": ("display", "log_level"),
+    "image_path": ("qr", "image_path"),
+}
+
+# [homework] 段内的旧版字段名 → 新字段名
+_HOMEWORK_LEGACY_KEYS = {
+    "homework_delay_min": "delay_min",
+    "homework_delay_max": "delay_max",
+    "homework_page_size": "page_size",
+    "homework_threshold": "threshold",
+}
+
+_MIGRATE_KEYS = ("save_cookies",)
 
 
 class ConfigManager:
@@ -250,6 +270,10 @@ class ConfigManager:
         for key in _MIGRATE_KEYS:
             if key in legacy:
                 kwargs[key] = legacy[key]
+
+        # image_path → qr.image_path
+        if "image_path" in legacy:
+            kwargs["qr"] = QRConfig(image_path=legacy["image_path"])
 
         # logLevel → display.log_level
         if "logLevel" in legacy:
@@ -288,60 +312,46 @@ class ConfigManager:
         """将 TOML 嵌套结构展平为 AppConfig 构造参数"""
         result: dict[str, Any] = {}
 
-        # 顶层字段直接映射（兼容旧版扁平结构）
-        for key in _FLAT_KEYS:
+        # 顶层字段直接映射
+        for key in _TOP_KEYS:
             if key in data:
                 result[key] = data[key]
 
-        # [video] section
-        if "video" in data:
-            result["video"] = VideoConfig(**data["video"])
+        # 旧版扁平键路由到嵌套段（段内显式写的值优先）
+        sections: dict[str, dict[str, Any]] = {}
+        for key, (section, field) in _FLAT_KEY_ROUTES.items():
+            if key in data:
+                sections.setdefault(section, {})[field] = data[key]
+        for section in ("video", "homework", "display", "qr"):
+            if isinstance(data.get(section), dict):
+                sections.setdefault(section, {}).update(data[section])
 
-        # [homework] section
-        if "homework" in data:
-            hw = data["homework"]
-            # 兼容旧版扁平字段名
-            hw_kwargs: dict[str, Any] = {}
-            if "threshold" in hw:
-                hw_kwargs["threshold"] = hw["threshold"]
-            if "max_submit" in hw:
-                hw_kwargs["max_submit"] = hw["max_submit"]
-            if "delay_min" in hw:
-                hw_kwargs["delay_min"] = hw["delay_min"]
-            if "delay_max" in hw:
-                hw_kwargs["delay_max"] = hw["delay_max"]
-            if "page_size" in hw:
-                hw_kwargs["page_size"] = hw["page_size"]
-            if "ai_homework_threshold" in hw:
-                hw_kwargs["ai_homework_threshold"] = hw["ai_homework_threshold"]
-            if "skip_ai_free_exam" in hw:
-                hw_kwargs["skip_ai_free_exam"] = hw["skip_ai_free_exam"]
-            # 兼容旧版字段名（homework_delay_min 等）
-            if "homework_delay_min" in hw:
-                hw_kwargs["delay_min"] = hw["homework_delay_min"]
-            if "homework_delay_max" in hw:
-                hw_kwargs["delay_max"] = hw["homework_delay_max"]
-            if "homework_page_size" in hw:
-                hw_kwargs["page_size"] = hw["homework_page_size"]
-            if "homework_threshold" in hw:
-                hw_kwargs["threshold"] = hw["homework_threshold"]
-            result["homework"] = HomeworkConfig(**hw_kwargs)
+        # [video] section
+        if "video" in sections:
+            result["video"] = VideoConfig(**sections["video"])
+
+        # [homework] section：段内旧版字段名翻译为字段名，新字段名优先
+        if "homework" in sections:
+            hw = dict(sections["homework"])
+            for old, new in _HOMEWORK_LEGACY_KEYS.items():
+                if old in hw:
+                    value = hw.pop(old)
+                    hw.setdefault(new, value)
+            result["homework"] = HomeworkConfig(**hw)
 
         # [display] section
-        if "display" in data:
-            result["display"] = DisplayConfig(**data["display"])
+        if "display" in sections:
+            result["display"] = DisplayConfig(**sections["display"])
 
         # [proxies] section
         if "proxies" in data:
             result["proxies"] = ProxyConfig(**data["proxies"])
 
         # [qr] section（兼容 qr_extra）
-        if "qr" in data:
-            result["qr"] = QRConfig(**data["qr"])
-        elif "qr_extra" in data:
-            qr_extra = data["qr_extra"]
-            if "image_path" in qr_extra:
-                result["qr"] = QRConfig(image_path=qr_extra["image_path"])
+        if "qr" not in data and "image_path" in data.get("qr_extra", {}):
+            sections.setdefault("qr", {})["image_path"] = data["qr_extra"]["image_path"]
+        if "qr" in sections:
+            result["qr"] = QRConfig(**sections["qr"])
 
         # [crypto] section
         if "crypto" in data:

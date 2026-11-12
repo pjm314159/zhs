@@ -488,7 +488,10 @@ class TestReportProgressV2Return:
         assert result == 100.0
 
     def test_minus_8_sync_success(self, mock_session: ZhsSession) -> None:
-        """-8 错误同步成功时返回 (server_time, True)"""
+        """-8 时累计秒改为 服务端记录 + 本段秒，返回新的累计秒
+
+        「学习总时长下降了」只说明累计秒偏低；本段秒（100-70=30）与播放位置照旧上报。
+        """
         ctx = _make_context()
         player = ZhidaoVideoPlayer(mock_session)
         db_call_count = 0
@@ -518,7 +521,7 @@ class TestReportProgressV2Return:
                 initial=False,
             )
         assert success is True
-        assert result == 120.0
+        assert result == 150.0  # 服务端 120 + 本段 30
 
     def test_minus_10_retry_success(self, mock_session: ZhsSession) -> None:
         """-10 错误重试成功时返回 (played_time, True)"""
@@ -575,7 +578,9 @@ class TestReportFailureNoLastSubmitUpdate:
             # played_time 从 70 开始，end_time=91%*1800=1638
             # 但我们设置 end_threshold=1.0 让循环快速结束
             player.end_threshold = 0.05  # end_time=90
-            player.play_video("ABC123", 100, ctx)
+            # 全部上报失败 → 视频不计进度，play_video 如实抛错
+            with pytest.raises(ApiError):
+                player.play_video("ABC123", 100, ctx)
 
 
 class TestStartPrecheck:
@@ -592,7 +597,7 @@ class TestStartPrecheck:
         player = ZhidaoVideoPlayer(mock_session)
         manager = MagicMock()
         with (
-            patch.object(player, "_main_loop") as mock_loop,
+            patch.object(player, "_main_loop", return_value=1) as mock_loop,
             patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
             patch.object(player, "_load_questions", return_value=[]),
             patch.object(player, "_report_progress_v2", return_value=(0.0, True)) as mock_report,
@@ -670,3 +675,214 @@ class TestStartPrecheck:
         ):
             player.play_course("ABC123", ctx)
             mock_play.assert_called_once()
+
+
+class TestHonestCompletion:
+    """进度从未上报成功或课程没有可播视频时，不打印“完成课程”"""
+
+    def test_all_reports_failed_raises(self, mock_session: ZhsSession) -> None:
+        """主循环一次都没上报成功 → play_video 抛错，而不是静默返回"""
+        ctx = _make_context(video_sec=100)
+        player = ZhidaoVideoPlayer(mock_session, end_threshold=0.05)
+        with (
+            patch.object(player, "_report_progress_v2", return_value=(0.0, False)),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print"),
+            pytest.raises(ApiError),
+        ):
+            player.play_video("ABC123", 100, ctx)
+
+    def test_course_with_failed_video_not_reported_done(self, mock_session: ZhsSession) -> None:
+        """有视频失败时提示失败数，不打印“完成课程”"""
+        ctx = _make_context()
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(player, "play_video", side_effect=ApiError(-1, "参数解码发生错误")),
+            patch("zhs.zhidao.video.tree_print") as mock_tree,
+            patch("zhs.zhidao.video.print"),
+        ):
+            player.play_course("ABC123", ctx)
+        texts = " ".join(str(c.args[0]) for c in mock_tree.call_args_list)
+        assert "完成课程" not in texts
+        assert "1 个视频失败" in texts
+
+    def test_course_without_videos_warns(self, mock_session: ZhsSession) -> None:
+        """没有可播放视频时提示，而不是报完成"""
+        ctx = _make_context()
+        ctx.chapters[0].video_lessons[0].video_small_lessons = []
+        ctx.videos = {}
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch("zhs.zhidao.video.tree_print") as mock_tree,
+            patch("zhs.zhidao.video.print"),
+        ):
+            player.play_course("ABC123", ctx)
+        texts = " ".join(str(c.args[0]) for c in mock_tree.call_args_list)
+        assert "完成课程" not in texts
+        assert "未找到可播放的视频" in texts
+
+
+class TestHms:
+    """ev 里的播放位置用 HH:MM:SS，小时补零（抓包：网页端发 00:03:00，timedelta 会给 0:03:00）"""
+
+    @pytest.mark.parametrize(
+        ("sec", "expected"), [(0, "00:00:00"), (180, "00:03:00"), (468, "00:07:48"), (3723, "01:02:03")]
+    )
+    def test_format(self, sec: int, expected: str) -> None:
+        from zhs.zhidao.video import _hms
+
+        assert _hms(sec) == expected
+
+
+class TestClassicHeartbeatCadence:
+    """旧版 videolist 课心跳节奏与网页端一致（抓包：docs/capture-findings.md）
+
+    网页端 1x 实测：saveCacheIntervalTimeV2 约每 180 秒、saveDatabaseIntervalTimeV2 约每 300 秒，
+    触发时机各自计时，本段秒共用一条增量链；默认倍速 1.0，上报的学习秒数等于真实经过的秒数。
+    """
+
+    @staticmethod
+    def _run(mock_session: ZhsSession, seconds: int, speed: float | None = None) -> list[tuple[str, list[str]]]:
+        """跑主循环 seconds 秒，返回 [(接口名, 解码后的 ev 字段)]"""
+        from zhs.crypto import _key_generator
+
+        ctx = _make_context()
+        ctx.videos[100].video_sec = 100000  # 足够长，不会提前播完
+        player = ZhidaoVideoPlayer(mock_session, speed=speed, end_threshold=1.0)
+        calls: list[tuple[str, list[str]]] = []
+
+        def decode(ev: str) -> list[str]:
+            keys = _key_generator(mock_session.crypto.ev_key)
+            return "".join(chr(int(ev[i : i + 2], 16) ^ next(keys)) for i in range(0, len(ev), 2)).split(";")
+
+        def fake_query(url: str, data: dict, *args: object, **kwargs: object) -> dict:
+            calls.append((url.rsplit("/", 1)[1], decode(data["sdsew"])))
+            return {"code": 0}
+
+        with (
+            patch.object(player._session, "zhidao_query", side_effect=fake_query),
+            patch("zhs.zhidao.video.randint", return_value=0),  # 去掉抖动，间隔固定
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print"),
+        ):
+            # end_time = 起点 + seconds * 倍速，循环恰好跑 seconds 秒
+            effective = speed or 1.0
+            player._main_loop("ABC123", 100, ctx, 0.0, seconds * effective, seconds * effective, "dG9rZW4=", [])
+        return calls
+
+    @staticmethod
+    def _delta(name: str, ev: list[str]) -> int:
+        """本段秒：Cache ev 第 9 字段，Database ev 第 7 字段"""
+        return int(ev[8]) if "Cache" in name else int(ev[6])
+
+    def test_web_capture_sequence(self, mock_session: ZhsSession) -> None:
+        """复现网页抓包的触发时刻与本段秒：Cache@180 +180、DB@300 +120、Cache@360 +60
+
+        两种上报共用一条增量链，服务端把两者的本段秒都累加进 studyTotalTime。
+        """
+        calls = self._run(mock_session, 361)
+        got = [(name, self._delta(name, ev)) for name, ev in calls]
+        assert got[:3] == [
+            ("saveCacheIntervalTimeV2", 180),
+            ("saveDatabaseIntervalTimeV2", 120),
+            ("saveCacheIntervalTimeV2", 60),
+        ]
+
+    def test_deltas_sum_to_watched_seconds(self, mock_session: ZhsSession) -> None:
+        """所有上报的本段秒之和 = 实际播放秒数，不重复计、不漏计"""
+        calls = self._run(mock_session, 601)
+        assert sum(self._delta(name, ev) for name, ev in calls) == 601
+
+    def test_last_report_is_database(self, mock_session: ZhsSession) -> None:
+        """播完时报的是 Database（计入进度），同一秒到期的 Cache 让位"""
+        calls = self._run(mock_session, 601)
+        assert calls[-1][0] == "saveDatabaseIntervalTimeV2"
+
+    def test_position_follows_real_seconds(self, mock_session: ZhsSession) -> None:
+        """默认 1.0 倍：播放位置随真实秒数前进；HH:MM:SS 小时补零，与网页一致"""
+        calls = self._run(mock_session, 361)
+        positions = [ev[4] if "Cache" in name else ev[8] for name, ev in calls]
+        assert positions[:3] == ["00:03:00", "00:05:00", "00:06:00"]
+
+    def test_configured_speed_scales_reported_seconds(self, mock_session: ZhsSession) -> None:
+        """配置 1.5 倍时，300 秒真实时间合计上报 450 秒学习时长"""
+        calls = self._run(mock_session, 300, speed=1.5)
+        assert sum(self._delta(name, ev) for name, ev in calls) == 450
+
+
+class TestResumeAndTotalSplit:
+    """播放位置（learnTimeSec）与累计学习时长（studyTotalTime）分开处理
+
+    实测：重看过的视频 studyTotalTime 会大于视频时长（如 452 秒的视频累计 798），
+    把累计当播放位置会直接越过结尾、一次心跳就结束。网页端从 learnTimeSec 续播，
+    ev 的累计秒在 studyTotalTime 上继续加（抓包：位置 00:03:00 时累计 863）。
+    """
+
+    def test_resume_position_from_learn_time_sec(self, mock_session: ZhsSession) -> None:
+        player = ZhidaoVideoPlayer(mock_session)
+        player._last_note = {"learnTimeSec": 120, "studyTotalTime": 900}
+        assert player._resume_position(452) == 120.0
+
+    def test_resume_position_clamped_to_duration(self, mock_session: ZhsSession) -> None:
+        player = ZhidaoVideoPlayer(mock_session)
+        player._last_note = {"learnTimeSec": 9999}
+        assert player._resume_position(452) == 452.0
+
+    def test_resume_position_missing_is_zero(self, mock_session: ZhsSession) -> None:
+        player = ZhidaoVideoPlayer(mock_session)
+        assert player._resume_position(452) == 0.0
+
+    def test_ev_total_field_uses_total_not_position(self, mock_session: ZhsSession) -> None:
+        """Database ev：本段秒 = 位置差，累计秒 = total，HH:MM:SS = 位置"""
+        from zhs.crypto import _key_generator
+
+        ctx = _make_context(video_sec=452)
+        player = ZhidaoVideoPlayer(mock_session)
+        sent: list[str] = []
+        with patch.object(
+            player._session, "zhidao_query", side_effect=lambda url, data, *a, **k: sent.append(data["sdsew"])
+        ):
+            player._report_progress_v2(
+                "ABC123",
+                100,
+                ctx,
+                played_time=180.0,
+                last_submit=60.0,
+                watch_point="0,1",
+                token_id="dG9rZW4=",
+                initial=False,
+                total=863,
+            )
+        keys = _key_generator(mock_session.crypto.ev_key)
+        ev = "".join(chr(int(sent[0][i : i + 2], 16) ^ next(keys)) for i in range(0, len(sent[0]), 2)).split(";")
+        assert ev[6] == "120"  # 本段
+        assert ev[7] == "863"  # 累计
+        assert ev[8] == "00:03:00"  # 位置
+
+    def test_play_video_resumes_from_position_not_total(self, mock_session: ZhsSession) -> None:
+        """累计 798 > 时长 452 的视频，仍从 learnTimeSec 位置开始播"""
+        ctx = _make_context(video_sec=452, study_total_time=798)
+        player = ZhidaoVideoPlayer(mock_session, end_threshold=1.0)
+
+        def fake_note(*args: object) -> tuple[str, int]:
+            player._last_note = {"learnTimeSec": 42, "studyTotalTime": 798}
+            return "dG9rZW4=", 798
+
+        with (
+            patch.object(player, "_prelearning_note", side_effect=fake_note),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_precheck"),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch.object(player, "_main_loop", return_value=1) as loop,
+            patch("zhs.zhidao.video.time.sleep"),
+        ):
+            player.play_video("ABC123", 100, ctx)
+
+        args = loop.call_args.args
+        assert args[3] == 42.0  # 起始位置
+        assert args[8] == 798  # 累计基准

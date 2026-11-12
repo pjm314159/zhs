@@ -24,8 +24,9 @@ threshold = 0.91
 # ============================================================
 
 [video]
-# 知到视频播放速度（默认 1.5，最高 2.0）
-zhidao_speed = 1.5
+# 知到视频播放速度（默认 1.0，与网页端一致，最高 2.0）
+# 大于 1 时上报的学习时长会多于真实经过的时间
+zhidao_speed = 1.0
 
 # Hike 视频播放速度（默认 1.25，最高 2.0）
 hike_speed = 1.25
@@ -37,7 +38,15 @@ ai_speed = 1.5
 # 设为 true 则同时学习选学资源
 ai_learn_optional = false
 
-# AI 视频完成阈值（0-100，默认 100）
+# 知到共享课按计划分天学（默认 true）
+# 首日刷大部分，剩余视频时长平均分到之后每天，直到课程截止日
+# 学习习惯分要求每天都学，单日学得太短不会被记为学过
+zhidao_plan = true
+
+# 分天之后每天的目标分钟数（默认 40，最少 30）
+zhidao_daily_minutes = 40
+
+# AI 视频完成阈值（0-100，默认 90）
 # 视频进度达到此百分比视为已完成，无需播放到结尾
 # 例如设为 90 则视频播放到 90% 即跳过
 # 注意该值建议更改，一般都没有怎么大，可以加快速度
@@ -204,3 +213,5 @@ homework = "https://studentexam-api.zhihuishu.com"
 taurusexam = "https://taurusexam-api.zhihuishu.com"
 ai_analysis = "https://ai-course-assistant-api.zhihuishu.com"
 newbase = "https://newbase.zhihuishu.com"
+aistudy = "https://aistudy.zhihuishu.com"
+share_map = "https://share-course-map-service.zhihuishu.com"

@@ -35,6 +35,7 @@ class QueryStrategy:
         check_captcha: 是否检查 -12（知到视频 API 专属）
         has_response_body: 是否有 JSON 返回体（False 时仅检查 HTTP 状态码）
         default_method: 默认 HTTP 方法（hike 为 GET，其他为 POST）
+        extra_ok_values: 额外认可的成功值（同一接口时而返回字符串、时而返回数字时用）
     """
 
     key_name: str
@@ -45,6 +46,7 @@ class QueryStrategy:
     check_captcha: bool = False
     has_response_body: bool = True
     default_method: str = "POST"
+    extra_ok_values: tuple[int | str, ...] = ()
 
 
 # 策略表（替代 7 个方法）
@@ -57,6 +59,11 @@ STRATEGIES: dict[str, QueryStrategy] = {
     "homework":     QueryStrategy("exam_key",  False, "status", "200", "form"),
     "zhidao_exam":  QueryStrategy("exam_key",  False, "status", "200", "form"),
     "ai_exam_submit": QueryStrategy("exam_key", True, "code",   0,     "form", has_response_body=False),
+    # 新版共享课（知识图谱）：aistudy 查询为 GET + secretStr；code 先后见过字符串 "200" 和数字 200，两种都认
+    "aistudy":      QueryStrategy("video_key", True,  "code",   "200", "form",  default_method="GET",
+                                  extra_ok_values=(200,)),
+    # 新版共享课写入 / 节点查询：明文 JSON，dateFormate 放在 body 内，code 为数字 200
+    "map_json":     QueryStrategy("",          True,  "code",   200,   "json"),
 }
 # fmt: on
 
@@ -151,6 +158,7 @@ class EncryptedQuery:
             check_captcha=strategy.check_captcha,
             has_response_body=strategy.has_response_body,
             default_method=strategy.default_method,
+            extra_ok_values=strategy.extra_ok_values,
         )
 
     def _build_form_data(
@@ -160,9 +168,13 @@ class EncryptedQuery:
         *,
         key_bytes_override: bytes | None = None,
     ) -> dict[str, Any]:
-        """构建加密表单数据"""
+        """构建加密表单数据（无密钥策略返回明文，按需补 dateFormate）"""
         if not strategy.key_name and key_bytes_override is None:
-            return data
+            if not strategy.with_dateformate:
+                return data
+            plain = dict(data)
+            plain.setdefault("dateFormate", self._http.now_timestamp_ms())
+            return plain
 
         key = key_bytes_override if key_bytes_override is not None else self._http.crypto.key_bytes(strategy.key_name)
         iv = self._http.crypto.key_bytes("iv")
@@ -186,8 +198,8 @@ class EncryptedQuery:
         if strategy.check_captcha and actual == -12:
             raise CaptchaRequired("服务端要求验证码")
 
-        if actual != strategy.ok_value:
-            code = int(actual) if isinstance(actual, str) and actual.isdigit() else actual
+        if actual != strategy.ok_value and actual not in strategy.extra_ok_values:
+            code = int(actual) if isinstance(actual, str) and actual.lstrip("-").isdigit() else actual
             message = result.get("message", result.get("msg", ""))
             raise ApiError(code=code if isinstance(code, int) else -1, message=message)
 

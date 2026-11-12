@@ -3,11 +3,17 @@
 从原 __main__.py 抽离的刷视频相关 _run_* 函数。
 """
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
 
 from zhs.cli.course_type import parse_ai_course_str
 from zhs.config import AppConfig
 from zhs.session import ZhsSession
+
+if TYPE_CHECKING:
+    from zhs.zhidao.course import ZhidaoCourseManager
+    from zhs.zhidao.models import ZhidaoContext, ZhidaoCourse
 
 
 def dispatch_play_url(session: ZhsSession, config: AppConfig, url: str) -> None:
@@ -105,18 +111,93 @@ def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
         rac_id: recruitAndCourseId，仅由 --url 解析或课程列表（secret）提供
     """
     from zhs.zhidao.course import ZhidaoCourseManager
-    from zhs.zhidao.video import ZhidaoVideoPlayer
 
     mgr = ZhidaoCourseManager(session)
+    ctx = mgr.get_context(rac_id)
+    end_ms = next((c.course_end_time for c in _safe_course_list(mgr) if c.secret == rac_id), None)
+    play_zhidao_course(session, config, rac_id, ctx, end_ms)
+
+
+def _safe_course_list(mgr: "ZhidaoCourseManager") -> list["ZhidaoCourse"]:
+    """课程列表（只用来取截止时间，取不到不影响播放）"""
+    try:
+        return mgr.get_course_list()
+    except Exception as e:
+        logger.debug(f"课程列表获取失败，计划不考虑截止日: {e}")
+        return []
+
+
+def play_zhidao_course(
+    session: ZhsSession,
+    config: AppConfig,
+    rac_id: str,
+    ctx: "ZhidaoContext",
+    end_ms: int | None,
+) -> None:
+    """按学习计划播放一门知到课程
+
+    zhidao_plan 开启时：首日刷大部分，之后每天按配额学，今天的预算用作播放器的时间上限。
+    --limit 显式给出时两者取更小的那个。
+    """
+    from datetime import date
+
+    from zhs.utils.display import msg_info, msg_skip
+    from zhs.utils.path import get_data_dir
+    from zhs.zhidao.schedule import StudyLedger, end_date_from_ms, plan_today
+    from zhs.zhidao.video import ZhidaoVideoPlayer
+
+    time_limit = config.limit * 60
+    ledger: StudyLedger | None = None
+    today = date.today()
+
+    if config.video.zhidao_plan:
+        ledger = StudyLedger(get_data_dir() / "study_plan.json")
+        plan = plan_today(
+            remaining_seconds=_remaining_seconds(ctx, config.threshold),
+            today=today,
+            first_day=ledger.first_day(rac_id, today),
+            end_day=end_date_from_ms(end_ms),
+            studied_today=ledger.studied(rac_id, today),
+            daily_minutes=config.video.zhidao_daily_minutes,
+        )
+        logger.info(f"学习计划 {rac_id}: {plan}")
+        if plan.budget_seconds <= 0:
+            print(msg_skip(plan.describe()))
+            return
+        print(msg_info(plan.describe()))
+        time_limit = min(time_limit, plan.budget_seconds) if time_limit > 0 else plan.budget_seconds
+
     player = ZhidaoVideoPlayer(
         session,
         speed=config.video.zhidao_speed,
         end_threshold=config.threshold,
-        time_limit=config.limit * 60,
+        time_limit=time_limit,
     )
+    before = ctx.fucked_time
+    try:
+        player.play_course(rac_id, ctx)
+    finally:
+        if ledger is not None:
+            ledger.add(rac_id, today, ctx.fucked_time - before)
 
-    ctx = mgr.get_context(rac_id)
-    player.play_course(rac_id, ctx)
+
+def _remaining_seconds(ctx: "ZhidaoContext", threshold: float) -> int:
+    """课程还需观看的秒数（真实时间，按 1.0 倍估算）
+
+    旧版课：未完成视频的 (时长 × 阈值 − 已看位置)；位置用 studyTotalTime 夹在时长内估算。
+    新版图谱课：视频进度要逐节点查询，这里按全部节点时长未知处理，返回 0 表示不限
+    （由 plan_today 的最低配额兜底）。
+    """
+    if ctx.mode == "map":
+        return 0
+    total = 0
+    for v in ctx.videos.values():
+        if v.watch_state == 1:
+            continue
+        target = int(v.video_sec * min(threshold, 1.0))
+        watched = min(v.study_total_time, v.video_sec)
+        total += max(target - watched, 0)
+    return total
 
 
 def run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:
@@ -143,24 +224,17 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
     from zhs.hike.video import HikeVideoPlayer
     from zhs.utils.display import course_tag
     from zhs.zhidao.course import ZhidaoCourseManager
-    from zhs.zhidao.video import ZhidaoVideoPlayer
 
     # 知到
     if course_type in (None, "auto", "zhidao"):
         try:
             zhidao_mgr = ZhidaoCourseManager(session)
-            zhidao_player = ZhidaoVideoPlayer(
-                session,
-                speed=config.video.zhidao_speed,
-                end_threshold=config.threshold,
-                time_limit=config.limit * 60,
-            )
             courses = zhidao_mgr.get_course_list()
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
             for c in courses:
                 try:
                     ctx = zhidao_mgr.get_context(c.secret)
-                    zhidao_player.play_course(c.secret, ctx)
+                    play_zhidao_course(session, config, c.secret, ctx, c.course_end_time)
                 except Exception as e:
                     logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
                     print(f"知到课程 {c.course_name} 处理失败: {e}")

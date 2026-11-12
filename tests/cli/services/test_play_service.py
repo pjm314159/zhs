@@ -184,47 +184,52 @@ class TestRunAiByStr:
 class TestRunZhidao:
     """run_zhidao"""
 
-    @patch("zhs.zhidao.video.ZhidaoVideoPlayer")
+    @patch("zhs.cli.services.play_service.play_zhidao_course")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_calls_play_course(
+    def test_calls_play_zhidao_course(
         self,
         mock_mgr_cls: MagicMock,
-        mock_player_cls: MagicMock,
+        mock_play: MagicMock,
     ) -> None:
-        """调用 play_course"""
+        """调用 play_zhidao_course（含学习计划）"""
         session = MagicMock()
         config = _make_config()
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
-        mock_player = MagicMock()
-        mock_player_cls.return_value = mock_player
         mock_ctx = MagicMock()
         mock_mgr.get_context.return_value = mock_ctx
+        mock_mgr.get_course_list.return_value = []
 
         run_zhidao(session, config, "ABC123")
 
         mock_mgr.get_context.assert_called_once_with("ABC123")
-        mock_player.play_course.assert_called_once_with("ABC123", mock_ctx)
+        mock_play.assert_called_once()
+        args = mock_play.call_args.args
+        assert args[0] is session
+        assert args[1] is config
+        assert args[2] == "ABC123"
+        assert args[3] is mock_ctx
 
-    @patch("zhs.zhidao.video.ZhidaoVideoPlayer")
+    @patch("zhs.cli.services.play_service.play_zhidao_course")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_player_uses_config_speed(
+    def test_passes_course_end_time(
         self,
         mock_mgr_cls: MagicMock,
-        mock_player_cls: MagicMock,
+        mock_play: MagicMock,
     ) -> None:
-        """player 使用配置中的 speed"""
+        """从课程列表取 courseEndTime 传给 play_zhidao_course"""
         session = MagicMock()
         config = _make_config()
-        config.video.zhidao_speed = 2.0
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
+        mock_course = MagicMock()
+        mock_course.secret = "ABC123"
+        mock_course.course_end_time = 1795708799000
+        mock_mgr.get_course_list.return_value = [mock_course]
 
         run_zhidao(session, config, "ABC123")
 
-        mock_player_cls.assert_called_once()
-        call_kwargs = mock_player_cls.call_args.kwargs
-        assert call_kwargs["speed"] == 2.0
+        assert mock_play.call_args.args[4] == 1795708799000
 
 
 class TestRunHike:

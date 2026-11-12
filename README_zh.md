@@ -200,7 +200,7 @@ limit = 0                # 刷课时间限制（分钟，0 = 不限制）
 threshold = 0.91         # 视频结束阈值（0.0-1.0）
 
 [video]
-zhidao_speed = 1.5       # 知到视频速度（最高 2.0）
+zhidao_speed = 1.0       # 知到视频速度（默认 1.0，最高 2.0）
 hike_speed = 1.25        # Hike 视频速度
 ai_speed = 1.5           # AI 课程视频速度
 

@@ -115,6 +115,7 @@ src/zhs/
 - 校验结果分三类：有效 / 会话失效（提示重新登录）/ 接口不可用（提示检查网络）
 - 设置 cookies 时自动解析 `uuid`（从 `CASLOGC` cookie 的 JSON 中提取），并设置 `exitRecod_{uuid}=2`
 
+
 ### 3.3 知到（Zhidao）共享课程
 
 #### 3.3.1 课程列表获取
@@ -456,6 +457,7 @@ zhs init
 | `-d, --debug` | 调试模式 |
 | `--console-log` | 日志输出到控制台 |
 
+
 #### 3.11.3 zhs play
 
 刷视频。
@@ -610,6 +612,39 @@ zhs cache import PATH [PATH ...]
 | `/gateway/t/v1/popupAnswer/saveLessonPopupExamSaveAnswer` | POST | 保存弹窗答案 | video_key |
 | `/gateway/t/v1/learning/saveDatabaseIntervalTimeV2` | POST | 上报视频进度 V2 | video_key |
 | `/gateway/t/v1/course/threeDimensionalCourseWare` | GET | 课件访问 | — |
+
+### 知到共享课：新版知识图谱（aistudy / share-course-map）
+
+> 部分共享课已改为知识图谱格式：旧 `videolist` 只返回目录（`videoId=-1`），
+> 视频资源与进度上报走下面这组接口。`get_context` 自动分流：
+> `queryCourseMapInfo` 返回 `mapStr` 即走本流程，否则回退旧 `videolist` 流程。
+
+| 端点 | 方法 | 用途 | 请求形态 |
+|------|------|------|----------|
+| `/gateway/t/v1/learning/queryCourseMapInfo` | GET | 课程图谱信息（`mapStr`/`mapHashStr`） | `secretStr`+`dateFormate`，`code="200"` |
+| `/gateway/t/v1/learning/kgCourseTreeInfoList` | GET | 章节/知识点树 | 同上 |
+| `/gateway/t/v1/learning/queryUserRecruitIdLastKnowledgeInfo` | GET | 上次学习节点（续播） | 同上 |
+| `/gateway/t/v1/learning/queryUserStudyInfo` | GET | 单节点单视频的学习记录 | 同上，入参 `courseId/recruitId/lessonId/dataId` |
+| `/gateway/t/v1/learning/saveUserStudyProcess` | POST | 上报学习进度 | 明文 JSON，`code=200` |
+| `/gateway/t/node/queryNodeDescription` | POST | 节点资源（视频/课件） | 明文 JSON，`code=200` |
+
+- 域名：`aistudy.zhihuishu.com`、`share-course-map-service.zhihuishu.com`
+- 明文 JSON 接口不加密，`dateFormate`（毫秒）放在 body 内
+- 进度字段：`chapterId`/`lessonId` 用节点 `idHash`，`dataId` 用 `resourcesFileId`，
+  `learnTime` 为 `HH:MM:SS`，`studyTotalTime` 为视频总秒数
+- 首次 `saveUserStudyProcess` 前必须先调 `preLearningLoad`（同一 `dataId`），
+  否则返回 NPE 或 `2021 多端观看异常`
+- `playTimes` 是**本次新增学习秒数**：服务端按 `playTimes` 累加 `learnTime`
+  （实测 `playTimes=30` → `learnTime +30`），`learnTime` 字段本身不被采用；
+  停止条件应以响应中的 `learnTime` 为准
+- 章节树叶子节点：`lessons[]`，有 `smallLessons[]` 时以子节点为叶子
+- 同一 `resourcesFileId` 可能挂在多个节点下（本课程 37 个视频覆盖 110 个节点，
+  32 个视频被 2–3 个节点共用），资源里**没有**起止时间
+- `queryVideoSegment` 入参为 `videoId=resourcesFileId` + `idHash/idStr`（mapHash/mapStr），
+  未配置分段的课程返回 `data: []`；此时整段视频就是播放单位
+- 学习进度按「节点 + dataId」独立记录：`queryUserStudyInfo` 返回
+  `{knowledgeHashId, knowledgeStrId, dataId, state, learnTime}`，
+  `state=2` 表示该节点该视频已完成，`learnTime` 可作为该节点的续播点
 
 ### 知到课程列表（onlineservice-api.zhihuishu.com）
 

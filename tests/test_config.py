@@ -169,7 +169,7 @@ class TestAppConfig:
     def test_defaults(self) -> None:
         cfg = AppConfig()
         assert cfg.save_cookies is True
-        assert cfg.video.zhidao_speed == 1.5
+        assert cfg.video.zhidao_speed == 1.0
         assert cfg.video.hike_speed == 1.25
         assert cfg.display.log_level == "INFO"
         assert cfg.proxies.to_dict() == {}
@@ -257,9 +257,77 @@ speed = 1.5
         )
         mgr = ConfigManager(config_file)
         cfg = mgr.load()
-        assert cfg.video.zhidao_speed == 1.5
+        assert cfg.video.zhidao_speed == 1.0  # 顶层未知键 speed 不映射，取默认值
         assert cfg.video.hike_speed == 1.25
         assert cfg.save_cookies is True  # 默认值
+
+    def test_homework_delay_and_page_size_from_toml(self, tmp_path: Path) -> None:
+        """[homework] 的 delay_min/delay_max/page_size 必须真正生效，不能被 alias 静默丢弃"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[homework]
+delay_min = 9.5
+delay_max = 12.0
+page_size = 25
+[exam]
+delay_min = 3.0
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.homework.delay_min == 9.5
+        assert cfg.homework.delay_max == 12.0
+        assert cfg.homework.page_size == 25
+        assert cfg.exam.delay_min == 3.0
+
+    def test_homework_legacy_keys_inside_section(self, tmp_path: Path) -> None:
+        """[homework] 段内的旧版字段名也能设置，新字段名优先"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[homework]
+homework_delay_min = 9.0
+homework_delay_max = 11.0
+homework_page_size = 30
+homework_threshold = 70
+delay_min = 4.0
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.homework.delay_min == 4.0
+        assert cfg.homework.delay_max == 11.0
+        assert cfg.homework.page_size == 30
+        assert cfg.homework.threshold == 70
+
+    def test_flat_legacy_keys_routed_to_nested_models(self, tmp_path: Path) -> None:
+        """旧版顶层扁平键要路由进嵌套模型，不能被 AppConfig 当 extra 丢掉"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+zhidao_speed = 1.9
+log_level = "DEBUG"
+homework_threshold = 60
+image_path = "/tmp/qr.png"
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.video.zhidao_speed == 1.9
+        assert cfg.display.log_level == "DEBUG"
+        assert cfg.homework.threshold == 60
+        assert cfg.qr.image_path == "/tmp/qr.png"
+
+    def test_section_value_overrides_flat_legacy_key(self, tmp_path: Path) -> None:
+        """段内显式值优先于同义的顶层扁平键"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+zhidao_speed = 1.9
+[video]
+zhidao_speed = 1.2
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.video.zhidao_speed == 1.2
 
     def test_load_skip_ai_free_exam_from_toml(self, tmp_path: Path) -> None:
         """[homework] 的 skip_ai_free_exam 经白名单生效，防止配置静默失效"""
@@ -519,6 +587,13 @@ stream_idle_timeout = 30.0
 
 
 class TestConfigManagerMigrate:
+    def test_migrate_keeps_image_path(self, tmp_path: Path) -> None:
+        """旧版 JSON 的 image_path 要落到 qr.image_path，不能丢"""
+        json_file = tmp_path / "old.json"
+        json_file.write_text('{"image_path": "/tmp/legacy-qr.png"}', encoding="utf-8")
+        cfg = ConfigManager(tmp_path / "config.toml").migrate(json_file)
+        assert cfg.qr.image_path == "/tmp/legacy-qr.png"
+
     def test_migrate_legacy_json(self, tmp_path: Path) -> None:
         """旧版 JSON 配置迁移"""
         json_file = tmp_path / "config.json"

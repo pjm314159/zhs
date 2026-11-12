@@ -28,7 +28,7 @@ def mock_config() -> AppConfig:
 
 @pytest.fixture
 def mock_session(mock_config: AppConfig) -> Iterator[ZhsSession]:
-    """带 respx mock 的 session"""
+    """带 respx mock 的 session（课程没有 courseMode=2，走旧版 videolist，不调图谱接口）"""
     with respx.mock:
         session = ZhsSession(mock_config)
         yield session
@@ -338,3 +338,55 @@ class TestGetContext:
         ctx = manager.get_context("ABC123_456")
         # 已看完的视频 watch_state 应为 1
         assert ctx.videos[100].watch_state == 1
+
+
+class TestNonVideoLessons:
+    """videolist 返回 videoId=-1 的课时/子课时不当作视频"""
+
+    def test_negative_video_id_skipped(self, mock_session: ZhsSession) -> None:
+        respx.get("https://studyservice-api.zhihuishu.com/login/gologin").mock(
+            return_value=httpx.Response(200, text="<html>ok</html>")
+        )
+        respx.post("https://studyservice-api.zhihuishu.com/gateway/t/v1/learning/queryCourse").mock(
+            return_value=httpx.Response(200, json=_make_query_course_response())
+        )
+        respx.post("https://studyservice-api.zhihuishu.com/gateway/t/v1/learning/videolist").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "courseId": 456,
+                        "videoChapterDtos": [
+                            {
+                                "id": 1,
+                                "name": "第一章",
+                                "videoLessons": [
+                                    {"id": 10, "name": "无视频课时", "videoId": -1, "videoSec": 0},
+                                    {
+                                        "id": 11,
+                                        "name": "有子课时",
+                                        "videoSmallLessons": [
+                                            {"id": 200, "name": "无视频", "lessonId": 11, "videoId": -1},
+                                            {"id": 201, "name": "有视频", "lessonId": 11, "videoId": 101},
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+        respx.post("https://studyservice-api.zhihuishu.com/gateway/t/v1/learning/queryStuyInfo").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": {"lv": {}, "lesson": {}}})
+        )
+        respx.post("https://studyservice-api.zhihuishu.com/gateway/t/v1/learning/queryUserRecruitIdLastVideoId").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": {}})
+        )
+
+        ctx = ZhidaoCourseManager(mock_session).get_context("ABC123_456")
+        assert list(ctx.videos) == [101]
+        lessons = ctx.chapters[0].video_lessons
+        assert lessons[0].video_small_lessons == []
+        assert [v.video_id for v in lessons[1].video_small_lessons] == [101]

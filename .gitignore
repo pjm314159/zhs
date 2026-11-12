@@ -37,6 +37,9 @@ htmlcov/
 .zhs/
 .temp/
 old/
+.deps/
+chrome-win/
+.capture/
 
 # uv
 .python-version

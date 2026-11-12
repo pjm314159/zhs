@@ -176,6 +176,14 @@ class ZhsSession:
             raise ApiError(code=code, message=result.get("message", ""))
         return result
 
+    def aistudy_query(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
+        """新版共享课查询（aistudy：GET + secretStr + dateFormate，code="200"）"""
+        return self._query.query("aistudy", url, data)
+
+    def map_post(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
+        """新版共享课写入/节点查询（POST JSON 明文，code=200）"""
+        return self._query.query("map_json", url, data)
+
     def hike_query(
         self,
         url: str,
