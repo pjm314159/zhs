@@ -76,6 +76,11 @@ class HomeworkConfig(BaseModel):
     page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
     ai_homework_threshold: int = Field(default=90, description="AI 课程作业跳过阈值（masteryScore > 此值则跳过）")
     skip_ai_free_exam: bool = Field(default=True, description="AI 课程作业是否跳过免考知识点（freeExam=1）")
+    
+    # 知识图谱课章节测验配置（kg = Knowledge Graph）
+    enable_kg_exam: bool = Field(default=True, description="是否启用知识图谱课章节测验（知识点掌握度）")
+    kg_exam_threshold: int = Field(default=80, description="章节测验掌握度阈值（低于此值重做，0-100）")
+    kg_exam_max_retries: int = Field(default=3, description="章节测验最大重试次数")
 
     # 字段名（delay_min）与旧版 alias（homework_delay_min）都可用于构造
     model_config = ConfigDict(populate_by_name=True)

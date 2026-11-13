@@ -3,7 +3,7 @@
 从原 __main__.py 抽离的刷视频相关 _run_* 函数。
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -110,12 +110,18 @@ def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
     Args:
         rac_id: recruitAndCourseId，仅由 --url 解析或课程列表（secret）提供
     """
+    from zhs.cli.bootstrap import init_llm, init_question_bank
     from zhs.zhidao.course import ZhidaoCourseManager
 
     mgr = ZhidaoCourseManager(session)
     ctx = mgr.get_context(rac_id)
     end_ms = next((c.course_end_time for c in _safe_course_list(mgr) if c.secret == rac_id), None)
-    play_zhidao_course(session, config, rac_id, ctx, end_ms)
+    
+    # 初始化题库（用于知识图谱课章节测验）
+    llm = init_llm(config)
+    question_bank = init_question_bank(config, scope="zhidao_kg_exam", llm=llm)
+    
+    play_zhidao_course(session, config, rac_id, ctx, end_ms, question_bank)
 
 
 def _fmt_time(sec: int) -> str:
@@ -265,6 +271,7 @@ def play_zhidao_course(
     rac_id: str,
     ctx: "ZhidaoContext",
     end_ms: int | None,
+    question_bank: Any = None,
 ) -> None:
     """按学习计划播放一门知到课程
 
@@ -313,6 +320,8 @@ def play_zhidao_course(
         speed=config.video.zhidao_speed,
         end_threshold=config.threshold,
         time_limit=time_limit,
+        question_bank=question_bank,
+        homework_config=config.homework,
     )
     before = ctx.fucked_time
     try:
@@ -361,6 +370,7 @@ def run_hike(session: ZhsSession, config: AppConfig, course_id: str) -> None:
 def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = None) -> None:
     """全刷模式：按 --type 过滤，先刷知到再刷 Hike 再刷 AI"""
     from zhs.ai.course import AiCourseManager
+    from zhs.cli.bootstrap import init_llm, init_question_bank
     from zhs.hike.course import HikeCourseManager
     from zhs.hike.video import HikeVideoPlayer
     from zhs.utils.display import course_tag
@@ -372,6 +382,10 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
             zhidao_mgr = ZhidaoCourseManager(session)
             courses = zhidao_mgr.get_course_list()
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
+            
+            # 初始化题库（用于知识图谱课章节测验）
+            llm = init_llm(config)
+            question_bank = init_question_bank(config, scope="zhidao_kg_exam", llm=llm)
 
             # 第一轮：有习惯分的课（需要分天学，优先）
             habbit_courses = [c for c in courses if _needs_daily_plan(zhidao_mgr, c, config)]
@@ -380,7 +394,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
                 for c in habbit_courses:
                     try:
                         ctx = zhidao_mgr.get_context(c.secret)
-                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time)
+                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time, question_bank)
                     except Exception as e:
                         logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
                         print(f"知到课程 {c.course_name} 处理失败: {e}")
@@ -392,7 +406,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
                 for c in non_habbit:
                     try:
                         ctx = zhidao_mgr.get_context(c.secret)
-                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time)
+                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time, question_bank)
                     except Exception as e:
                         logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
                         print(f"知到课程 {c.course_name} 处理失败: {e}")

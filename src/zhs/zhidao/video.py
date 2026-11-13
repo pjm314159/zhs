@@ -120,6 +120,8 @@ class ZhidaoVideoPlayer:
         speed: float | None = None,
         end_threshold: float = 0.91,
         time_limit: int = 0,
+        question_bank: Any = None,
+        homework_config: Any = None,
     ) -> None:
         self._session = session
         self._speed = speed
@@ -128,6 +130,12 @@ class ZhidaoVideoPlayer:
         self._progress_line: str | None = None
         self._progress_width = 0
         self._last_note: dict[str, Any] | None = None
+        
+        # 知识图谱课章节测验处理器
+        self._kg_exam_handler: Any = None
+        if homework_config:
+            from zhs.zhidao.kg_exam import KgExamHandler
+            self._kg_exam_handler = KgExamHandler(session, homework_config, question_bank)
 
     def _print_with_progress(self, text: str, depth: int = 0, enabled: bool = True) -> None:
         """打印消息，保持进度条在底部（若激活则清除→打印→重印进度条）"""
@@ -301,6 +309,20 @@ class ZhidaoVideoPlayer:
                         if self._handle_unit_error(exc, course_name, resource.name, _map_stop_reason):
                             return
                         failed += 1
+
+                # 处理章节测验（知识图谱课知识点掌握度）
+                if self._kg_exam_handler:
+                    try:
+                        self._kg_exam_handler.try_handle_exam(
+                            recruit_id=str(recruit_id),
+                            lesson=lesson,
+                            print_callback=self._print_with_progress,
+                        )
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as exc:
+                        logger.error(f"章节测验处理失败: {exc}")
+                        # 章节测验失败不阻断后续节点
 
         self._finish_course(course_name, begin_time, failed, has_videos=has_videos)
 
