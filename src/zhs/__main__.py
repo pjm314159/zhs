@@ -29,6 +29,7 @@ from zhs.cli.course_type import detect_course_type as _detect_course_type
 from zhs.cli.course_type import validate_course_type as _validate_course_type
 from zhs.cli.services.cache_service import export_course as _export_course
 from zhs.cli.services.cache_service import import_files as _import_files
+from zhs.cli.services.daemon_service import run_daemon_mode as _run_daemon_mode
 from zhs.cli.services.exam_service import dispatch_exam_url as _dispatch_exam_url
 from zhs.cli.services.exam_service import run_ai_exam as _run_ai_exam
 from zhs.cli.services.exam_service import run_zhidao_exam_by_course as _run_zhidao_exam_by_course
@@ -44,7 +45,6 @@ from zhs.cli.services.play_service import run_ai_by_str as _run_ai_by_str
 from zhs.cli.services.play_service import run_all as _run_all
 from zhs.cli.services.play_service import run_hike as _run_hike
 from zhs.cli.services.play_service import run_zhidao as _run_zhidao
-from zhs.cli.services.daemon_service import run_daemon_mode as _run_daemon_mode
 from zhs.config import AppConfig, ConfigManager
 from zhs.exceptions import SliderVerificationRequired
 from zhs.login import LoginManager
