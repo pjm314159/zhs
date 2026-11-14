@@ -36,7 +36,9 @@ tests/
 │   ├── conftest.py
 │   ├── test_models.py                # 知到模型
 │   ├── test_course.py                # 课程列表
-│   ├── test_video.py                 # 视频播放
+│   ├── test_video.py                 # 视频播放（旧版课）
+│   ├── test_map.py                   # 知识图谱课
+│   ├── test_schedule.py              # 分天学习计划
 │   ├── test_quiz.py                  # 弹窗答题
 │   └── homework/                     # 知到作业子包
 │       ├── __init__.py
@@ -642,9 +644,11 @@ class TestAppConfig:
 
     def test_video_defaults(self) -> None:
         cfg = AppConfig()
-        assert cfg.video.zhidao_speed == 1.5
+        assert cfg.video.zhidao_speed == 1.0
         assert cfg.video.hike_speed == 1.25
         assert cfg.video.ai_speed == 1.5
+        assert cfg.video.zhidao_plan is True
+        assert cfg.video.zhidao_daily_minutes == 40
 
     def test_homework_defaults(self) -> None:
         cfg = AppConfig()
@@ -912,9 +916,6 @@ class TestZhidaoVideoPlayer:
         played_time = 99
         assert min(played_time + speed, end_time) == 100  # 截断
 
-    def test_random_pause_no_progress(self) -> None:
-        """随机暂停时 played_time = last_submit（不前进）"""
-
     def test_report_v2_initial_format(self) -> None:
         """saveDatabaseIntervalTimeV2 initial=True 格式"""
 
@@ -929,7 +930,64 @@ class TestZhidaoVideoPlayer:
 
     def test_answer_delay_mechanism(self) -> None:
         """弹窗答题 answer_delay=2 递减"""
+
+
+class TestClassicHeartbeatCadence:
+    """旧版课心跳节奏与网页端一致（依据 docs/capture-findings.md）"""
+
+    def test_web_capture_sequence(self) -> None:
+        """Cache 约每 180s、Database 约每 300s，各自计时，顺序与抓包一致"""
+
+    def test_deltas_sum_to_watched_seconds(self) -> None:
+        """两种上报共用增量链，本段秒之和等于实际播放秒数（不重复累加）"""
+
+    def test_last_report_is_database(self) -> None:
+        """结尾那次只报 Database"""
+
+    def test_position_follows_real_seconds(self) -> None:
+        """未配置倍速时 1.0，播放位置随真实秒数前进"""
+
+    def test_configured_speed_scales_reported_seconds(self) -> None:
+        """配置倍速时上报秒数按倍速放大"""
+
+
+class TestResumeAndTotalSplit:
+    def test_resume_position_from_learn_time_sec(self) -> None:
+        """续播位置取 learnTimeSec，而非 studyTotalTime"""
+
+    def test_resume_position_clamped_to_duration(self) -> None:
+        """续播位置不超过视频时长"""
+
+    def test_ev_total_field_uses_total_not_position(self) -> None:
+        """ev 的累计字段用 studyTotalTime 往上加，不用播放位置"""
 ```
+
+#### 4.6.1 zhidao 知识图谱课（test_map.py）
+
+| 测试类 | 覆盖 |
+|--------|------|
+| `TestGetContextMap` | `courseMode == 2` 才走图谱；旧版课不看 `mapStr`；图谱课缺 `mapStr` / 树不可解析时报错不回退 |
+| `TestMapResources` | 资源解析；`resourcesSyncType == 0` 识别为选学 |
+| `TestSaveStudyProcess` | 视频与课件的上报 payload |
+| `TestPlayMapVideo` | 心跳直到阈值；子课时视频的查询/预加载/上报用父课时 + 知识点；`preLearningLoad` 失败抛错；续播已达阈值跳过；时间上限先于 preload 生效 |
+| `TestPlayMapCourse` | `state=2` 跳过、`learnTime` 续播、`2021` 停课、选学跳过、课件先于视频、学习记录查询失败不重播 |
+| `TestQueryUserStudyInfo` / `TestPreLearningLoad` / `TestParseLearnTime` | 接口解析与 `HH:MM:SS` 转换 |
+
+#### 4.6.2 zhidao/schedule.py（test_schedule.py）
+
+| 测试类 | 覆盖 |
+|--------|------|
+| `TestPlanToday` | 首日留够之后配额且至少一天配额；之后每天按配额、落后时平摊；不超过剩余；截止日学完；同日多次运行累计；配额下限 30 分钟；无截止日；时长未知不视为学完 |
+| `TestStudyLedger` | 首日持久化；按日累计；文件损坏时重新开始 |
+
+#### 4.6.3 分天计划接线（tests/cli/services/test_play_service.py）
+
+| 测试类 | 覆盖 |
+|--------|------|
+| `TestResolvePlan` | 无习惯分不限时；有习惯分分天；习惯分未知不限时；总开关关闭全部不分天；按 courseId / 课程名覆盖 |
+| `TestPlayZhidaoCourseNoPlan` | 不分天时不设每日时间上限 |
+| `TestRunZhidao` | 传入课程截止时间 |
+| `TestNeedsDailyPlan` | 顶层 courseId 为 0 时回退 `courseInfo.courseId`；总开关关闭；习惯分补查与失败均按无习惯分 |
 
 ### 4.7 hike/video.py
 

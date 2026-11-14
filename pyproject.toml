@@ -29,10 +29,10 @@ dependencies = [
 
 # 项目链接
 [project.urls]
-Homepage = "https://github.com/pjm314159/zhs"
-Repository = "https://github.com/pjm314159/zhs"
-Issues = "https://github.com/pjm314159/zhs/issues"
-Changelog = "https://github.com/pjm314159/zhs/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ignvex/zhs"
+Repository = "https://github.com/ignvex/zhs"
+Issues = "https://github.com/ignvex/zhs/issues"
+Changelog = "https://github.com/ignvex/zhs/blob/main/CHANGELOG.md"
 
 # 构建系统
 [build-system]

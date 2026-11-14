@@ -3,6 +3,8 @@
 覆盖 run_courses / run_ai / run_ai_by_str / run_zhidao / run_hike / run_all。
 """
 
+from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +18,9 @@ from zhs.cli.services.play_service import (
     run_hike,
     run_zhidao,
 )
+
+if TYPE_CHECKING:
+    from zhs.zhidao.models import ZhidaoContext, ZhidaoCourse
 
 
 def _make_config() -> MagicMock:
@@ -184,47 +189,52 @@ class TestRunAiByStr:
 class TestRunZhidao:
     """run_zhidao"""
 
-    @patch("zhs.zhidao.video.ZhidaoVideoPlayer")
+    @patch("zhs.cli.services.play_service.play_zhidao_course")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_calls_play_course(
+    def test_calls_play_zhidao_course(
         self,
         mock_mgr_cls: MagicMock,
-        mock_player_cls: MagicMock,
+        mock_play: MagicMock,
     ) -> None:
-        """调用 play_course"""
+        """调用 play_zhidao_course（含学习计划）"""
         session = MagicMock()
         config = _make_config()
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
-        mock_player = MagicMock()
-        mock_player_cls.return_value = mock_player
         mock_ctx = MagicMock()
         mock_mgr.get_context.return_value = mock_ctx
+        mock_mgr.get_course_list.return_value = []
 
         run_zhidao(session, config, "ABC123")
 
         mock_mgr.get_context.assert_called_once_with("ABC123")
-        mock_player.play_course.assert_called_once_with("ABC123", mock_ctx)
+        mock_play.assert_called_once()
+        args = mock_play.call_args.args
+        assert args[0] is session
+        assert args[1] is config
+        assert args[2] == "ABC123"
+        assert args[3] is mock_ctx
 
-    @patch("zhs.zhidao.video.ZhidaoVideoPlayer")
+    @patch("zhs.cli.services.play_service.play_zhidao_course")
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
-    def test_player_uses_config_speed(
+    def test_passes_course_end_time(
         self,
         mock_mgr_cls: MagicMock,
-        mock_player_cls: MagicMock,
+        mock_play: MagicMock,
     ) -> None:
-        """player 使用配置中的 speed"""
+        """从课程列表取 courseEndTime 传给 play_zhidao_course"""
         session = MagicMock()
         config = _make_config()
-        config.video.zhidao_speed = 2.0
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
+        mock_course = MagicMock()
+        mock_course.secret = "ABC123"
+        mock_course.course_end_time = 1795708799000
+        mock_mgr.get_course_list.return_value = [mock_course]
 
         run_zhidao(session, config, "ABC123")
 
-        mock_player_cls.assert_called_once()
-        call_kwargs = mock_player_cls.call_args.kwargs
-        assert call_kwargs["speed"] == 2.0
+        assert mock_play.call_args.args[4] == 1795708799000
 
 
 class TestRunHike:
@@ -407,6 +417,8 @@ class TestRunAll:
         mock_course = MagicMock()
         mock_course.secret = "ABC123"
         mock_course.course_name = "测试课程"
+        mock_course.course_id = 0
+        mock_course.course_info = None
         mock_zhidao_cls.return_value.get_course_list.return_value = [mock_course]
         mock_zhidao_cls.return_value.get_context.side_effect = Exception("err")
         mock_ai_cls.return_value.get_ai_course_list.return_value = []
@@ -431,3 +443,152 @@ class TestRunAll:
         run_all(session, config, "ai")
         captured = capsys.readouterr()
         assert "缺少 courseId 或 classId" in captured.out
+
+
+class TestResolvePlan:
+    """resolve_plan：没有习惯分的课不该被每日配额拦住"""
+
+    @staticmethod
+    def _ctx(has_habbit: bool | None, course_id: int = 1100000680, name: str = "国家安全教育") -> "ZhidaoContext":
+        from zhs.zhidao.models import CourseInfo, ZhidaoContext, ZhidaoCourse
+
+        course = ZhidaoCourse(
+            secret="RAC1",
+            course_name=name,
+            course_info=CourseInfo(course_id=course_id, name=name),
+            recruit_id=431490,
+            course_id=course_id,
+            has_habbit_score=has_habbit,
+        )
+        return ZhidaoContext(course=course, chapters=[], videos={}, course_id=course_id)
+
+    def test_no_habit_score_means_no_daily_limit(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig
+
+        use_plan, _ = resolve_plan(AppConfig(), self._ctx(False), "RAC1")
+        assert use_plan is False
+
+    def test_habit_score_enables_plan(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig
+
+        use_plan, minutes = resolve_plan(AppConfig(), self._ctx(True), "RAC1")
+        assert use_plan is True
+        assert minutes == 40
+
+    def test_unknown_habit_score_does_not_limit(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig
+
+        use_plan, _ = resolve_plan(AppConfig(), self._ctx(None), "RAC1")
+        assert use_plan is False
+
+    def test_global_switch_off_disables_all(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig, VideoConfig
+
+        config = AppConfig(video=VideoConfig(zhidao_plan=False))
+        use_plan, _ = resolve_plan(config, self._ctx(True), "RAC1")
+        assert use_plan is False
+
+    def test_course_override_by_course_id(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig, CoursePlanConfig, VideoConfig
+
+        config = AppConfig(
+            video=VideoConfig(zhidao_courses={"1100000680": CoursePlanConfig(plan=True, daily_minutes=60)})
+        )
+        use_plan, minutes = resolve_plan(config, self._ctx(False), "RAC1")
+        assert use_plan is True
+        assert minutes == 60
+
+    def test_course_override_by_name_disables_plan(self) -> None:
+        from zhs.cli.services.play_service import resolve_plan
+        from zhs.config import AppConfig, CoursePlanConfig, VideoConfig
+
+        config = AppConfig(video=VideoConfig(zhidao_courses={"国家安全教育": CoursePlanConfig(plan=False)}))
+        use_plan, _ = resolve_plan(config, self._ctx(True), "RAC1")
+        assert use_plan is False
+
+
+class TestPlayZhidaoCourseNoPlan:
+    """没有习惯分的课不应打印「今天已完成」并跳过"""
+
+    @patch("zhs.utils.path.get_data_dir")
+    @patch("zhs.zhidao.video.ZhidaoVideoPlayer")
+    def test_plays_without_daily_limit(
+        self, mock_player_cls: MagicMock, mock_data_dir: MagicMock, tmp_path: Path
+    ) -> None:
+        from zhs.cli.services.play_service import play_zhidao_course
+        from zhs.config import AppConfig
+        from zhs.zhidao.models import CourseInfo, ZhidaoContext, ZhidaoCourse
+
+        mock_data_dir.return_value = tmp_path
+        course = ZhidaoCourse(
+            secret="RAC1",
+            course_name="国家安全教育",
+            course_info=CourseInfo(course_id=1100000680, name="国家安全教育"),
+            recruit_id=431490,
+            course_id=1100000680,
+            has_habbit_score=False,
+        )
+        ctx = ZhidaoContext(course=course, chapters=[], videos={}, course_id=1100000680)
+
+        play_zhidao_course(MagicMock(), AppConfig(), "RAC1", ctx, None)
+
+        mock_player_cls.assert_called_once()
+        assert mock_player_cls.call_args.kwargs["time_limit"] == 0  # 不限时
+        mock_player_cls.return_value.play_course.assert_called_once()
+        # 没有习惯分就不该写学习记录
+        assert not (tmp_path / "study_plan.json").exists()
+
+
+class TestNeedsDailyPlan:
+    """run_all 分轮用的 _needs_daily_plan 要与 resolve_plan 的判断一致"""
+
+    @staticmethod
+    def _course(course_id: int, info_id: int, has_habbit: bool | None = None) -> "ZhidaoCourse":
+        from zhs.zhidao.models import CourseInfo, ZhidaoCourse
+
+        return ZhidaoCourse(
+            secret="RAC1",
+            course_name="军事理论-综合版",
+            course_info=CourseInfo(course_id=info_id, name="军事理论-综合版"),
+            course_id=course_id,
+            has_habbit_score=has_habbit,
+        )
+
+    def test_course_id_override_falls_back_to_course_info(self) -> None:
+        """课程列表顶层 courseId 为 0 时，按 courseInfo.courseId 匹配课程级配置"""
+        from zhs.cli.services.play_service import _needs_daily_plan
+        from zhs.config import AppConfig, CoursePlanConfig, VideoConfig
+
+        config = AppConfig(video=VideoConfig(zhidao_courses={"1100000680": CoursePlanConfig(plan=False)}))
+        assert _needs_daily_plan(MagicMock(), self._course(0, 1100000680, True), config) is False
+
+    def test_global_switch_off(self) -> None:
+        from zhs.cli.services.play_service import _needs_daily_plan
+        from zhs.config import AppConfig, VideoConfig
+
+        config = AppConfig(video=VideoConfig(zhidao_plan=False))
+        assert _needs_daily_plan(MagicMock(), self._course(1, 1, True), config) is False
+
+    def test_unknown_habit_score_queried_then_not_plan(self) -> None:
+        """列表里没有 hasHabbitScore 时补查 queryCourse；仍取不到则与 resolve_plan 一样不分天"""
+        from zhs.cli.services.play_service import _needs_daily_plan
+        from zhs.config import AppConfig
+
+        mgr = MagicMock()
+        mgr.query_course.return_value = {}
+        assert _needs_daily_plan(mgr, self._course(1, 1, None), AppConfig()) is False
+        mgr.query_course.return_value = {"hasHabbitScore": True}
+        assert _needs_daily_plan(mgr, self._course(1, 1, None), AppConfig()) is True
+
+    def test_query_failure_not_plan(self) -> None:
+        from zhs.cli.services.play_service import _needs_daily_plan
+        from zhs.config import AppConfig
+
+        mgr = MagicMock()
+        mgr.query_course.side_effect = RuntimeError("boom")
+        assert _needs_daily_plan(mgr, self._course(1, 1, None), AppConfig()) is False

@@ -15,7 +15,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Three Course Types Supported**: Zhidao / Hike / AI Smart Courses
 - **Command-line Interface**: Clear subcommand separation with `zhs init / login / play / homework / exam / fetch / cache`, plus `zhs --version` (`-v`) to print the version
 - **QR Code Login**: Auto-saves cookies to avoid repeated logins
-- **Auto Video Watching**: Simulates human viewing behavior (random pauses, random delays, progress bar display)
+- **Auto Video Watching**: Simulates human viewing behavior (random delays, progress bar display)
 - **Popup Quiz Answering**: Automatically selects correct answers for popup questions during video playback
 - **Auto Homework**: Zhidao homework + AI course homework, supports LLM answering and answer caching
 - **AI Exams**: Auto-answer AI course exams, batch save answers, heartbeat keep-alive
@@ -52,7 +52,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Quickest start**: install with `pip install zhs` — most recommended for **users**
 - Or use the [uv](https://docs.astral.sh/uv/) package manager (recommended for development)
   - Note: When using `uv`, run with `uv run zhs` command or enter the environment directly
-- Or use the pre-built .whl file: `pip install [version].whl` [**Release**](https://github.com/pjm314159/zhs/releases)
+- Or use the pre-built .whl file: `pip install [version].whl` [**Release**](https://github.com/ignvex/zhs/releases)
 
 ### Steps
 
@@ -202,7 +202,7 @@ limit = 0                # Time limit in minutes (0 = no limit)
 threshold = 0.91         # Video end threshold (0.0-1.0)
 
 [video]
-zhidao_speed = 1.5       # Zhidao video speed (max 2.0)
+zhidao_speed = 1.0       # Zhidao video speed (default 1.0, max 2.0)
 hike_speed = 1.25        # Hike video speed
 ai_speed = 1.5           # AI course video speed
 

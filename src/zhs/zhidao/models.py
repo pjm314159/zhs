@@ -8,16 +8,32 @@
 - ZhidaoContext: 课程上下文（不含 cookies/headers）
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+# queryCourse.courseInfo.courseMode 的取值：2 为新版知识图谱课
+MAP_COURSE_MODE = 2
 
 
 class CourseInfo(BaseModel):
-    """课程基本信息"""
+    """课程基本信息
+
+    course_mode 是新旧两套共享课的版本标识（抓包确认）：
+    2 = 新版知识图谱课（aistudy / share-course-map），其余 = 旧版 videolist 课。
+    注意不能用 queryCourseMapInfo 是否返回 mapStr 判断：旧版课也会返回 mapStr。
+    """
 
     course_id: int = Field(alias="courseId")
     name: str
+    course_mode: int | None = Field(default=None, alias="courseMode")
 
     model_config = {"populate_by_name": True}
+
+    @property
+    def is_map_course(self) -> bool:
+        """是否为新版知识图谱课"""
+        return self.course_mode == MAP_COURSE_MODE
 
 
 class ZhidaoCourse(BaseModel):
@@ -28,6 +44,10 @@ class ZhidaoCourse(BaseModel):
     course_info: CourseInfo | None = Field(default=None, alias="courseInfo")
     recruit_id: int | None = Field(default=None, alias="recruitId")
     course_id: int = Field(default=0, alias="courseId")
+    # 课程学习截止时间（毫秒时间戳，来自 queryShareCourseInfo；超过后学习不记进度）
+    course_end_time: int | None = Field(default=None, alias="courseEndTime")
+    # 是否有学习习惯分（来自 queryCourse；True 表示需要分天学，False 可以一次刷完）
+    has_habbit_score: bool | None = Field(default=None, alias="hasHabbitScore")
 
     model_config = {"populate_by_name": True}
 
@@ -119,6 +139,10 @@ class ZhidaoContext(BaseModel):
     """知到课程上下文（缓存）
 
     cookies 和 headers 不放入模型，由 session 管理。
+
+    mode="map" 表示新版共享课（知识图谱）：章节树来自 aistudy 的
+    kgCourseTreeInfoList，视频资源来自 share-course-map 的
+    queryNodeDescription，进度上报走 saveUserStudyProcess。
     """
 
     course: ZhidaoCourse
@@ -126,3 +150,103 @@ class ZhidaoContext(BaseModel):
     videos: dict[int, VideoSmallLesson]
     course_id: int = 0
     fucked_time: int = 0
+    mode: Literal["classic", "map"] = "classic"
+    map_chapters: list["MapChapter"] = Field(default_factory=list)
+    map_str: str = ""
+    map_hash: str = ""
+
+
+class MapLesson(BaseModel):
+    """知识图谱节点（课时或子课时）
+
+    叶子节点才挂视频资源；父节点 sourceNum/finishNum 可能为 null。
+    """
+
+    id_hash: str = Field(alias="idHash")
+    id_str: str = Field(alias="idStr")
+    name: str = ""
+    source_num: int | None = Field(default=None, alias="sourceNum")
+    finish_num: int | None = Field(default=None, alias="finishNum")
+    # freeExam=2 且 haveDone=1 表示该节点可以免考；章节树上这两个字段常为 null
+    free_exam: int | None = Field(default=None, alias="freeExam")
+    have_done: int | None = Field(default=None, alias="haveDone")
+    small_lessons: list["MapLesson"] = Field(default_factory=list, alias="smallLessons")
+    chapter_hash: str = ""
+    chapter_name: str = ""
+    # 有子课时时，上报里的 lessonId 是父课时 hash，叶子节点自己不是课时
+    parent_hash: str = ""
+
+    model_config = {"populate_by_name": True}
+
+    def leaves(self) -> list["MapLesson"]:
+        """展开为叶子节点列表（没有子课时时返回自身）"""
+        if not self.small_lessons:
+            return [self]
+        result: list[MapLesson] = []
+        for child in self.small_lessons:
+            result.extend(child.leaves())
+        return result
+
+
+class MapChapter(BaseModel):
+    """知识图谱章节"""
+
+    id_hash: str = Field(alias="idHash")
+    id_str: str = Field(alias="idStr")
+    name: str = ""
+    lessons: list[MapLesson] = Field(default_factory=list, alias="lessons")
+
+    model_config = {"populate_by_name": True}
+
+    def leaf_nodes(self) -> list[MapLesson]:
+        """展开本章所有叶子节点，并回填章节信息"""
+        result: list[MapLesson] = []
+        for lesson in self.lessons:
+            for leaf in lesson.leaves():
+                leaf.chapter_hash = self.id_hash
+                leaf.chapter_name = self.name
+                if leaf.id_hash != lesson.id_hash:
+                    leaf.parent_hash = lesson.id_hash
+                result.append(leaf)
+        return result
+
+
+class MapResource(BaseModel):
+    """知识图谱节点下的资源（视频/课件）"""
+
+    id_hash: str = Field(default="", alias="idHash")
+    id_str: str = Field(default="", alias="idStr")
+    file_id: str = Field(default="", alias="resourcesFileId")
+    # 知识点节点 hash。课件上报的 lessonVideoId 用这个，不是资源自己的 idHash
+    node_uid_hash: str = Field(default="", alias="nodeUidHash")
+    name: str = Field(default="", alias="resourcesName")
+    suffix: str = Field(default="", alias="resourcesSuffix")
+    resources_time: str = Field(default="", alias="resourcesTime")
+    url: str = Field(default="", alias="resourcesUrl")
+    # 0=选学资源。上报进度会被服务端以 2025「禁止选学资源提交进度」拒绝
+    sync_type: int | None = Field(default=None, alias="resourcesSyncType")
+    data_type: int | None = Field(default=None, alias="resourcesDataType")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def duration(self) -> int:
+        """视频时长（秒），非视频资源返回 0"""
+        try:
+            return int(self.resources_time)
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def is_video(self) -> bool:
+        return self.duration > 0
+
+    @property
+    def is_elective(self) -> bool:
+        """是否为选学资源（不计入课程进度，上报会被拒绝）"""
+        return self.sync_type == 0
+
+    @property
+    def is_courseware(self) -> bool:
+        """是否为 PPT/课件（点开即完成，dataType=2）"""
+        return self.suffix.lower() in {"ppt", "pptx"}

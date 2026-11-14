@@ -15,6 +15,7 @@ from zhs.api.http_client import HttpClient
 from zhs.api.sso import SsoAuthenticator
 from zhs.api.zhidao_exam_api import ZhidaoExamApi
 from zhs.api.zhidao_homework_api import ZhidaoHomeworkApi
+from zhs.api.zhidao_kg_exam_api import ZhidaoKgExamApi
 
 __all__ = [
     "AiAnalysisApi",
@@ -25,4 +26,5 @@ __all__ = [
     "SsoAuthenticator",
     "ZhidaoExamApi",
     "ZhidaoHomeworkApi",
+    "ZhidaoKgExamApi",
 ]

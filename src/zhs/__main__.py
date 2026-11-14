@@ -44,6 +44,7 @@ from zhs.cli.services.play_service import run_ai_by_str as _run_ai_by_str
 from zhs.cli.services.play_service import run_all as _run_all
 from zhs.cli.services.play_service import run_hike as _run_hike
 from zhs.cli.services.play_service import run_zhidao as _run_zhidao
+from zhs.cli.services.daemon_service import run_daemon_mode as _run_daemon_mode
 from zhs.config import AppConfig, ConfigManager
 from zhs.exceptions import SliderVerificationRequired
 from zhs.login import LoginManager
@@ -171,6 +172,7 @@ def play(
     speed: float | None = typer.Option(None, "-s", "--speed", help="播放速度"),  # noqa: B008
     limit: int = typer.Option(0, "-l", "--limit", help="每门课程时间限制(分钟)", min=0),  # noqa: B008
     learn_optional: bool = typer.Option(False, "--learn-optional", help="AI 课程学习选学资源"),  # noqa: B008
+    daemon: bool = typer.Option(False, "--daemon", help="守护模式：持续运行直到习惯分课程结束"),  # noqa: B008
     proxy: str | None = typer.Option(None, "--proxy", help="代理"),  # noqa: B008
     debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),  # noqa: B008
     console_log: bool = typer.Option(False, "--console-log", help="日志输出到控制台"),  # noqa: B008
@@ -196,6 +198,15 @@ def play(
         config.limit = limit
     if learn_optional:
         config.video.ai_learn_optional = True
+
+    # 守护模式：与其他选项互斥
+    if daemon:
+        if url or course or ai_course is not None or ai_class is not None:
+            print("守护模式不能与 --url / -c / --ai-course / --ai-class 同时使用")
+            raise typer.Exit(1)
+        print("启动守护模式：将持续运行直到所有习惯分课程结束")
+        _run_daemon_mode(session, config)
+        return
 
     # --url 与 -c 互斥
     if url and course:

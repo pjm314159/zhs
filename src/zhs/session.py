@@ -21,6 +21,7 @@ from zhs.api.http_client import HttpClient
 from zhs.api.sso import SsoAuthenticator
 from zhs.api.zhidao_exam_api import ZhidaoExamApi
 from zhs.api.zhidao_homework_api import ZhidaoHomeworkApi
+from zhs.api.zhidao_kg_exam_api import ZhidaoKgExamApi
 from zhs.config import AppConfig, CryptoConfig, UrlConfig
 
 
@@ -35,6 +36,7 @@ class ZhsSession:
         self._query = EncryptedQuery(self._http)
         self._homework_api = ZhidaoHomeworkApi(self._query)
         self._exam_api = ZhidaoExamApi(self._query)
+        self._kg_exam_api = ZhidaoKgExamApi(self._query)
         self._ai_analysis_api = AiAnalysisApi(self._http)
         self._sso = SsoAuthenticator(self._http)
 
@@ -175,6 +177,14 @@ class ZhsSession:
         if code != ok_code:
             raise ApiError(code=code, message=result.get("message", ""))
         return result
+
+    def aistudy_query(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
+        """新版共享课查询（aistudy：GET + secretStr + dateFormate，code="200"）"""
+        return self._query.query("aistudy", url, data)
+
+    def map_post(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
+        """新版共享课写入/节点查询（POST JSON 明文，code=200）"""
+        return self._query.query("map_json", url, data)
 
     def hike_query(
         self,
@@ -451,6 +461,64 @@ class ZhsSession:
     def exam_sso_login(self) -> None:
         """通过 CAS SSO 认证 studentexam-api 域名"""
         self._sso.login()
+
+    # --- 知识图谱课章节测验 API（委托给 ZhidaoKgExamApi）---
+
+    def kg_exam_start(
+        self,
+        recruit_id: str,
+        exam_id: int,
+        knowledge_id: str,
+    ) -> dict[str, Any]:
+        """开始知识图谱课章节测验，获取题目列表
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID（来自章节树节点的 examId 字段）
+            knowledge_id: 知识点 ID（章节树节点的 idHash）
+
+        Returns:
+            data 对象，包含 examId, knowledgeId, questions 等
+        """
+        return self._kg_exam_api.start_exam(recruit_id, exam_id, knowledge_id)
+
+    def kg_exam_submit(
+        self,
+        recruit_id: str,
+        exam_id: int,
+        knowledge_id: str,
+        answers: list[dict[str, Any]],
+    ) -> bool:
+        """提交知识图谱课章节测验答案
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID
+            knowledge_id: 知识点 ID
+            answers: 答案列表，每个元素包含 questionId 和 answer
+
+        Returns:
+            提交是否成功
+        """
+        return self._kg_exam_api.submit_exam(recruit_id, exam_id, knowledge_id, answers)
+
+    def kg_exam_get_mastery_info(
+        self,
+        recruit_id: str,
+        exam_id: int,
+        knowledge_id: str,
+    ) -> dict[str, Any]:
+        """获取知识图谱课章节测验掌握度信息
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID
+            knowledge_id: 知识点 ID
+
+        Returns:
+            data 对象，包含 questionNum, correctNum, rate, upgradedRate
+        """
+        return self._kg_exam_api.get_mastery_info(recruit_id, exam_id, knowledge_id)
 
     # --- 生命周期 ---
 

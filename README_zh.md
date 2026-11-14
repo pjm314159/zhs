@@ -13,7 +13,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 - **三类课程全覆盖**：知到（Zhidao）/ Hike 职教云 / AI 智慧课程
 - **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离，`zhs --version`（或 `-v`）查看版本号
 - **扫码登录**：自动保存 Cookie，避免重复登录
-- **视频自动刷课**：模拟真人观看（随机暂停、随机延迟、进度条显示）
+- **视频自动刷课**：模拟真人观看（随机延迟、进度条显示）
 - **弹窗答题**：视频内弹窗题目自动选择正确答案
 - **作业自动作答**：知到作业 + AI 课程作业，支持 LLM 答题与答案缓存
 - **AI 考试**：AI 课程考试自动答题，批量保存答案，心跳保活
@@ -50,7 +50,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 - **最快开始**，使用`pip install zhs`,最推荐**用户**使用
 - 或者使用[uv](https://docs.astral.sh/uv/) 包管理器（开发推荐）
   - 注意使用`uv`要使用`uv run zhs`command 或者直接进入环境使用
-- 或者直接使用打包好的.whl 直接使用 `pip install [version].whl` [**Release**](https://github.com/pjm314159/zhs/releases)
+- 或者直接使用打包好的.whl 直接使用 `pip install [version].whl` [**Release**](https://github.com/ignvex/zhs/releases)
 
 ### 步骤
 
@@ -200,7 +200,7 @@ limit = 0                # 刷课时间限制（分钟，0 = 不限制）
 threshold = 0.91         # 视频结束阈值（0.0-1.0）
 
 [video]
-zhidao_speed = 1.5       # 知到视频速度（最高 2.0）
+zhidao_speed = 1.0       # 知到视频速度（默认 1.0，最高 2.0）
 hike_speed = 1.25        # Hike 视频速度
 ai_speed = 1.5           # AI 课程视频速度
 

@@ -94,6 +94,21 @@ class TestStrategies:
         assert s.with_dateformate is True
         assert s.has_response_body is False
 
+    def test_aistudy_strategy(self) -> None:
+        """aistudy 策略：video_key, GET, code 为字符串 200"""
+        s = STRATEGIES["aistudy"]
+        assert s.key_name == "video_key"
+        assert s.default_method == "GET"
+        assert s.ok_value == "200"
+
+    def test_map_json_strategy(self) -> None:
+        """map_json 策略：明文 JSON, dateFormate, code 为数字 200"""
+        s = STRATEGIES["map_json"]
+        assert s.key_name == ""
+        assert s.content_type == "json"
+        assert s.with_dateformate is True
+        assert s.ok_value == 200
+
 
 # ---------------------------------------------------------------------------
 # zhidao 查询
@@ -416,3 +431,30 @@ class TestExtraFields:
             decrypted = _json.loads(cipher.decrypt(parsed["secretStr"][0]))
             assert decrypted == {"recruitId": "394787"}
             assert "source" not in decrypted
+
+
+# ---------------------------------------------------------------------------
+# aistudy 成功码：字符串 "200" 与数字 200 都认
+# ---------------------------------------------------------------------------
+
+
+class TestAistudyOkCode:
+    """aistudy 先后返回过 code="200" 和 code=200，两种都必须视为成功"""
+
+    @pytest.mark.parametrize("code", ["200", 200])
+    def test_accepts_string_and_int_200(self, query: EncryptedQuery, code: int | str) -> None:
+        with respx.mock:
+            respx.get("https://example.com/api").mock(
+                return_value=httpx.Response(200, json={"code": code, "message": "success", "data": {"mapStr": "x"}})
+            )
+            result = query.query("aistudy", "https://example.com/api", {"courseId": 1})
+        assert result["data"]["mapStr"] == "x"
+
+    def test_still_rejects_business_error(self, query: EncryptedQuery) -> None:
+        with respx.mock:
+            respx.get("https://example.com/api").mock(
+                return_value=httpx.Response(200, json={"code": "2043", "message": "recruitId不能为空"})
+            )
+            with pytest.raises(ApiError) as exc_info:
+                query.query("aistudy", "https://example.com/api", {"courseId": 1})
+        assert exc_info.value.code == 2043

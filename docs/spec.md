@@ -32,7 +32,8 @@ src/zhs/
 │   ├── course.py        # 课程列表与上下文
 │   ├── video.py         # 视频刷课
 │   ├── quiz.py          # 弹窗答题
-│   ├── models.py        # 数据模型
+│   ├── schedule.py      # 分天学习计划（plan_today / StudyLedger）
+│   ├── models.py        # 数据模型（含知识图谱 MapChapter / MapLesson / MapResource）
 │   └── homework/        # 知到作业模块
 │       ├── __init__.py
 │       ├── scanner.py   # 作业扫描
@@ -126,27 +127,72 @@ src/zhs/
 #### 3.3.2 课程上下文
 
 - 跨站登录（`gologin`，返回 HTML 不解析 JSON）
-- 查询课程信息（`queryCourse`）
-- 获取章节视频列表（`videoList`）
-- 查询学习状态（`queryStudyInfo`）
+- 查询课程信息（`queryCourse`），记录 `courseInfo.courseMode` 与 `hasHabbitScore`
+- 按 `courseMode` 分流（**不以 `queryCourseMapInfo` 是否返回 `mapStr` 判断**，旧版课同样返回 `mapStr`）：
+  - `courseMode == 2`：新版知识图谱课，章节树取自 `kgCourseTreeInfoList`，`mode="map"`
+  - 其余：旧版课，获取章节视频列表（`videolist`）并查询学习状态（`queryStuyInfo`），`mode="classic"`
+- 图谱课已确认后，`mapStr`/`mapHashStr` 缺失或章节树为空直接抛 `ApiError`，不回退旧版流程（旧版 `videolist` 对图谱课只返回 `videoId=-1` 的空目录）
 - 缓存课程上下文（cookies、headers、视频信息）
 
-#### 3.3.3 视频刷课
+#### 3.3.3 视频刷课（旧版 videolist 课）
 
 - 获取 `prelearningNote` 生成 `learningTokenId`（Base64 编码）
+- 续播位置取 `learnTimeSec`（夹在视频时长内），累计学习时长取 `studyTotalTime`，两者分开处理
 - 获取弹窗题目信息（`loadVideoPointerInfo`）
 - 模拟视频播放主循环：
-  - 按速度推进播放时间
-  - 随机暂停（0.25% 概率暂停 60 秒，模拟真人）
+  - 按速度推进播放时间（默认 1.0 倍，与网页端一致；答题期间不推进）
   - 每 2 秒更新 WatchPoint
-  - 遇到弹窗题目时：获取题目详情 → 自动答题 → 保存答案
-  - 每 30 秒向数据库上报进度（`saveDatabaseIntervalTimeV2`）
+  - 遇到弹窗题目时：获取题目详情 → 自动答题 → 保存答案，并立即补一次 Database 上报
+  - Database 上报（`saveDatabaseIntervalTimeV2`）约每 300 秒、Cache 上报（`saveCacheIntervalTimeV2`）约每 180 秒，各自计时，间隔带 ±5 秒抖动
+  - 两种上报**共用一条增量链**：本段秒 = 距上一次任意上报的位置差（各自计算会被服务端重复累加，触发 `-8`）
   - 显示进度条
 - 已观看视频自动跳过（`watchState == 1` 且 `end_thre <= 1.0`）
 - 调用 `watchVideo` 初始化视频播放（在新线程中请求视频流）
 - 调用 `threeDimensionalCourseWare` 模拟课件访问
+- 心跳节奏依据见 [capture-findings.md](./capture-findings.md)
 
-#### 3.3.4 弹窗答题
+#### 3.3.4 知识图谱课（新版共享课）
+
+- 按章节 → 叶子节点遍历；节点有 `smallLessons` 时以子节点为叶子
+- 节点资源取自 `queryNodeDescription`，按类型处理：
+  - 选学资源（`resourcesSyncType == 0`）：跳过（上报会被 `2025 禁止选学资源提交进度` 拒绝）
+  - 课件（后缀 `ppt` / `pptx`）：`preLearningLoad` 后按 `dataType=2` 上报一次即完成，不占学习时长、不受时间限制
+  - 视频：`queryUserStudyInfo` 的 `state == 2` 跳过，否则以 `learnTime` 为续播点，`preLearningLoad` 后每 30 秒上报一次 `saveUserStudyProcess`
+- `playTimes` 是本次新增学习秒数，服务端据此累加 `learnTime`；停止条件以响应中的 `learnTime` 为准
+- 其他类型资源（如 pdf）不处理
+- 进度按「节点 + `dataId`」独立记录；`queryUserStudyInfo` 出错时不按“未学”处理，避免从 0 重播
+- `2021 多端观看异常` 为账号级状态，命中后停止整门课
+- 课程统计用章节树的 `sourceNum` / `finishNum`；视频时长需逐节点查询，开播前未知
+
+#### 3.3.5 分天学习计划（学习习惯分）
+
+- 仅对有学习习惯分（`queryCourse.hasHabbitScore == true`）的课生效；无习惯分的课一次刷完，不受每日配额限制
+- `zhs play` 全刷模式下先刷有习惯分的课，再刷无习惯分的课
+- 计划规则（`zhidao/schedule.py` 的 `plan_today`）：
+  - 首日：留够之后每天的配额，其余当天学完；至少学一天的配额
+  - 之后每天：剩余时长按到截止日的天数平摊，不低于每日配额
+  - 截止日当天：剩多少学多少
+  - 图谱课剩余时长未知时，按一天的配额学
+- 每日配额默认 40 分钟，最少 30 分钟（单日时长过短不计为当天学过）
+- 当天预算作为播放器的时间上限；`--limit` 同时给出时取较小值
+- 计划状态保存在数据目录的 `study_plan.json`（`StudyLedger`），按课程 + 日期累计已学秒数，同一天多次运行累加
+- 截止日取课程列表的 `courseEndTime`；取不到时不考虑截止日，首日即学完全部剩余时长
+- 全刷分轮与单课播放使用同一判定；课程列表顶层 `courseId` 为 0 时按 `courseInfo.courseId` 匹配课程级配置；补查 `hasHabbitScore` 失败按无习惯分处理
+- 配置：`[video]` 的 `zhidao_plan`（总开关）、`zhidao_daily_minutes`；`[video.zhidao_courses."<课程>"]` 按课程覆盖 `plan` / `daily_minutes`，键可为 courseId、课程名或 recruitAndCourseId，优先级为 courseId → 课程名 → recruitAndCourseId
+
+```toml
+[video]
+zhidao_plan = true          # 总开关；false 则所有课程都不分天
+zhidao_daily_minutes = 40   # 默认每天分钟数（最少 30）
+
+[video.zhidao_courses."1100000680"]
+plan = false                # 这门课一次刷完
+
+[video.zhidao_courses."军事理论-综合版"]
+daily_minutes = 60
+```
+
+#### 3.3.6 弹窗答题
 
 - 从 `loadVideoPointerInfo` 获取题目时间点
 - 按时间排序，跳过已播放过的题目
@@ -155,7 +201,7 @@ src/zhs/
 - 保存答案（`saveLessonPopupExamSaveAnswer`）
 - 答题延迟机制（`answer_delay=2` 递减，防止请求过快）
 
-#### 3.3.5 知到作业（zhidao/homework/）
+#### 3.3.7 知到作业（zhidao/homework/）
 
 **作业扫描（HomeworkScanner）**：
 - API：`studentexam-api.zhihuishu.com/studentExam/gateway/t/v1/student/getStudentHomework`
@@ -608,8 +654,38 @@ zhs cache import PATH [PATH ...]
 | `/gateway/t/v1/popupAnswer/loadVideoPointerInfo` | POST | 获取弹窗题目 | video_key |
 | `/gateway/t/v1/popupAnswer/lessonPopupExam` | POST | 获取题目详情 | video_key |
 | `/gateway/t/v1/popupAnswer/saveLessonPopupExamSaveAnswer` | POST | 保存弹窗答案 | video_key |
-| `/gateway/t/v1/learning/saveDatabaseIntervalTimeV2` | POST | 上报视频进度 V2 | video_key |
+| `/gateway/t/v1/learning/saveDatabaseIntervalTimeV2` | POST | 上报视频进度 V2（约每 300 秒） | video_key |
+| `/gateway/t/v1/learning/saveCacheIntervalTimeV2` | POST | 缓存进度上报（约每 180 秒） | video_key |
 | `/gateway/t/v1/course/threeDimensionalCourseWare` | GET | 课件访问 | — |
+
+### 知到共享课：新版知识图谱（aistudy / share-course-map）
+
+> 仅 `queryCourse` 返回 `courseInfo.courseMode == 2` 的课程走本组接口，判定见 §3.3.2。
+
+| 端点 | 方法 | 用途 | 加密 |
+|------|------|------|------|
+| `/gateway/t/v1/learning/queryCourseMapInfo` | GET | 课程图谱信息（`mapStr` / `mapHashStr`） | video_key（`code="200"`） |
+| `/gateway/t/v1/learning/kgCourseTreeInfoList` | GET | 章节/节点树（`sourceNum` / `finishNum`） | video_key（`code="200"`） |
+| `/gateway/t/v1/learning/queryUserRecruitIdLastKnowledgeInfo` | GET | 上次学习节点（已封装，播放流程未使用） | video_key（`code="200"`） |
+| `/gateway/t/v1/learning/queryUserStudyInfo` | GET | 单节点单资源的学习记录（`state` / `learnTime`） | video_key（`code="200"`） |
+| `/gateway/t/v1/learning/preLearningLoad` | GET | 建立学习记录（首次上报前必调） | video_key（`code="200"`） |
+| `/gateway/t/v1/learning/saveUserStudyProcess` | POST | 上报学习进度（视频/课件） | 明文 JSON（`code=200`） |
+| `/gateway/t/node/queryNodeDescription` | POST | 节点资源（视频/课件） | 明文 JSON（`code=200`） |
+
+- 域名：`aistudy.zhihuishu.com`（`urls.aistudy`）、`share-course-map-service.zhihuishu.com`（`urls.share_map`，仅 `queryNodeDescription`）
+- 加密查询以 `secretStr` + `dateFormate` 发送；`code` 先后出现过字符串 `"200"` 与数字 `200`，两者均视为成功
+- 明文 JSON 接口不加密，`dateFormate`（毫秒）放在 body 内
+- `saveUserStudyProcess` 字段：
+  - `chapterId` 用章节 `idHash`；`lessonId` 有子课时时用父课时 `idHash`，否则用节点自身 `idHash`（视频与课件相同）
+  - `dataId` 用资源的 `resourcesFileId`（视频与课件相同）
+  - `dataType`：`1` 视频，`2` 课件
+  - `playTimes`：本次新增学习秒数，服务端据此累加 `learnTime`；课件传 `0`
+  - `learnTime` 为 `HH:MM:SS`，`studyTotalTime` 为视频总秒数；课件两者均传空串
+  - `lessonVideoId`：知识点节点 `nodeUidHash`（缺省时用叶子节点 `idHash`）
+- `preLearningLoad` / `queryUserStudyInfo` 的 `lessonId` / `lessonVideoId` 取值与 `saveUserStudyProcess` 相同
+- 首次 `saveUserStudyProcess` 前必须先调 `preLearningLoad`（同一 `dataId`），否则返回 NPE 或 `2021 多端观看异常`
+- 进度按「节点 + `dataId`」独立记录，同一 `resourcesFileId` 可挂在多个节点下；`state=2` 表示已完成
+- `resourcesSyncType=0` 为选学资源，上报返回 `2025 禁止选学资源提交进度`
 
 ### 知到课程列表（onlineservice-api.zhihuishu.com）
 
