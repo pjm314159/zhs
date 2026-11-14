@@ -3,7 +3,7 @@
 从原 __main__.py 抽离的刷视频相关 _run_* 函数。
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -12,6 +12,8 @@ from zhs.config import AppConfig
 from zhs.session import ZhsSession
 
 if TYPE_CHECKING:
+    from zhs.llm.base import LLMProvider
+    from zhs.question_bank.client import QuestionBankClient
     from zhs.zhidao.course import ZhidaoCourseManager
     from zhs.zhidao.models import ZhidaoContext, ZhidaoCourse
 
@@ -116,12 +118,12 @@ def run_zhidao(session: ZhsSession, config: AppConfig, rac_id: str) -> None:
     mgr = ZhidaoCourseManager(session)
     ctx = mgr.get_context(rac_id)
     end_ms = next((c.course_end_time for c in _safe_course_list(mgr) if c.secret == rac_id), None)
-    
+
     # 初始化题库（用于知识图谱课章节测验）
-    llm = init_llm(config)
-    question_bank = init_question_bank(config, scope="zhidao_kg_exam", llm=llm)
-    
-    play_zhidao_course(session, config, rac_id, ctx, end_ms, question_bank)
+    llm = init_llm(config) if config.homework.enable_kg_exam else None
+    question_bank = init_question_bank(config, scope="zhidao_kg_exam", llm=llm) if llm else None
+
+    play_zhidao_course(session, config, rac_id, ctx, end_ms, question_bank, llm)
 
 
 def _fmt_time(sec: int) -> str:
@@ -271,7 +273,8 @@ def play_zhidao_course(
     rac_id: str,
     ctx: "ZhidaoContext",
     end_ms: int | None,
-    question_bank: Any = None,
+    question_bank: "QuestionBankClient | None" = None,
+    llm: "LLMProvider | None" = None,
 ) -> None:
     """按学习计划播放一门知到课程
 
@@ -289,6 +292,7 @@ def play_zhidao_course(
     ledger: StudyLedger | None = None
     today = date.today()
     use_plan, daily_minutes = resolve_plan(config, ctx, rac_id)
+    exams_only = False
 
     # 打印课程统计
     _print_course_summary(ctx, rac_id, use_plan)
@@ -311,7 +315,10 @@ def play_zhidao_course(
         logger.info(f"学习计划 {rac_id}: {plan}")
         if plan.budget_seconds <= 0:
             print(msg_skip(plan.describe(remaining_min)))
-            return
+            if ctx.mode != "map" or not config.homework.enable_kg_exam:
+                return
+            exams_only = True
+            print(msg_info("视频配额已完成，仅检查知识点掌握度"))
         print(msg_info(plan.describe(remaining_min)))
         time_limit = min(time_limit, plan.budget_seconds) if time_limit > 0 else plan.budget_seconds
 
@@ -322,10 +329,14 @@ def play_zhidao_course(
         time_limit=time_limit,
         question_bank=question_bank,
         homework_config=config.homework,
+        llm=llm,
     )
     before = ctx.fucked_time
     try:
-        player.play_course(rac_id, ctx)
+        if exams_only:
+            player.check_map_exams(ctx)
+        else:
+            player.play_course(rac_id, ctx)
     finally:
         if ledger is not None:
             ledger.add(rac_id, today, ctx.fucked_time - before)
@@ -382,10 +393,10 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
             zhidao_mgr = ZhidaoCourseManager(session)
             courses = zhidao_mgr.get_course_list()
             print(f"\n{course_tag('zhidao')} 发现 {len(courses)} 门课程")
-            
+
             # 初始化题库（用于知识图谱课章节测验）
-            llm = init_llm(config)
-            question_bank = init_question_bank(config, scope="zhidao_kg_exam", llm=llm)
+            llm = init_llm(config) if config.homework.enable_kg_exam else None
+            question_bank = init_question_bank(config, scope="zhidao_kg_exam", llm=llm) if llm else None
 
             # 第一轮：有习惯分的课（需要分天学，优先）
             habbit_courses = [c for c in courses if _needs_daily_plan(zhidao_mgr, c, config)]
@@ -394,7 +405,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
                 for c in habbit_courses:
                     try:
                         ctx = zhidao_mgr.get_context(c.secret)
-                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time, question_bank)
+                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time, question_bank, llm)
                     except Exception as e:
                         logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
                         print(f"知到课程 {c.course_name} 处理失败: {e}")
@@ -406,7 +417,7 @@ def run_all(session: ZhsSession, config: AppConfig, course_type: str | None = No
                 for c in non_habbit:
                     try:
                         ctx = zhidao_mgr.get_context(c.secret)
-                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time, question_bank)
+                        play_zhidao_course(session, config, c.secret, ctx, c.course_end_time, question_bank, llm)
                     except Exception as e:
                         logger.error(f"知到课程 {c.course_name} 处理失败: {e}")
                         print(f"知到课程 {c.course_name} 处理失败: {e}")

@@ -76,11 +76,11 @@ class HomeworkConfig(BaseModel):
     page_size: int = Field(default=100, alias="homework_page_size", description="扫描作业列表分页大小")
     ai_homework_threshold: int = Field(default=90, description="AI 课程作业跳过阈值（masteryScore > 此值则跳过）")
     skip_ai_free_exam: bool = Field(default=True, description="AI 课程作业是否跳过免考知识点（freeExam=1）")
-    
+
     # 知识图谱课章节测验配置（kg = Knowledge Graph）
     enable_kg_exam: bool = Field(default=True, description="是否启用知识图谱课章节测验（知识点掌握度）")
-    kg_exam_threshold: int = Field(default=80, description="章节测验掌握度阈值（低于此值重做，0-100）")
-    kg_exam_max_retries: int = Field(default=3, description="章节测验最大重试次数")
+    kg_exam_threshold: int = Field(default=100, ge=0, le=100, description="章节测验掌握度阈值（低于此值重做，0-100）")
+    kg_exam_max_retries: int = Field(default=3, ge=0, description="章节测验最大重试次数")
 
     # 字段名（delay_min）与旧版 alias（homework_delay_min）都可用于构造
     model_config = ConfigDict(populate_by_name=True)
@@ -198,7 +198,7 @@ class QuestionBankConfig(BaseModel):
     token: str = Field(default="", description="题库 token（enncy.cn 个人中心-更多配置获取）")
     query_url: str = Field(default="https://tk.enncy.cn/query", description="题库查询 API URL")
     info_url: str = Field(default="https://tk.enncy.cn/info", description="题库信息 API URL")
-    scopes: list[Literal["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam"]] = Field(
+    scopes: list[Literal["zhidao_homework", "zhidao_exam", "ai_homework", "ai_exam", "zhidao_kg_exam"]] = Field(
         default=["zhidao_exam", "ai_exam"], description="启用题库查询的范围"
     )
 

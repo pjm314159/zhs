@@ -25,8 +25,12 @@ from zhs.exceptions import ApiError, CaptchaRequired, TimeLimitExceeded
 from zhs.utils.display import course_tag, msg_done, msg_error, msg_skip, msg_warn, progress_bar, tree_print, wipe_line
 
 if TYPE_CHECKING:
+    from zhs.config import HomeworkConfig
+    from zhs.llm.base import LLMProvider
+    from zhs.question_bank.client import QuestionBankClient
     from zhs.session import ZhsSession
     from zhs.zhidao.course import ZhidaoCourseManager
+    from zhs.zhidao.kg_exam import KgExamHandler
     from zhs.zhidao.models import MapLesson, MapResource, PopupQuestion, QuestionPoint, ZhidaoContext
 
 
@@ -114,14 +118,17 @@ def _course_name(ctx: "ZhidaoContext") -> str:
 class ZhidaoVideoPlayer:
     """知到视频播放器"""
 
+    _kg_exam_handler: "KgExamHandler | None"
+
     def __init__(
         self,
         session: "ZhsSession",
         speed: float | None = None,
         end_threshold: float = 0.91,
         time_limit: int = 0,
-        question_bank: Any = None,
-        homework_config: Any = None,
+        question_bank: "QuestionBankClient | None" = None,
+        homework_config: "HomeworkConfig | None" = None,
+        llm: "LLMProvider | None" = None,
     ) -> None:
         self._session = session
         self._speed = speed
@@ -130,12 +137,13 @@ class ZhidaoVideoPlayer:
         self._progress_line: str | None = None
         self._progress_width = 0
         self._last_note: dict[str, Any] | None = None
-        
+
         # 知识图谱课章节测验处理器
-        self._kg_exam_handler: Any = None
+        self._kg_exam_handler = None
         if homework_config:
             from zhs.zhidao.kg_exam import KgExamHandler
-            self._kg_exam_handler = KgExamHandler(session, homework_config, question_bank)
+
+            self._kg_exam_handler = KgExamHandler(session, homework_config, question_bank, llm)
 
     def _print_with_progress(self, text: str, depth: int = 0, enabled: bool = True) -> None:
         """打印消息，保持进度条在底部（若激活则清除→打印→重印进度条）"""
@@ -213,7 +221,9 @@ class ZhidaoVideoPlayer:
         tree_print(msg_error(f"!! 视频失败: {unit_name} - {exc}"), depth=3)
         return False
 
-    def _finish_course(self, course_name: str, begin_time: float, failed: int, *, has_videos: bool) -> None:
+    def _finish_course(
+        self, course_name: str, begin_time: float, failed: int, *, has_videos: bool, failure_label: str = "视频"
+    ) -> None:
         """课程结束汇总：没有可播视频 / 有失败时不打印“完成课程”"""
         cost = time.time() - begin_time
         self._clear_progress()
@@ -223,7 +233,7 @@ class ZhidaoVideoPlayer:
             return
         if failed:
             logger.warning(f"play_course finished with {failed} failed video(s): {course_name} ({cost:.1f}s)")
-            tree_print(msg_warn(f"课程结束但有 {failed} 个视频失败: {course_name} ({cost:.1f}s)"), depth=1)
+            tree_print(msg_warn(f"课程结束但有 {failed} 个{failure_label}失败: {course_name} ({cost:.1f}s)"), depth=1)
             return
         logger.info(f"play_course done: {course_name} ({cost:.1f}s)")
         tree_print(msg_done(f"完成课程: {course_name} ({cost:.1f}s)"), depth=1)
@@ -310,26 +320,44 @@ class ZhidaoVideoPlayer:
                             return
                         failed += 1
 
-                # 处理章节测验（知识图谱课知识点掌握度）
+                # 即使所有资源已完成，也检查节点掌握度；失败计入课程汇总。
                 if self._kg_exam_handler:
-                    logger.info(f"[KG_EXAM] 开始检查节点 {lesson.name} 的章节测验")
                     try:
-                        logger.debug(f"开始检查节点 {lesson.name} 的章节测验")
-                        self._kg_exam_handler.try_handle_exam(
+                        if not self._kg_exam_handler.try_handle_exam(
                             recruit_id=str(recruit_id),
+                            course_id=ctx.course_id,
                             lesson=lesson,
                             print_callback=self._print_with_progress,
-                        )
+                        ):
+                            failed += 1
                     except KeyboardInterrupt:
                         raise
                     except Exception as exc:
+                        failed += 1
                         logger.error(f"章节测验处理失败: {exc}")
-                        # 章节测验失败不阻断后续节点
-                else:
-                    logger.info("[KG_EXAM] kg_exam_handler 未初始化，跳过章节测验")
-                    logger.debug("kg_exam_handler 未初始化，跳过章节测验")
+                        self._print_with_progress(msg_error(f"章节测验失败: {exc}"), depth=3)
 
-        self._finish_course(course_name, begin_time, failed, has_videos=has_videos)
+        self._finish_course(course_name, begin_time, failed, has_videos=has_videos, failure_label="学习任务")
+
+    def check_map_exams(self, ctx: "ZhidaoContext") -> None:
+        """只检查掌握度，不播放或上报资源，不消耗视频学习预算。"""
+        if self._kg_exam_handler is None:
+            return
+        failed = 0
+        for chapter in ctx.map_chapters:
+            for lesson in chapter.leaf_nodes():
+                self._print_with_progress(f"知识点: {lesson.name}", depth=2)
+                if not self._kg_exam_handler.try_handle_exam(
+                    recruit_id=str(ctx.course.recruit_id or 0),
+                    course_id=ctx.course_id,
+                    lesson=lesson,
+                    print_callback=self._print_with_progress,
+                ):
+                    failed += 1
+        if failed:
+            self._print_with_progress(msg_warn(f"掌握度检查结束，{failed} 个知识点未达标或失败"))
+        else:
+            self._print_with_progress(msg_done("掌握度检查完成"))
 
     def _time_limit_reached(self, ctx: "ZhidaoContext") -> bool:
         """课程时间限制是否已到"""

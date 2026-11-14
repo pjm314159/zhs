@@ -828,3 +828,24 @@ class TestParseLearnTime:
     )
     def test_parse(self, value: str, expected: int) -> None:
         assert _parse_learn_time(value) == expected
+
+
+def test_completed_resources_still_check_kg_and_failure_counts() -> None:
+    from zhs.config import HomeworkConfig
+
+    session = MagicMock()
+    player = ZhidaoVideoPlayer(session, homework_config=HomeworkConfig())
+    ctx = _make_map_context()
+    manager = MagicMock()
+    manager.query_node_resources.return_value = [MapResource(file_id="1", name="v.mp4", resources_time="60")]
+    manager.query_user_study_info.return_value = {"state": 2}
+    session.kg_exam_start.side_effect = ApiError(2044, "failure")
+    with (
+        patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=manager),
+        patch.object(player, "play_map_video") as play,
+        patch.object(player, "_finish_course") as finish,
+    ):
+        player._play_map_course(ctx)
+    play.assert_not_called()
+    session.kg_exam_start.assert_called_once_with("431490", ctx.course_id, ctx.map_chapters[0].lessons[0].id_hash)
+    assert finish.call_args.args[2] == 1

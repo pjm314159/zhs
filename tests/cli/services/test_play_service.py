@@ -32,6 +32,7 @@ def _make_config() -> MagicMock:
     config.video.ai_learn_optional = False
     config.threshold = 0.91
     config.limit = 0
+    config.homework.enable_kg_exam = False
     return config
 
 

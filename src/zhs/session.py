@@ -467,20 +467,20 @@ class ZhsSession:
     def kg_exam_start(
         self,
         recruit_id: str,
-        exam_id: int,
+        course_id: int,
         knowledge_id: str,
     ) -> dict[str, Any]:
         """开始知识图谱课章节测验，获取题目列表
 
         Args:
             recruit_id: 招募 ID
-            exam_id: 考试 ID（来自章节树节点的 examId 字段）
+            course_id: 课程 ID
             knowledge_id: 知识点 ID（章节树节点的 idHash）
 
         Returns:
             data 对象，包含 examId, knowledgeId, questions 等
         """
-        return self._kg_exam_api.start_exam(recruit_id, exam_id, knowledge_id)
+        return self._kg_exam_api.start_exam(recruit_id, course_id, knowledge_id)
 
     def kg_exam_submit(
         self,

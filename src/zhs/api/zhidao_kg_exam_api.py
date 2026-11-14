@@ -35,42 +35,19 @@ class ZhidaoKgExamApi:
         self._query = query
         self._base = query._http.urls.aistudy
 
-    def start_exam(
-        self,
-        recruit_id: str,
-        exam_id: int,
-        knowledge_id: str,
-    ) -> dict[str, Any]:
-        """开始章节测验，获取题目列表
-
-        Args:
-            recruit_id: 招募 ID（课程注册 ID）
-            exam_id: 考试 ID（来自章节树节点的 examId 字段）
-            knowledge_id: 知识点 ID（章节树节点的 idHash）
-
-        Returns:
-            data 对象，包含：
-            - examId: 考试 ID
-            - knowledgeId: 知识点 ID
-            - kgSecretStr: 知识图谱专用加密串（用途待确认）
-            - questions: 题目列表
-              - questionId: 题目 ID
-              - questionName: 题目内容（HTML）
-              - questionType: 题型（1=单选，2=多选，14=判断）
-              - optionVos: 选项列表
-                - id: 选项 ID
-                - name: 选项内容（HTML）
-                - isCorrect: 是否正确（答题前为 null）
-              - analysis: 题目解析（HTML）
-        """
-        url = f"{self._base}/gateway/t/v1/exam/start"
-        data = {
-            "recruitId": recruit_id,
-            "examId": exam_id,
-            "knowledgeId": knowledge_id,
-        }
-        result = self._query.query("aistudy", url, data)
-        return result["data"]
+    def start_exam(self, recruit_id: str, course_id: int, knowledge_id: str) -> dict[str, Any]:
+        """开始测验。抓包确认 GET 使用 courseId 和拼写为 knowledeId 的字段。"""
+        if not course_id:
+            raise ValueError("KG 测验需要有效 courseId")
+        result = self._query.query(
+            "aistudy",
+            f"{self._base}/gateway/t/v1/exam/start",
+            {"recruitId": recruit_id, "courseId": course_id, "knowledeId": knowledge_id},
+        )
+        data = result["data"]
+        if not isinstance(data, dict):
+            raise ValueError("KG API data 必须是对象")
+        return data
 
     def submit_exam(
         self,
@@ -130,15 +107,17 @@ class ZhidaoKgExamApi:
         data = {
             "recruitId": recruit_id,
             "examId": exam_id,
-            "knowledgeId": knowledge_id,
+            "knowledeId": knowledge_id,
         }
         result = self._query.query("aistudy", url, data)
-        return result["data"]
+        data = result["data"]
+        if not isinstance(data, dict):
+            raise ValueError("KG API data 必须是对象")
+        return data
 
     def get_error_question_recommend(
         self,
         recruit_id: str,
-        exam_id: int,
         knowledge_id: str,
     ) -> Any:
         """获取错题推荐（可选）
@@ -147,7 +126,6 @@ class ZhidaoKgExamApi:
 
         Args:
             recruit_id: 招募 ID
-            exam_id: 考试 ID
             knowledge_id: 知识点 ID
 
         Returns:
@@ -156,8 +134,7 @@ class ZhidaoKgExamApi:
         url = f"{self._base}/gateway/t/v1/exam/getErrorQuestionRecommend"
         data = {
             "recruitId": recruit_id,
-            "examId": exam_id,
-            "knowledgeId": knowledge_id,
+            "knowledeId": knowledge_id,
         }
         result = self._query.query("aistudy", url, data)
         return result.get("data")
