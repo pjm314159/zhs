@@ -48,9 +48,11 @@ class KgExamHandler:
             是否成功处理了章节测验（如果节点没有测验，返回 True）
         """
         if not self._config.enable_kg_exam:
+            logger.debug("kg_exam 已在配置中禁用")
             return True
 
         knowledge_id = lesson.id_hash
+        logger.debug(f"检查节点 {knowledge_id} 是否有章节测验")
 
         # 尝试开始答题
         try:
@@ -58,6 +60,7 @@ class KgExamHandler:
         except ApiError as e:
             # 如果节点没有章节测验，API 会返回错误，这是正常情况
             if e.code in [500, 404]:  # 常见的"无测验"错误码
+                logger.debug(f"节点 {knowledge_id} 没有章节测验 (code={e.code})")
                 return True
             logger.warning(f"检查章节测验失败: {e}")
             return True

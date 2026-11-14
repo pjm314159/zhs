@@ -313,6 +313,7 @@ class ZhidaoVideoPlayer:
                 # 处理章节测验（知识图谱课知识点掌握度）
                 if self._kg_exam_handler:
                     try:
+                        logger.debug(f"开始检查节点 {lesson.name} 的章节测验")
                         self._kg_exam_handler.try_handle_exam(
                             recruit_id=str(recruit_id),
                             lesson=lesson,
@@ -323,6 +324,8 @@ class ZhidaoVideoPlayer:
                     except Exception as exc:
                         logger.error(f"章节测验处理失败: {exc}")
                         # 章节测验失败不阻断后续节点
+                else:
+                    logger.debug("kg_exam_handler 未初始化，跳过章节测验")
 
         self._finish_course(course_name, begin_time, failed, has_videos=has_videos)
 
