@@ -1,5 +1,7 @@
 <!--
 感谢贡献！提交 PR 前请先阅读 [docs/GIT.md](docs/GIT.md)（分支 / 提交 / PR 规范）与 docs/linter.md（代码规范与 Linter 配置），并确保 CI 全绿。
+
+新增或调整智慧树接口调用时，必须同步更新 docs/api（见 docs/api/README.md）——OpenAPI 描述是接口的唯一事实来源，未登记的接口视为文档缺失。
 -->
 
 ## 关联 Issue
@@ -66,5 +68,6 @@ uv run pytest                           # 测试（默认跳过 integration）
 - [ ] 日志使用 `loguru`，且未输出 cookie / token / password / apiKey 等敏感信息
 - [ ] 未在业务模块中调用 `logger.add()` / `logger.remove()`（日志配置统一在 CLI 入口）
 - [ ] 涉及行为变更时已同步更新 `README.md` / `README_zh.md` / `docs/`
+- [ ] 新增 / 修改智慧树接口调用时，已在 `docs/api/operations/` 补接口文件并在 `openapi.yaml` 注册路由（见 `docs/api/README.md`）
 - [ ] commit 消息遵循 Conventional Commits（会自动进入 CHANGELOG）
 - [ ] 功能分支从 `dev` 切出、PR base 为 `dev`（docs/GIT.md §1）
