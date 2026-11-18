@@ -1,0 +1,45 @@
+tags: [知到-作业]
+summary: 保存单题答案
+operationId: saveStudentAnswer
+description: |
+  保存一道题的答案。`stuExamAnswer` 是 JSON 字符串，元素字段：
+
+  | 字段 | 说明 |
+  | --- | --- |
+  | `examId` / `recruitId` / `stuExamId` / `schoolId` | 上下文 ID |
+  | `eid` | 题目加密 ID（来自 `doHomework`） |
+  | `answer` | 选项 ID；多选用逗号拼接（待复核） |
+  | `questionType` | 1=单选，2=多选，14=判断 |
+  | `fromType` | 固定 `3` |
+  | `deviceId` / `examType` / `dataIds` | 作业固定空字符串 |
+
+  > 知到**考试**复用本接口，额外发送明文 `source=1`，且 `examType=1`（作业为空字符串）。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [stuExamAnswer, recruitId]
+    properties:
+      stuExamAnswer:
+        type: string
+        description: JSON 字符串，数组里放一条答案对象
+      recruitId:
+        type: string
+        description: 招募 ID
+  example:
+    stuExamAnswer: '[{"examId":"<examId>","recruitId":"<recruitId>","stuExamId":"<studentExamId>","eid":"<eid>","schoolId":"<schoolId>","deviceId":"","examType":"","fromType":3,"answer":<optionId>,"dataIds":"","questionType":1}]'
+    recruitId: '<recruitId>'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`）

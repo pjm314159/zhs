@@ -1,0 +1,54 @@
+name: API Docs
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "docs/api/**"
+      - "scripts/api_docs/**"
+      - ".github/workflows/api-docs.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "docs/api/**"
+      - "scripts/api_docs/**"
+      - ".github/workflows/api-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build API Docs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22"
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Build docs (x-zhs compile + Redoc)
+        run: uv run python scripts/api_docs/build.py
+
+      - name: Lint OpenAPI
+        run: npx --yes @redocly/cli@2 lint --config .redocly.yaml docs/api/build/openapi.bundled.yaml
+
+      - name: Upload HTML
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: api-docs
+          path: docs/api/build/api.html
+          retention-days: 14

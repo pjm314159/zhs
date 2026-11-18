@@ -1,0 +1,67 @@
+tags: [AI-智慧课程]
+summary: 上报视频进度
+operationId: studyRecordReport
+description: |
+  AI 课程视频的进度上报，代码里每 2 秒调一次，`lastWatchTime` 递增。
+
+  - `studyTotalTime` 固定传 `10`（代码行为，含义待复核）
+  - `dateFormate` 在明文里（与知到视频不同，不在外层）
+x-zhs-service: ai
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, classId, fileId, knowledgeId, lastWatchTime]
+    properties:
+      courseId:
+        type: integer
+      classId:
+        type: integer
+      fileId:
+        type: integer
+        description: 视频文件 ID
+      knowledgeId:
+        type: integer
+      lastWatchTime:
+        type: integer
+        description: 当前播放位置（秒）
+      studyTotalTime:
+        type: integer
+        description: 代码固定传 `10`
+      shareCourseId:
+        type: string
+        description: 共享课 ID，代码传空字符串
+      nodeType:
+        type: integer
+        description: 节点类型，代码传 `0`
+      watchUId:
+        type: integer
+        description: 代码固定传 `1`
+      dateFormate:
+        type: integer
+        description: 毫秒时间戳（明文内）
+  example:
+    courseId: <courseId>
+    classId: <classId>
+    fileId: <fileId>
+    knowledgeId: <knowledgeId>
+    lastWatchTime: 120
+    studyTotalTime: 10
+    shareCourseId: ''
+    nodeType: 0
+    watchUId: 1
+    dateFormate: 1781740820451
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`）

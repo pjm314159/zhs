@@ -1,0 +1,14 @@
+tags: [Hike]
+summary: 上报学习记录
+operationId: hikeSaveStuStudyRecord
+description: |
+  hike 视频的学习记录上报。代码里硬编码 `hike-teaching.zhihuishu.com`。
+
+  待补：签名参数（`hike_salt`）、上报字段、返回值。
+x-zhs-service: hike_teaching
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 上报结果（结构待补）

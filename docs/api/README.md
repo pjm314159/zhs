@@ -40,6 +40,17 @@ uv run python scripts/api_docs/build.py --no-build
 
 产物在 `docs/api/build/`，已加入 `.gitignore`。
 
+### GitHub Actions
+
+`.github/workflows/api-docs.yml` 负责自动化生成，本地不需要手动构建：
+
+- **触发**：`docs/api/**` 或 `scripts/api_docs/**` 变更时，push / PR 到 `main` / `dev`；也支持手动 `workflow_dispatch`
+- **步骤**：`uv sync --dev` → `build.py`（编译 `x-zhs-*` + Redoc）→ 上传 artifact
+- **取用**：仓库 Actions → 对应 run → Artifacts → `api-docs`（HTML，保留 14 天）
+- `docs/api/build/` 不入库，任何手改都会被下次构建覆盖
+
+> 需要在线访问（GitHub Pages）时，在 Settings → Pages 把 Source 设为 GitHub Actions，再给 workflow 加 `pages: write` / `id-token: write` 与 `actions/deploy-pages` 步骤即可。
+
 离线构建需要先把 ReDoc bundle 放到 `docs/api/vendor/redoc.standalone.js`：
 
 ```bash
@@ -73,6 +84,10 @@ curl -o docs/api/vendor/redoc.standalone.js \
 | `x-zhs-notes` | 否 | 实现备注，原样追加到 description |
 | `responses` | 是 | 至少一个 `200` |
 
+### 示例数据
+
+所有示例值一律用尖括号占位符（`<courseId>`、`<examId>`、`<eid>` ...），不写真实抓包值，也不用看起来像真值的随机串。读者按自己的抓包替换即可。占位符是字符串，可能与字段的 `integer` 类型不一致，仅作示意。
+
 `x-zhs-crypto` 会被构建脚本编译成：
 
 - `security`：引用 `components.securitySchemes` 里的 `AES-128-CBC (<key>)`，页面显示 Security 区块
@@ -93,11 +108,20 @@ curl -o docs/api/vendor/redoc.standalone.js \
 
 ## 当前覆盖
 
-| 域 | 已迁 |
-| --- | --- |
-| 登录 | 6（`/login/gologin` 的 base / study 两个域合并为一条） |
-| 知到-视频 | 12 |
-| 其余 | 待迁：知到-作业 7、知到-考试 5、AI 课程/任务/考试/解析 22、Hike 4、课程列表 1 |
+共 59 个接口，与 `src/zhs` 的调用点一一对应：
+
+| 域 | 数量 | 说明 |
+| --- | --- | --- |
+| 登录 | 9 | 登录页、二维码、gologin、CAS、登录态、学校列表、学校搜索、登录页配置 |
+| 课程列表 | 2 | 知到共享课、AI 课程列表 |
+| 知到-视频 | 12 | 含弹窗三件套、Cache/Database 心跳 |
+| 知到-作业 | 7 | 列表、重做、作答、查看、保存、提交、答案查询 |
+| 知到-考试 | 5 | 列表、doExam、提交、锁检查、学校信息 |
+| AI-智慧课程 | 20 | 课程 3、考试与作业 10、解析 3、资源/进度 4 |
+| Hike | 4 | 全部 `仅代码`，字段待抓包 |
+| **合计** | **59** | — |
+
+其中 8 个标 `仅代码`（AI 资源 4 + Hike 4）还没有抓包证据，字段是占位骨架。
 
 接口清单与抓包文档的核对结果见 `.temp/api-inventory.md`（本地文件，不入库）。
 

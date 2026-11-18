@@ -54,8 +54,18 @@ security: []
 tags:
   - name: 登录
     description: 扫码登录、CAS 换票、登录态探活
+  - name: 课程列表
+    description: 知到共享课与 AI 课程列表
   - name: 知到-视频
     description: 课程信息、视频列表、进度上报、弹窗答题
+  - name: 知到-作业
+    description: 作业列表、作答、提交、查看
+  - name: 知到-考试
+    description: 考试列表、作答、提交
+  - name: AI-智慧课程
+    description: 知识点、课程信息、考试与作业、AI 解析（SSE）
+  - name: Hike
+    description: hike 域的课程与资源接口（字段待补，先占位）
 
 paths:
   /login:
@@ -130,6 +140,170 @@ paths:
     post:
       $ref: './operations/zhidao-video/save-popup-answer.yaml'
 
+  /gateway/t/v1/student/course/share/queryShareCourseInfo:
+    post:
+      $ref: './operations/course-list/query-share-course-info.yaml'
+
+  /gateway/t/v1/student/queryStudentAICourseList:
+    post:
+      $ref: './operations/course-list/query-ai-course-list.yaml'
+
+  /studentExam/gateway/t/v1/student/getStudentHomework:
+    post:
+      $ref: './operations/zhidao-homework/get-student-homework.yaml'
+
+  /studentExam/gateway/t/v1/student/saveCourseTran:
+    post:
+      $ref: './operations/zhidao-homework/save-course-tran.yaml'
+
+  /studentExam/gateway/t/v1/student/doHomework:
+    post:
+      $ref: './operations/zhidao-homework/do-homework.yaml'
+
+  /studentExam/gateway/t/v1/student/lookHomework:
+    post:
+      $ref: './operations/zhidao-homework/look-homework.yaml'
+
+  /studentExam/gateway/t/v1/answer/saveStudentAnswer:
+    post:
+      $ref: './operations/zhidao-homework/save-student-answer.yaml'
+
+  /studentExam/gateway/t/v1/answer/submit:
+    post:
+      $ref: './operations/zhidao-homework/answer-submit.yaml'
+
+  /studentExam/gateway/t/v1/answer/getStuAnswerInfo:
+    post:
+      $ref: './operations/zhidao-homework/get-stu-answer-info.yaml'
+
+  /taurusExam/gateway/t/v1/student/getStudentFinalExam:
+    post:
+      $ref: './operations/zhidao-exam/get-student-final-exam.yaml'
+
+  /taurusExam/gateway/t/v1/student/doExam:
+    post:
+      $ref: './operations/zhidao-exam/do-exam.yaml'
+
+  /taurusExam/gateway/t/v1/answer/submit:
+    post:
+      $ref: './operations/zhidao-exam/exam-submit.yaml'
+
+  /studentExam/gateway/t/v1/answer/getSaveAnswerLockResult:
+    post:
+      $ref: './operations/zhidao-exam/get-save-answer-lock-result.yaml'
+
+  /studentExam/gateway/t/v1/exam/getLoginSchoolInfo:
+    post:
+      $ref: './operations/zhidao-exam/get-login-school-info.yaml'
+
+  /run/gateway/t/stu/knowledge-study/course-basic:
+    post:
+      $ref: './operations/ai-course/course-basic.yaml'
+
+  /run/gateway/t/stu/exam/questions-paper:
+    post:
+      $ref: './operations/ai-course/questions-paper.yaml'
+
+  /run/gateway/t/common/course/get-course-mapUid:
+    post:
+      $ref: './operations/ai-course/get-course-map-uid.yaml'
+
+  /run/gateway/t/task/exam/start-pull-paper:
+    post:
+      $ref: './operations/ai-exam/start-pull-paper.yaml'
+
+  /run/gateway/t/task/exam/openExamDetail:
+    post:
+      $ref: './operations/ai-exam/open-exam-detail.yaml'
+
+  /gateway/t/v1/exam/user/openExam:
+    post:
+      $ref: './operations/ai-exam/open-exam.yaml'
+
+  /gateway/t/v1/exam/user/getAnswerSheetInformation:
+    get:
+      $ref: './operations/ai-exam/get-answer-sheet-information.yaml'
+
+  /gateway/t/v1/exam/user/getExamSheetInfo:
+    get:
+      $ref: './operations/ai-exam/get-exam-sheet-info.yaml'
+
+  /gateway/t/v1/question/getExamQuestionInfo:
+    get:
+      $ref: './operations/ai-exam/get-exam-question-info.yaml'
+
+  /gateway/t/v1/answer/saveBatchAnswer:
+    post:
+      $ref: './operations/ai-exam/save-batch-answer.yaml'
+
+  /gateway/t/v1/answer/saveAnswer:
+    post:
+      $ref: './operations/ai-exam/save-answer.yaml'
+
+  /gateway/t/v1/exam/user/submit:
+    post:
+      $ref: './operations/ai-exam/submit.yaml'
+
+  /gateway/t/v1/exam/user/updateUserUsedTime:
+    post:
+      $ref: './operations/ai-exam/update-user-used-time.yaml'
+
+  /api/v1/user/info:
+    get:
+      $ref: './operations/ai-analysis/user-info.yaml'
+
+  /api/v1/question/analysis/thread/run:
+    post:
+      $ref: './operations/ai-analysis/thread-run.yaml'
+
+  /api/v4/ai-assistant/chatHome:
+    post:
+      $ref: './operations/ai-analysis/chat-home.yaml'
+
+  /zhsuser/certify/getAllSchool:
+    post:
+      $ref: './operations/login/get-all-school.yaml'
+
+  /zhsuser/accountV2/findSchoolV2:
+    get:
+      $ref: './operations/login/find-school-v2.yaml'
+
+  /zhsuser/static/resource:
+    get:
+      $ref: './operations/login/static-resource.yaml'
+
+  /run/gateway/t/stu/resources/list-knowledge-resource:
+    post:
+      $ref: './operations/ai-course/list-knowledge-resource.yaml'
+
+  /run/gateway/t/stu/studyRecord/completed:
+    post:
+      $ref: './operations/ai-course/study-record-completed.yaml'
+
+  /run/gateway/t/stu/resources-lab/get-video-time:
+    post:
+      $ref: './operations/ai-course/get-video-time.yaml'
+
+  /run/gateway/t/stu/studyRecord/report:
+    post:
+      $ref: './operations/ai-course/study-record-report.yaml'
+
+  /student/course/aided/getMyCourseList:
+    get:
+      $ref: './operations/hike/get-my-course-list.yaml'
+
+  /studyResources/stuResouce/queryResourceMenuTree:
+    get:
+      $ref: './operations/hike/query-resource-menu-tree.yaml'
+
+  /studyResources/stuResouce/stuViewFile:
+    get:
+      $ref: './operations/hike/stu-view-file.yaml'
+
+  /stuStudy/saveStuStudyRecord:
+    get:
+      $ref: './operations/hike/save-stu-study-record.yaml'
+
 components:
   securitySchemes:
     'AES-128-CBC (video_key)':
@@ -167,6 +341,37 @@ components:
         请求时把业务参数序列化为 JSON 后加密，放入 `secretStr`。本域不发送 `dateFormate`。
 
         页面上的 Request 是**解密后**的参数；**原始加密报文**见每个接口的「原始报文（加密后）」代码块。
+    'AES-128-CBC (ai_key)':
+      type: apiKey
+      in: query
+      name: secretStr
+      description: |
+        **AES-128-CBC 加密**（密钥 `ai_key`）
+
+        | 项 | 值 |
+        | --- | --- |
+        | 密钥 | `hw2fdlwcj4cs1mx7` |
+        | IV | `1g3qqdh4jvbskb9x` |
+        | 密文字段 | `secretStr`（base64） |
+        | 时间戳字段 | `dateFormate`（本域部分接口用 `date`） |
+        | 明文位置 | 本接口 Request 列出的业务参数 |
+
+        页面上的 Request 是**解密后**的参数；**原始加密报文**见每个接口的「原始报文（加密后）」代码块。
+    'AES-128-CBC (home_key)':
+      type: apiKey
+      in: query
+      name: secretStr
+      description: |
+        **AES-128-CBC 加密**（密钥 `home_key`）
+
+        | 项 | 值 |
+        | --- | --- |
+        | 密钥 | `7q9oko0vqb3la20r` |
+        | IV | `1g3qqdh4jvbskb9x` |
+        | 密文字段 | `secretStr`（base64） |
+        | 明文位置 | 本接口 Request 列出的业务参数 |
+
+        页面上的 Request 是**解密后**的参数；**原始加密报文**见每个接口的「原始报文（加密后）」代码块。
 
   schemas:
     QueryCourseResp:
@@ -202,3 +407,30 @@ components:
           description: 1=旧版课程，2=图谱课
         schoolName:
           type: string
+
+    QuestionDto:
+      type: object
+      description: 知到作业 / 考试的题目
+      properties:
+        id:
+          type: [integer, 'null']
+          description: 数字型题目 ID（`doHomework` 下为 null，`lookHomework` 下才有值）
+        eid:
+          type: string
+          description: 加密题目 ID，保存答案时必须回传
+        questionType:
+          type: integer
+          enum: [1, 2, 14]
+          description: 1=单选，2=多选，14=判断
+        content:
+          type: string
+          description: 题干 HTML，使用前需剥离标签
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              content:
+                type: string

@@ -20,7 +20,7 @@ x-zhs-crypto:
         type: string
         description: 与 `queryCourse` 相同
   example:
-    recruitAndCourseId: 414804-1000008156
+    recruitAndCourseId: 900001-9000000001
   rawExample: |
     {
       "secretStr": "<AES加密后的base64密文>",

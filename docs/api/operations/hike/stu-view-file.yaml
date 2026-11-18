@@ -1,0 +1,14 @@
+tags: [Hike]
+summary: 获取文件信息
+operationId: hikeStuViewFile
+description: |
+  打开 hike 文件 / 视频时调用，返回播放地址或时长。
+
+  待补：`fileId` 参数、返回结构。
+x-zhs-service: studyresources
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 文件信息（结构待补）

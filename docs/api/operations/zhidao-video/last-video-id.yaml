@@ -4,11 +4,49 @@ operationId: queryUserRecruitIdLastVideoId
 description: |
   查询该课程上次学习的视频，用于断点续播。
 
-  代码：`src/zhs/zhidao/course.py:198`。抓包文档里没有记录，参数与返回待补。
+  进入课程页时调用一次，返回的 `lastViewVideoId` 与 `videolist` 里的视频 ID 对应。
 x-zhs-service: study
-x-zhs-status: code-only
+x-zhs-status: confirmed
 x-zhs-evidence:
   capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, dateFormate]
+    properties:
+      recruitId:
+        type: integer
+        description: 招募 ID
+      dateFormate:
+        type: integer
+        description: 毫秒时间戳
+  example:
+    recruitId: <recruitId>
+    dateFormate: 1781740820451
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
 responses:
   '200':
-    description: 上次学习的视频 ID（结构待补）
+    description: 成功（`code == 0`）
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            data:
+              type: object
+              properties:
+                lastViewVideoId:
+                  type: integer
+                  description: 上次学习的视频 ID

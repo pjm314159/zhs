@@ -1,0 +1,14 @@
+tags: [Hike]
+summary: 获取资源菜单树
+operationId: hikeQueryResourceMenuTree
+description: |
+  hike 课程的资源树（章节 / 文件）。代码里硬编码 `studyresources.zhihuishu.com`。
+
+  待补：入参、树结构、`fileId` 的来源。
+x-zhs-service: studyresources
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 资源树（结构待补）

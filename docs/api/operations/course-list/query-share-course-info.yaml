@@ -1,0 +1,65 @@
+tags: [课程列表]
+summary: 获取知到共享课程列表
+operationId: queryShareCourseInfo
+description: |
+  分页获取当前账号下的知到共享课程。ZHS 用 `courseOpenDtos[].recruitId` 与 `courseId`
+  拼接后续接口的 `recruitAndCourseId`。
+x-zhs-service: base
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: home_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [status, pageNo, pageSize]
+    properties:
+      status:
+        type: integer
+        description: 固定 `0`
+      pageNo:
+        type: integer
+        description: 页码，从 1 开始
+      pageSize:
+        type: integer
+        description: 每页数量，代码用 5
+  example:
+    status: 0
+    pageNo: 1
+    pageSize: 5
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`）
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            result:
+              type: object
+              properties:
+                totalCount:
+                  type: integer
+                  description: 课程总数
+                courseOpenDtos:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      recruitId:
+                        type: integer
+                        description: 招募 ID
+                      courseId:
+                        type: integer
+                        description: 课程 ID
+                      courseName:
+                        type: string
+                        description: 课程名称

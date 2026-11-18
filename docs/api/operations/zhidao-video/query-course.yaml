@@ -8,7 +8,7 @@ x-zhs-service: study
 x-zhs-status: confirmed
 x-zhs-evidence:
   capturedAt: 2026-11-12
-  sample: 军事理论-综合版
+  sample: 示例课程
 x-zhs-crypto:
   key: video_key
   algorithm: AES-128-CBC

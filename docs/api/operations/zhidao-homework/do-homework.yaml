@@ -1,0 +1,80 @@
+tags: [知到-作业]
+summary: 开始做作业
+operationId: doHomework
+description: |
+  打开一份未提交的作业，返回题目列表，每题带用于保存答案的加密 `eid`。
+
+  > 已提交的作业（`state=4`）直接调用会返回"试卷已提交,不能继续答题"，
+  > 必须先调用 `saveCourseTran` 重置状态。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, examId, studentExamId, schoolId, courseId]
+    properties:
+      recruitId:
+        type: string
+        description: 招募 ID
+      examId:
+        type: string
+        description: 作业 ID，来自作业列表
+      studentExamId:
+        type: string
+        description: 学生作业 ID
+      schoolId:
+        type: string
+        description: 学校 ID
+      courseId:
+        type: string
+        description: 课程 ID
+  example:
+    recruitId: '<recruitId>'
+    examId: <examId>
+    studentExamId: <studentExamId>
+    schoolId: '<schoolId>'
+    courseId: '<courseId>'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`），题目在 `rt.examBase.workExamParts[].questionDtos[]`
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            rt:
+              type: object
+              properties:
+                examBase:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      description: examId
+                    name:
+                      type: string
+                    problemNum:
+                      type: integer
+                    totalScore:
+                      type: string
+                    workExamParts:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          questionDtos:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/QuestionDto'

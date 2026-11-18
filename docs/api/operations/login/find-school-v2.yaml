@@ -1,0 +1,28 @@
+tags: [登录]
+summary: 学校搜索
+operationId: findSchoolV2
+description: |
+  按关键字分页搜索学校，登录表单用。ZHS 不使用。
+
+  待补：`keyword` 参数名与响应结构（本次抓包只看到 `page` / `pageSize`）。
+x-zhs-service: user
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+parameters:
+  - name: page
+    in: query
+    required: true
+    description: 页码，从 1 开始
+    schema:
+      type: integer
+      default: 1
+  - name: pageSize
+    in: query
+    required: true
+    schema:
+      type: integer
+      default: 9999
+responses:
+  '200':
+    description: 学校分页列表（结构待补）
