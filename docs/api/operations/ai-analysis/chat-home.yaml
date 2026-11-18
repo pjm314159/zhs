@@ -1,0 +1,150 @@
+tags: [AI-智慧课程]
+summary: AI 助手对话（SSE 流式）
+operationId: aiAssistantChatHome
+description: |
+  智慧树内置 AI 的对话接口（`model=bot`），用于作业答题时生成答案。
+
+  - Query 参数 `userId=0`，真实用户由登录态决定
+  - `data_info` / `relation_id_list` 是 JSON **字符串**，不是对象
+  - 响应为 SSE，`choices[].message.content` 是增量文本
+x-zhs-service: ai_analysis
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+parameters:
+  - name: userId
+    in: query
+    required: true
+    description: 固定 `"0"`
+    schema:
+      type: string
+      default: '0'
+  - name: Content-Type
+    in: header
+    required: true
+    description: 固定为 `application/json`
+    schema:
+      type: string
+      default: application/json
+requestBody:
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [query, model, courseId, conversationId]
+        properties:
+          query:
+            type: string
+            description: Prompt 文本，包含题目与选项
+          course_name:
+            type: string
+          node_name:
+            type: string
+          avatarRequest:
+            type: object
+            properties:
+              courseId:
+                type: string
+              recruitId:
+                type: string
+              chapterId:
+                type: string
+              videoId:
+                type: string
+          video_url:
+            type: string
+          node_ids:
+            type: string
+            description: JSON 字符串，默认 `"[]"`
+          video_segment:
+            type: string
+            description: JSON 字符串，默认 `"[]"`
+          video_summary:
+            type: string
+          data_info:
+            type: string
+            description: 知识图谱检索配置的 JSON 字符串
+          model:
+            type: string
+            description: 固定 `bot`
+          intention:
+            type: string
+          user_id:
+            type: integer
+            description: 代码传 0
+          courseId:
+            type: string
+          course_id:
+            type: string
+          conversationId:
+            type: string
+            description: 本地生成，用于多轮上下文
+          isBaseCourse:
+            type: boolean
+          imgUrls:
+            type: array
+            items:
+              type: string
+          files:
+            type: array
+            items:
+              type: string
+          kg_node_name:
+            type: string
+          language:
+            type: string
+            description: 固定 `chinese`
+          bizType:
+            type: string
+            description: 固定 `HOME_PAGE`
+          scene:
+            type: string
+            description: 固定 `校内课`
+          is_share_course:
+            type: string
+            description: 固定 `"0"`
+          messageId:
+            type: string
+            nullable: true
+          relation_id_list:
+            type: string
+            description: 关联图谱 ID 的 JSON 字符串
+      examples:
+        example:
+          value:
+            query: 请回答以下题目：……（Prompt）
+            course_name: 示例课程
+            node_name: ''
+            avatarRequest:
+              courseId: '<courseId>'
+              recruitId: ''
+              chapterId: ''
+              videoId: ''
+            video_url: ''
+            node_ids: '[]'
+            video_segment: '[]'
+            video_summary: ''
+            data_info: '{"history_recores":"","relation_id_list":[],"top_k":5,"threshold":0.95}'
+            model: bot
+            intention: ''
+            user_id: 0
+            courseId: '<courseId>'
+            course_id: '<courseId>'
+            conversationId: '<conversationId>'
+            isBaseCourse: true
+            imgUrls: []
+            files: []
+            kg_node_name: ''
+            language: chinese
+            bizType: HOME_PAGE
+            scene: 校内课
+            is_share_course: '0'
+            messageId: null
+            relation_id_list: '[]'
+responses:
+  '200':
+    description: SSE 流，`choices[].message.content` 为增量文本
+    content:
+      text/event-stream:
+        schema:
+          type: string

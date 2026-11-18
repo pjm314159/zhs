@@ -8,7 +8,7 @@ x-zhs-service: study
 x-zhs-status: confirmed
 x-zhs-evidence:
   capturedAt: 2026-11-12
-  sample: 军事理论-综合版
+  sample: 示例课程
 x-zhs-crypto:
   key: video_key
   algorithm: AES-128-CBC
@@ -21,9 +21,9 @@ x-zhs-crypto:
     properties:
       recruitAndCourseId:
         type: string
-        description: 形如 `900001-9000000001`，由分享链接解析得到
+        description: 形如 `<recruitId>-<courseId>`，由分享链接解析得到
   example:
-    recruitAndCourseId: 900001-9000000001
+    recruitAndCourseId: <recruitId>-<courseId>
   rawExample: |
     {
       "secretStr": "<AES加密后的base64密文>",
@@ -42,9 +42,9 @@ responses:
               code: 0
               message: success
               data:
-                recruitId: 900001
+                recruitId: <recruitId>
                 courseInfo:
-                  courseId: 9000000001
+                  courseId: <courseId>
                   courseName: 示例课程
                   courseMode: 1
                   schoolName: 示例大学

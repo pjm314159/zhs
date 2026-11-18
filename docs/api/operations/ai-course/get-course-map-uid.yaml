@@ -1,0 +1,37 @@
+tags: [AI-智慧课程]
+summary: 获取课程 mapUid
+operationId: getCourseMapUid
+description: |
+  获取知识图谱的 `mapUid` / `scMapUid`，用于 AI 对话的 `data_info`。
+
+  > 外层字段名是 `date`（不是 `dateFormate`），明文里才是 `dateFormate`。
+x-zhs-service: ai
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, dateFormate]
+    properties:
+      courseId:
+        type: string
+        description: 课程 ID
+      dateFormate:
+        type: integer
+        description: 毫秒时间戳
+  example:
+    courseId: '<courseId>'
+    dateFormate: 1781740820451
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "date": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功，`data` 里含 `mapUid` / `scMapUid`

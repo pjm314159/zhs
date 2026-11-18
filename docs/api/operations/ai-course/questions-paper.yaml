@@ -1,0 +1,45 @@
+tags: [AI-智慧课程]
+summary: 查询知识点作业信息
+operationId: questionsPaper
+description: |
+  查询某个知识点的作业（试卷）信息，返回 `ExamInfo`。
+
+  > 注意：代码里 `courseId` 传的是 `class_id`，疑似历史 bug，落地时按代码实际行为标注。
+x-zhs-service: ai
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [scMapId, courseId, classId, knowledgeId]
+    properties:
+      scMapId:
+        type: integer
+        description: 课程 ID（scMapId）
+      courseId:
+        type: integer
+        description: 代码里实际传 classId
+      classId:
+        type: integer
+        description: 班级 ID
+      knowledgeId:
+        type: integer
+        description: 知识点 ID
+  example:
+    scMapId: <courseId>
+    courseId: <classId>
+    classId: <classId>
+    knowledgeId: <knowledgeId>
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`），数据结构见 `ExamInfo`

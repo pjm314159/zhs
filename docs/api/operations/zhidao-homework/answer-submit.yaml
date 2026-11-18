@@ -1,0 +1,42 @@
+tags: [知到-作业]
+summary: 提交作业
+operationId: homeworkSubmit
+description: |
+  提交作业，响应里带 `rt.score`（得分）。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, examId, stuExamId, achieveCount]
+    properties:
+      recruitId:
+        type: string
+        description: 招募 ID
+      examId:
+        type: string
+        description: 作业 ID
+      stuExamId:
+        type: string
+        description: 学生作业 ID
+      achieveCount:
+        type: string
+        description: 已答题数量（字符串，如 `"5"`）
+  example:
+    recruitId: '<recruitId>'
+    examId: <examId>
+    stuExamId: <studentExamId>
+    achieveCount: '5'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`），`rt.score` 为得分

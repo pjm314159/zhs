@@ -1,0 +1,45 @@
+tags: [知到-作业]
+summary: 重置作业状态（重做）
+operationId: saveCourseTran
+description: |
+  把已提交的作业重置为可作答状态。
+
+  > 必须在 `doHomework` **之前**调用；已提交（`state=4`）直接调 `doHomework` 会返回
+  > "试卷已提交,不能继续答题"。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, examId, courseId]
+    properties:
+      recruitId:
+        type: string
+        description: 招募 ID
+      examId:
+        type: string
+        description: 作业 ID
+      description:
+        type: string
+        description: 固定空字符串
+      courseId:
+        type: integer
+        description: 课程 ID
+  example:
+    recruitId: '<recruitId>'
+    examId: <examId>
+    description: ''
+    courseId: <courseId>
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`，`rt == 1`）

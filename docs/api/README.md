@@ -40,6 +40,17 @@ uv run python scripts/api_docs/build.py --no-build
 
 产物在 `docs/api/build/`，已加入 `.gitignore`。
 
+### GitHub Actions
+
+`.github/workflows/api-docs.yml` 负责自动化生成，本地不需要手动构建：
+
+- **触发**：`docs/api/**` 或 `scripts/api_docs/**` 变更时，push / PR 到 `main` / `dev`；也支持手动 `workflow_dispatch`
+- **步骤**：`uv sync --dev` → `build.py`（编译 `x-zhs-*` + Redoc）→ 上传 artifact
+- **取用**：仓库 Actions → 对应 run → Artifacts → `api-docs`（HTML，保留 14 天）
+- `docs/api/build/` 不入库，任何手改都会被下次构建覆盖
+
+> 需要在线访问（GitHub Pages）时，在 Settings → Pages 把 Source 设为 GitHub Actions，再给 workflow 加 `pages: write` / `id-token: write` 与 `actions/deploy-pages` 步骤即可。
+
 离线构建需要先把 ReDoc bundle 放到 `docs/api/vendor/redoc.standalone.js`：
 
 ```bash
@@ -72,6 +83,10 @@ curl -o docs/api/vendor/redoc.standalone.js \
 | `x-zhs-crypto` | 否 | AES 相关：`key` / `iv` / `cipherField` / `plainSchema` / `example` / `rawExample` |
 | `x-zhs-notes` | 否 | 实现备注，原样追加到 description |
 | `responses` | 是 | 至少一个 `200` |
+
+### 示例数据
+
+所有示例值一律用尖括号占位符（`<courseId>`、`<examId>`、`<eid>` ...），不写真实抓包值，也不用看起来像真值的随机串。读者按自己的抓包替换即可。占位符是字符串，可能与字段的 `integer` 类型不一致，仅作示意。
 
 `x-zhs-crypto` 会被构建脚本编译成：
 

@@ -1,0 +1,39 @@
+tags: [知到-考试]
+summary: 查询答案是否锁死
+operationId: getSaveAnswerLockResult
+description: |
+  考试作答前检查答案是否被锁定：
+
+  - `rt.state == 0`：未锁死，可以答题
+  - `rt.state == 1`：锁死，跳过该考试
+
+  > 本接口在 `studentexam-api` 域（与作业同域），不是 `taurusexam-api`。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [examId, recruitId]
+    properties:
+      examId:
+        type: string
+        description: 考试 ID
+      recruitId:
+        type: string
+        description: 招募 ID
+  example:
+    examId: <examId>
+    recruitId: '<recruitId>'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`），`rt.state` 为锁状态

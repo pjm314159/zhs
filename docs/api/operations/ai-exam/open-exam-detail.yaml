@@ -1,0 +1,59 @@
+tags: [AI-智慧课程]
+summary: 查看考试详情
+operationId: openExamDetail
+description: |
+  提交后判断是否可查看答案（`isLookAnswer` / `isAllowShowDetail`）。失败时返回空对象。
+x-zhs-service: ai
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    properties:
+      classId:
+        type: integer
+        description: 班级 ID
+      courseId:
+        type: string
+        description: 课程 ID
+      examTestId:
+        type: integer
+        description: 考试 ID
+      examPaperId:
+        type: integer
+        description: 试卷 ID
+      examId:
+        type: integer
+        description: 与 examPaperId 相同（代码如此）
+      studentId:
+        type: integer
+        description: 学生 ID
+      taskId:
+        type: integer
+        description: 任务 ID
+      taskType:
+        type: integer
+        nullable: true
+        description: 任务类型，代码传 null
+  example:
+    classId: <classId>
+    courseId: '<courseId>'
+    examTestId: <examTestId>
+    examPaperId: <examPaperId>
+    examId: <examPaperId>
+    studentId: <userId>
+    taskId: <taskId>
+    taskType: null
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`），`data` 里含 `isLookAnswer` / `isAllowShowDetail`

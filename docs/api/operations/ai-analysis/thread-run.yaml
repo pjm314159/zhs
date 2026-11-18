@@ -1,0 +1,67 @@
+tags: [AI-智慧课程]
+summary: AI 题目解析（SSE 流式）
+operationId: aiAnalysisThreadRun
+description: |
+  调用智慧树 AI 解析接口，SSE 流式返回解析文本。
+
+  - `threadId` / `runId` 用于多轮续问，首次分别传空字符串 / null
+  - `regenerate=true` 表示重新生成
+x-zhs-service: ai_analysis
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+parameters:
+  - name: Content-Type
+    in: header
+    required: true
+    description: 固定为 `application/json`
+    schema:
+      type: string
+      default: application/json
+requestBody:
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [courseId, recruitId, userRole, userId, questionId]
+        properties:
+          courseId:
+            type: string
+          recruitId:
+            type: string
+          userRole:
+            type: string
+            description: 固定 `STUDENT`
+          userId:
+            type: integer
+            description: 来自 `user/info`
+          threadId:
+            type: string
+            description: 首次为空字符串
+          questionId:
+            type: integer
+            description: 数字型题目 ID（`lookHomework` 的 `id`）
+          regenerate:
+            type: boolean
+          runId:
+            type: string
+            nullable: true
+      examples:
+        example:
+          value:
+            courseId: '<courseId>'
+            recruitId: '<recruitId>'
+            userRole: STUDENT
+            userId: <userId>
+            threadId: ''
+            questionId: <questionId>
+            regenerate: false
+            runId: null
+responses:
+  '200':
+    description: |
+      SSE 流，每个事件是一行 `data: <json>`
+    content:
+      text/event-stream:
+        schema:
+          type: string

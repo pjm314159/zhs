@@ -1,0 +1,63 @@
+tags: [知到-考试]
+summary: 获取考试列表
+operationId: getStudentFinalExam
+description: |
+  `flag=1` 未完成考试、`flag=0` 已完成考试。考试作答流程的第一步。
+x-zhs-service: taurusexam
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, recruitId, flag]
+    properties:
+      courseId:
+        type: integer
+        description: 课程 ID
+      recruitId:
+        type: string
+        description: 招募 ID
+      flag:
+        type: integer
+        enum: [0, 1]
+        description: 1=未完成，0=已完成
+  example:
+    courseId: <courseId>
+    recruitId: '<recruitId>'
+    flag: 1
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`），考试数组在 `rt`
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+            rt:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    description: 学生考试记录 ID（`studentExamId`）
+                  examId:
+                    type: string
+                    description: 考试 ID
+                  examName:
+                    type: string
+                  submitTime:
+                    type: string
+                    nullable: true
+                    description: 提交时间，null 表示未提交

@@ -64,7 +64,10 @@ def inline_operations(node: Any, base_dir: Path) -> Any:
         ref = node.get("$ref")
         if isinstance(ref, str) and ref.startswith("./") and "#" not in ref:
             target = (base_dir / ref).resolve()
-            data: Any = yaml.safe_load(target.read_text(encoding="utf-8"))
+            try:
+                data: Any = yaml.safe_load(target.read_text(encoding="utf-8"))
+            except yaml.YAMLError as exc:
+                raise SystemExit(f"{target.relative_to(ROOT)} 解析失败：\n{exc}") from exc
             return inline_operations(data, target.parent)
         return {key: inline_operations(value, base_dir) for key, value in node.items()}
     if isinstance(node, list):
