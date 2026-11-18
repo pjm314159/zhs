@@ -2,13 +2,83 @@ tags: [知到-视频]
 summary: 获取视频弹窗题目列表
 operationId: loadVideoPointerInfo
 description: |
-  获取当前视频的弹窗题目（触发时间点、题目 ID 列表）。
+  获取当前视频的弹题位置。
 
-  代码：`src/zhs/zhidao/quiz.py:46`。抓包文档里没有记录，字段待补。
+  - `questionPoint[].timeSec` 是弹题时间点（秒），播放到该秒数才触发 `lessonPopupExam`
+  - `questionIds` 是题目 ID，多个用逗号分隔
+  - 切换视频会重新请求，`lessonId` / `lessonVideoId` 随之变化
 x-zhs-service: study
-x-zhs-status: code-only
+x-zhs-status: confirmed
 x-zhs-evidence:
   capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [lessonId, lessonVideoId, recruitId, courseId, dateFormate]
+    properties:
+      lessonId:
+        type: integer
+        description: 课时 ID
+      lessonVideoId:
+        type: integer
+        description: 课时视频 ID
+      recruitId:
+        type: integer
+        description: 招募 ID
+      courseId:
+        type: integer
+        description: 课程 ID
+      dateFormate:
+        type: integer
+        description: 毫秒时间戳
+  example:
+    lessonId: <lessonId>
+    lessonVideoId: <lessonVideoId>
+    recruitId: <recruitId>
+    courseId: <courseId>
+    dateFormate: 1781740820451
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
 responses:
   '200':
-    description: 弹窗题目列表（字段待补）
+    description: 成功（`code == 0`）
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            data:
+              type: object
+              properties:
+                videoThemeDtos:
+                  type: object
+                  nullable: true
+                popupPictureDtos:
+                  type: array
+                  items:
+                    type: object
+                questionPoint:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      timeSec:
+                        type: integer
+                        description: 弹题时间点（秒）
+                      questionIds:
+                        type: string
+                        description: 题目 ID，逗号分隔
+                knowledgeCardDtos:
+                  type: object
+                  nullable: true
