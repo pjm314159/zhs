@@ -1,0 +1,204 @@
+openapi: 3.1.0
+
+info:
+  title: 智慧树接口抓包汇总
+  # 由 scripts/api_docs/build.py 从 pyproject.toml 注入，不要手改
+  version: 0.0.0
+  summary: ZHS 使用的智慧树平台 HTTP 接口
+  description: |
+    **更新时间**：2026-11-18
+
+    本文档汇总 ZHS 用到的智慧树平台 HTTP 接口，内容来自实际抓包与代码实现。
+
+    - **仅供学习与研究**，接口随时可能被服务端修改，以 `src/zhs/` 代码为准
+    - 示例中的 Cookie、用户 ID 已脱敏
+    - 每个接口标注抓包状态：`已确认` / `已观测` / `待复核` / `仅代码` / `仅文档`
+
+    ### 域名
+
+    接口分散在多个域名，各接口首部的「完整 URL」为准，常用域：
+
+    | 代号 | 域名 |
+    | --- | --- |
+    | base | `onlineservice-api.zhihuishu.com` |
+    | study | `studyservice-api.zhihuishu.com` |
+    | homework | `studentexam-api.zhihuishu.com` |
+    | taurusexam | `taurusexam-api.zhihuishu.com` |
+    | exam | `studentexamtest.zhihuishu.com` |
+    | ai | `kg-ai-run.zhihuishu.com` |
+    | ai_task | `kg-run-student.zhihuishu.com` |
+    | ai_analysis | `ai-course-assistant-api.zhihuishu.com` |
+    | newbase | `newbase.zhihuishu.com` |
+    | passport | `passport.zhihuishu.com` |
+
+    ### 加密
+
+    知到与 AI 智慧课程多数接口使用 AES-128-CBC，密文放在 `secretStr`，密钥按域区分：
+
+    | 密钥名 | 值 | 使用范围 |
+    | --- | --- | --- |
+    | `video_key` | `azp53h0kft7qi78q` | 知到视频 |
+    | `exam_key` | `onbfhdyvz8x7otrp` | 知到作业 / 考试 |
+    | `ai_key` | `hw2fdlwcj4cs1mx7` | AI 智慧课程 |
+
+    IV 统一为 `1g3qqdh4jvbskb9x`。每个接口的 Security 区块里也有同样的说明。
+  license:
+    name: GPL-3.0-only
+    identifier: GPL-3.0-only
+  contact:
+    name: ZHS
+    url: https://github.com/pjm314159/zhs
+
+security: []
+
+tags:
+  - name: 登录
+    description: 扫码登录、CAS 换票、登录态探活
+  - name: 知到-视频
+    description: 课程信息、视频列表、进度上报、弹窗答题
+
+paths:
+  /login:
+    get:
+      $ref: './operations/login/login-page.yaml'
+
+  /qrCodeLogin/getLoginQrImg:
+    get:
+      $ref: './operations/login/qr-image.yaml'
+
+  /qrCodeLogin/getLoginQrInfo:
+    get:
+      $ref: './operations/login/qr-info.yaml'
+
+  /login/gologin:
+    get:
+      $ref: './operations/login/gologin.yaml'
+
+  /gateway/f/v1/login/getLoginUserInfo:
+    get:
+      $ref: './operations/login/get-login-user-info.yaml'
+
+  /cas/login:
+    get:
+      $ref: './operations/login/cas-login.yaml'
+
+  /gateway/t/v1/learning/queryCourse:
+    post:
+      $ref: './operations/zhidao-video/query-course.yaml'
+
+  /gateway/t/v1/learning/videolist:
+    post:
+      $ref: './operations/zhidao-video/video-list.yaml'
+
+  /gateway/t/v1/learning/queryStuyInfo:
+    post:
+      $ref: './operations/zhidao-video/query-study-info.yaml'
+
+  /gateway/t/v1/learning/queryUserRecruitIdLastVideoId:
+    post:
+      $ref: './operations/zhidao-video/last-video-id.yaml'
+
+  /gateway/t/v1/learning/prelearningNote:
+    post:
+      $ref: './operations/zhidao-video/prelearning-note.yaml'
+
+  /video/initVideo:
+    get:
+      $ref: './operations/zhidao-video/init-video.yaml'
+
+  /gateway/t/v1/course/threeDimensionalCourseWare:
+    get:
+      $ref: './operations/zhidao-video/three-dimensional-courseware.yaml'
+
+  /gateway/t/v1/learning/saveCacheIntervalTimeV2:
+    post:
+      $ref: './operations/zhidao-video/save-cache-interval.yaml'
+
+  /gateway/t/v1/learning/saveDatabaseIntervalTimeV2:
+    post:
+      $ref: './operations/zhidao-video/save-database-interval.yaml'
+
+  /gateway/t/v1/popupAnswer/loadVideoPointerInfo:
+    post:
+      $ref: './operations/zhidao-video/load-video-pointer-info.yaml'
+
+  /gateway/t/v1/popupAnswer/lessonPopupExam:
+    post:
+      $ref: './operations/zhidao-video/lesson-popup-exam.yaml'
+
+  /gateway/t/v1/popupAnswer/saveLessonPopupExamSaveAnswer:
+    post:
+      $ref: './operations/zhidao-video/save-popup-answer.yaml'
+
+components:
+  securitySchemes:
+    'AES-128-CBC (video_key)':
+      type: apiKey
+      in: query
+      name: secretStr
+      description: |
+        **AES-128-CBC 加密**（密钥 `video_key`）
+
+        | 项 | 值 |
+        | --- | --- |
+        | 密钥 | `azp53h0kft7qi78q` |
+        | IV | `1g3qqdh4jvbskb9x` |
+        | 密文字段 | `secretStr`（base64） |
+        | 明文位置 | 本接口 Request 列出的业务参数 |
+
+        请求时把业务参数序列化为 JSON 后加密，放入 `secretStr`，另需附带毫秒时间戳 `dateFormate`
+        （GET 接口两者都在 query 上，POST 接口在 body 内）。
+
+        页面上的 Request 是**解密后**的参数；**原始加密报文**见每个接口的「原始报文（加密后）」代码块。
+    'AES-128-CBC (exam_key)':
+      type: apiKey
+      in: query
+      name: secretStr
+      description: |
+        **AES-128-CBC 加密**（密钥 `exam_key`）
+
+        | 项 | 值 |
+        | --- | --- |
+        | 密钥 | `onbfhdyvz8x7otrp` |
+        | IV | `1g3qqdh4jvbskb9x` |
+        | 密文字段 | `secretStr`（base64） |
+        | 明文位置 | 本接口 Request 列出的业务参数 |
+
+        请求时把业务参数序列化为 JSON 后加密，放入 `secretStr`。本域不发送 `dateFormate`。
+
+        页面上的 Request 是**解密后**的参数；**原始加密报文**见每个接口的「原始报文（加密后）」代码块。
+
+  schemas:
+    QueryCourseResp:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: 0=成功，-1=参数错误，-12=需要验证码
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            recruitId:
+              type: integer
+              format: int64
+            courseInfo:
+              $ref: '#/components/schemas/CourseInfo'
+
+    CourseInfo:
+      type: object
+      description: 课程基础信息（`courseMode` 是版本判定的唯一依据）
+      properties:
+        courseId:
+          type: integer
+          format: int64
+        courseName:
+          type: string
+        courseMode:
+          type: integer
+          enum: [1, 2]
+          description: 1=旧版课程，2=图谱课
+        schoolName:
+          type: string

@@ -41,5 +41,9 @@ old/
 # uv
 .python-version
 
-#config
+# config
 config.toml
+
+# API 文档构建产物
+docs/api/build/
+docs/api/vendor/

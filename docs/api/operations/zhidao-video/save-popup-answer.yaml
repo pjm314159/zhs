@@ -1,0 +1,14 @@
+tags: [知到-视频]
+summary: 保存弹窗答案
+operationId: saveLessonPopupExamSaveAnswer
+description: |
+  提交弹窗题目的答案。
+
+  代码：`src/zhs/zhidao/quiz.py:109`。抓包文档里没有记录，答案格式与对错返回待补。
+x-zhs-service: study
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 保存结果（字段待补）

@@ -1,0 +1,14 @@
+tags: [知到-视频]
+summary: 获取视频弹窗题目列表
+operationId: loadVideoPointerInfo
+description: |
+  获取当前视频的弹窗题目（触发时间点、题目 ID 列表）。
+
+  代码：`src/zhs/zhidao/quiz.py:46`。抓包文档里没有记录，字段待补。
+x-zhs-service: study
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 弹窗题目列表（字段待补）

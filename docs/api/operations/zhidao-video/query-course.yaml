@@ -1,0 +1,52 @@
+tags: [知到-视频]
+summary: 查询课程信息
+operationId: queryCourse
+description: |
+  根据 `recruitAndCourseId` 查询课程基础信息，返回 `recruitId` 与 `courseInfo`。
+  ZHS 用 `courseInfo.courseMode` 判定课程类型。
+x-zhs-service: study
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+  sample: 军事理论-综合版
+x-zhs-crypto:
+  key: video_key
+  algorithm: AES-128-CBC
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitAndCourseId]
+    properties:
+      recruitAndCourseId:
+        type: string
+        description: 形如 `900001-9000000001`，由分享链接解析得到
+  example:
+    recruitAndCourseId: 900001-9000000001
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 0`）
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/QueryCourseResp'
+        examples:
+          success:
+            value:
+              code: 0
+              message: success
+              data:
+                recruitId: 900001
+                courseInfo:
+                  courseId: 9000000001
+                  courseName: 示例课程
+                  courseMode: 1
+                  schoolName: 示例大学
+  '400':
+    description: 解密失败或参数缺失（`code == -1`）

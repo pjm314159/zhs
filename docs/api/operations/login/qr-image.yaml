@@ -1,0 +1,14 @@
+tags: [登录]
+summary: 获取登录二维码
+operationId: getLoginQrImg
+x-zhs-service: passport
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-notes: |
+  代码：`src/zhs/login.py:56`。
+
+  待补：返回体是图片二进制、base64 还是跳转地址；二维码有效期。
+responses:
+  '200':
+    description: 二维码图片（形式待补）

@@ -1,0 +1,23 @@
+tags: [知到-视频]
+summary: 初始化视频播放
+operationId: initVideo
+description: |
+  播放视频前调用，模拟真实播放行为。
+
+  代码：`src/zhs/zhidao/video.py:416`、`src/zhs/ai/video.py:93`、`src/zhs/hike/video.py:212`。
+
+  待补：参数（`videoId` / `fileId`）与返回。
+x-zhs-service: newbase
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+parameters:
+  - name: videoId
+    in: query
+    required: true
+    description: 视频 ID（待复核）
+    schema:
+      type: string
+responses:
+  '200':
+    description: 播放初始化结果（字段待补）

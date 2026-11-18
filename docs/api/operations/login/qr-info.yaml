@@ -1,0 +1,14 @@
+tags: [登录]
+summary: 查询扫码状态
+operationId: getLoginQrInfo
+x-zhs-service: passport
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-notes: |
+  代码：`src/zhs/login.py:57`。轮询扫码状态并换取 Cookie。
+
+  待补：状态码枚举（待扫 / 已扫 / 成功 / 过期）、成功时返回的 Cookie 字段。
+responses:
+  '200':
+    description: 扫码状态（枚举待补）
