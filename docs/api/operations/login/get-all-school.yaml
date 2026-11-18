@@ -1,0 +1,42 @@
+tags: [登录]
+summary: 获取学校列表（登录表单）
+operationId: getAllSchool
+description: |
+  登录页的学校下拉数据，返回全量学校（上千条）。ZHS 不使用，仅记录。
+
+  > 无参数，`Content-Type: application/x-www-form-urlencoded` + 空 body。
+x-zhs-service: user
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+parameters:
+  - name: Content-Type
+    in: header
+    required: true
+    description: 固定为 `application/x-www-form-urlencoded`
+    schema:
+      type: string
+      default: application/x-www-form-urlencoded
+responses:
+  '200':
+    description: 成功
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            listSchool:
+              type: array
+              items:
+                type: object
+                properties:
+                  schoolId:
+                    type: integer
+                  name:
+                    type: string
+                  letter:
+                    type: string
+                    description: 首字母，用于索引
+                  image:
+                    type: string
+                    description: 学校 logo URL

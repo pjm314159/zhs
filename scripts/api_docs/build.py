@@ -42,6 +42,7 @@ DOMAINS: dict[str, str] = {
     "ai_analysis": "https://ai-course-assistant-api.zhihuishu.com",
     "newbase": "https://newbase.zhihuishu.com",
     "passport": "https://passport.zhihuishu.com",
+    "user": "https://user.zhihuishu.com",
     "hikeservice": "https://hikeservice.zhihuishu.com",
     "studyresources": "https://studyresources.zhihuishu.com",
     "hike_teaching": "https://hike-teaching.zhihuishu.com",

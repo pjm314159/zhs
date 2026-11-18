@@ -64,6 +64,8 @@ tags:
     description: 考试列表、作答、提交
   - name: AI-智慧课程
     description: 知识点、课程信息、考试与作业、AI 解析（SSE）
+  - name: Hike
+    description: hike 域的课程与资源接口（字段待补，先占位）
 
 paths:
   /login:
@@ -257,6 +259,50 @@ paths:
   /api/v4/ai-assistant/chatHome:
     post:
       $ref: './operations/ai-analysis/chat-home.yaml'
+
+  /zhsuser/certify/getAllSchool:
+    post:
+      $ref: './operations/login/get-all-school.yaml'
+
+  /zhsuser/accountV2/findSchoolV2:
+    get:
+      $ref: './operations/login/find-school-v2.yaml'
+
+  /zhsuser/static/resource:
+    get:
+      $ref: './operations/login/static-resource.yaml'
+
+  /run/gateway/t/stu/resources/list-knowledge-resource:
+    post:
+      $ref: './operations/ai-course/list-knowledge-resource.yaml'
+
+  /run/gateway/t/stu/studyRecord/completed:
+    post:
+      $ref: './operations/ai-course/study-record-completed.yaml'
+
+  /run/gateway/t/stu/resources-lab/get-video-time:
+    post:
+      $ref: './operations/ai-course/get-video-time.yaml'
+
+  /run/gateway/t/stu/studyRecord/report:
+    post:
+      $ref: './operations/ai-course/study-record-report.yaml'
+
+  /student/course/aided/getMyCourseList:
+    get:
+      $ref: './operations/hike/get-my-course-list.yaml'
+
+  /studyResources/stuResouce/queryResourceMenuTree:
+    get:
+      $ref: './operations/hike/query-resource-menu-tree.yaml'
+
+  /studyResources/stuResouce/stuViewFile:
+    get:
+      $ref: './operations/hike/stu-view-file.yaml'
+
+  /stuStudy/saveStuStudyRecord:
+    get:
+      $ref: './operations/hike/save-stu-study-record.yaml'
 
 components:
   securitySchemes:

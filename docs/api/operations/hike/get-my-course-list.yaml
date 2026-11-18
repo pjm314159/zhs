@@ -1,0 +1,14 @@
+tags: [Hike]
+summary: 获取 hike 课程列表
+operationId: hikeGetMyCourseList
+description: |
+  hike 域的课程列表。代码里直接硬编码域名 `hikeservice.zhihuishu.com`。
+
+  待补：分页参数、课程字段、`uuid` 是否必传。
+x-zhs-service: hikeservice
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 课程列表（结构待补）

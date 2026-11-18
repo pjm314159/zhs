@@ -1,0 +1,41 @@
+tags: [AI-智慧课程]
+summary: 获取知识点资源列表
+operationId: listKnowledgeResource
+description: |
+  获取某个知识点下的资源列表（视频 / PPT / 文档等），返回 `data.resourceList`。
+
+  待补：`resourceType` 枚举、`dataId` 的来源。
+x-zhs-service: ai
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, classId, knowledgeId]
+    properties:
+      courseId:
+        type: integer
+        description: 课程 ID
+      classId:
+        type: integer
+        description: 班级 ID
+      knowledgeId:
+        type: integer
+        description: 知识点 ID
+  example:
+    courseId: <courseId>
+    classId: <classId>
+    knowledgeId: <knowledgeId>
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`），资源列表在 `data.resourceList`

@@ -1,0 +1,40 @@
+tags: [AI-智慧课程]
+summary: 获取视频时长
+operationId: getVideoTime
+description: |
+  按 `videoIdList` 批量查询视频时长，返回 `data[].time`（秒）。ZHS 用它推算起止播放位置。
+x-zhs-service: ai
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, classId, videoIdList]
+    properties:
+      courseId:
+        type: integer
+      classId:
+        type: integer
+      videoIdList:
+        type: array
+        items:
+          type: integer
+        description: 视频文件 ID 列表
+  example:
+    courseId: <courseId>
+    classId: <classId>
+    videoIdList:
+      - <fileId>
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`），`data[].time` 为时长（秒）
