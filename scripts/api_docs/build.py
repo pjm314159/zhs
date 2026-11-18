@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -137,9 +138,17 @@ def apply_crypto(op: dict[str, Any], crypto: dict[str, Any]) -> None:
         )
 
 
+def project_version() -> str:
+    """从 pyproject.toml 读取项目版本，保证文档版本与 zhs 一致。"""
+    data: dict[str, Any] = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version: str = data["project"]["version"]
+    return version
+
+
 def bundle() -> dict[str, Any]:
     spec: dict[str, Any] = yaml.safe_load(ENTRY.read_text(encoding="utf-8"))
     spec = inline_operations(spec, ENTRY.parent)
+    spec["info"]["version"] = project_version()
 
     for path, item in spec.get("paths", {}).items():
         for method, op in item.items():

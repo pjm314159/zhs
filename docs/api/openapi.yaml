@@ -2,7 +2,8 @@ openapi: 3.1.0
 
 info:
   title: 智慧树接口抓包汇总
-  version: 0.1.0
+  # 由 scripts/api_docs/build.py 从 pyproject.toml 注入，不要手改
+  version: 0.0.0
   summary: ZHS 使用的智慧树平台 HTTP 接口
   description: |
     **更新时间**：2026-11-18

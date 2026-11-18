@@ -32,6 +32,12 @@ uv run python scripts/api_docs/build.py --offline
 uv run python scripts/api_docs/build.py --no-build
 ```
 
+### 版本与产物
+
+- `openapi.yaml` 的 `info.version` 由构建脚本从 `pyproject.toml` 注入，始终与 zhs 版本一致，**不要手改**。
+- `docs/api/build/` 里全部是自动生成的产物（`openapi.bundled.yaml`、`api.html`），**禁止手工修改**，每次构建都会整份覆盖。
+- 要改页面内容，只能改 `openapi.yaml`、`operations/` 或 `build.py`。
+
 产物在 `docs/api/build/`，已加入 `.gitignore`。
 
 离线构建需要先把 ReDoc bundle 放到 `docs/api/vendor/redoc.standalone.js`：

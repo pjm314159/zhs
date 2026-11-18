@@ -21,9 +21,9 @@ x-zhs-crypto:
     properties:
       recruitAndCourseId:
         type: string
-        description: 形如 `414804-1000008156`，由分享链接解析得到
+        description: 形如 `900001-9000000001`，由分享链接解析得到
   example:
-    recruitAndCourseId: 414804-1000008156
+    recruitAndCourseId: 900001-9000000001
   rawExample: |
     {
       "secretStr": "<AES加密后的base64密文>",
@@ -42,10 +42,10 @@ responses:
               code: 0
               message: success
               data:
-                recruitId: 414804
+                recruitId: 900001
                 courseInfo:
-                  courseId: 1000008156
-                  courseName: 军事理论-综合版
+                  courseId: 9000000001
+                  courseName: 示例课程
                   courseMode: 1
                   schoolName: 示例大学
   '400':
