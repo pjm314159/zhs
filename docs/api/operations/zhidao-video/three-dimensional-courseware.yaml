@@ -1,0 +1,21 @@
+tags: [知到-视频]
+summary: 课件访问
+operationId: threeDimensionalCourseWare
+description: |
+  课件（非视频资源）的访问接口，代码里静默失败（`suppress(Exception)`）。
+
+  待补：参数、返回，以及失败是否影响进度。
+x-zhs-service: study
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+parameters:
+  - name: videoId
+    in: query
+    required: true
+    description: 课件资源 ID（待复核）
+    schema:
+      type: string
+responses:
+  '200':
+    description: 课件信息（字段待补）

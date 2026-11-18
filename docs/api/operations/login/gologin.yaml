@@ -1,0 +1,21 @@
+tags: [登录]
+summary: 跨站登录
+operationId: gologin
+x-zhs-service: base
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-notes: |
+  代码：`src/zhs/login.py:59`（base 域）、`src/zhs/zhidao/course.py:169`（study 域）。
+
+  两个域路径相同，均用于登录后建立目标站会话。待补：`fromurl` 等参数与跳转行为。
+parameters:
+  - name: fromurl
+    in: query
+    required: false
+    description: 来源页面地址（待复核）
+    schema:
+      type: string
+responses:
+  '200':
+    description: 跳转或会话建立（待补）

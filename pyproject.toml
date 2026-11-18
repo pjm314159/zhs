@@ -51,6 +51,7 @@ dev = [
     "freezegun>=1.5",        # 时间 Mock，测试 dateFormate 时间戳
     "ruff>=0.8",             # Linter + Formatter，集成 flake8/isort/pyupgrade
     "mypy>=1.13",            # 静态类型检查，strict 模式
+    "pyyaml>=6.0",           # API 文档构建：读写 OpenAPI YAML
 ]
 
 # CLI 入口点：

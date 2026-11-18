@@ -1,0 +1,14 @@
+tags: [知到-视频]
+summary: 获取弹窗题目详情
+operationId: lessonPopupExam
+description: |
+  获取单道弹窗题目的题干与选项。
+
+  代码：`src/zhs/zhidao/quiz.py:77`。抓包文档里没有记录，字段待补。
+x-zhs-service: study
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 题目与选项（字段待补）

@@ -1,0 +1,27 @@
+tags: [知到-视频]
+summary: 查询学习状态
+operationId: queryStudyInfo
+description: |
+  批量查询视频的学习状态（已看时长、是否完成），ZHS 用于断点续播与进度校正。
+
+  待补：入参是 `lessonIds` / `videoIds` 列表的组合方式，响应结构。
+x-zhs-service: study
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    description: 参数结构待补
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 学习状态列表（字段待补）

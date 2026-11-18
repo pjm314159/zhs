@@ -1,0 +1,14 @@
+tags: [知到-视频]
+summary: 查询上次学习视频
+operationId: queryUserRecruitIdLastVideoId
+description: |
+  查询该课程上次学习的视频，用于断点续播。
+
+  代码：`src/zhs/zhidao/course.py:198`。抓包文档里没有记录，参数与返回待补。
+x-zhs-service: study
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+responses:
+  '200':
+    description: 上次学习的视频 ID（结构待补）

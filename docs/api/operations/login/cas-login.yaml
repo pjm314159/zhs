@@ -1,0 +1,23 @@
+tags: [登录]
+summary: CAS SSO 认证
+operationId: casLogin
+x-zhs-service: passport
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-notes: |
+  代码：`src/zhs/api/session_auth.py:79`、`src/zhs/api/sso.py:32`。
+
+  `service` 是回跳地址（例如作业列表接口），认证成功后 302 回到该地址并写入会话 Cookie。
+
+  待补：票据参数名、失败时的返回。
+parameters:
+  - name: service
+    in: query
+    required: true
+    description: 回跳地址（URL 编码）
+    schema:
+      type: string
+responses:
+  '302':
+    description: 回跳并写入会话 Cookie
