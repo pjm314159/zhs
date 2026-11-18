@@ -17,6 +17,8 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: api-docs-${{ github.ref }}
@@ -31,7 +33,7 @@ jobs:
 
       - uses: actions/setup-node@v7.1.0
         with:
-          node-version: "22"
+          node-version: "24"
 
       - uses: astral-sh/setup-uv@v10.3.3
         with:
@@ -52,3 +54,28 @@ jobs:
           name: api-docs
           path: docs/api/build/api.html
           retention-days: 14
+
+      - name: Prepare Pages site
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p docs/api/build/site
+          cp docs/api/build/api.html docs/api/build/site/index.html
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: docs/api/build/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5.0.1
