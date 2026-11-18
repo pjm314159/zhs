@@ -62,8 +62,7 @@ responses:
               type: object
               properties:
                 videoThemeDtos:
-                  type: object
-                  nullable: true
+                  type: [object, 'null']
                 popupPictureDtos:
                   type: array
                   items:
@@ -80,5 +79,4 @@ responses:
                         type: string
                         description: 题目 ID，逗号分隔
                 knowledgeCardDtos:
-                  type: object
-                  nullable: true
+                  type: [object, 'null']

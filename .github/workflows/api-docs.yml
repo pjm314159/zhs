@@ -43,6 +43,9 @@ jobs:
       - name: Build docs (x-zhs compile + Redoc)
         run: uv run python scripts/api_docs/build.py
 
+      - name: Lint OpenAPI
+        run: npx --yes @redocly/cli@2 lint --config .redocly.yaml docs/api/build/openapi.bundled.yaml
+
       - name: Upload HTML
         uses: actions/upload-artifact@v4
         with:

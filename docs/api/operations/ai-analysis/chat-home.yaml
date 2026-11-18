@@ -104,8 +104,7 @@ requestBody:
             type: string
             description: 固定 `"0"`
           messageId:
-            type: string
-            nullable: true
+            type: [string, 'null']
           relation_id_list:
             type: string
             description: 关联图谱 ID 的 JSON 字符串

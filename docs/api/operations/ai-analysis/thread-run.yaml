@@ -44,8 +44,7 @@ requestBody:
           regenerate:
             type: boolean
           runId:
-            type: string
-            nullable: true
+            type: [string, 'null']
       examples:
         example:
           value:

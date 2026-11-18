@@ -58,6 +58,5 @@ responses:
                   examName:
                     type: string
                   submitTime:
-                    type: string
-                    nullable: true
+                    type: [string, 'null']
                     description: 提交时间，null 表示未提交

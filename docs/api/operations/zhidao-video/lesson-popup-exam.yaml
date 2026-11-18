@@ -62,8 +62,7 @@ responses:
                     type: object
                     properties:
                       id:
-                        type: integer
-                        nullable: true
+                        type: [integer, 'null']
                       testQuestion:
                         type: object
                         properties:
@@ -109,17 +108,12 @@ responses:
                             items:
                               type: string
                           txtInfo:
-                            type: string
-                            nullable: true
+                            type: [string, 'null']
                       analysis:
-                        type: string
-                        nullable: true
+                        type: [string, 'null']
                       datas:
-                        type: object
-                        nullable: true
+                        type: [object, 'null']
                       data:
-                        type: object
-                        nullable: true
+                        type: [object, 'null']
                       zAnswer:
-                        type: string
-                        nullable: true
+                        type: [string, 'null']

@@ -37,8 +37,7 @@ x-zhs-crypto:
         type: integer
         description: 任务 ID
       taskType:
-        type: integer
-        nullable: true
+        type: [integer, 'null']
         description: 任务类型，代码传 null
   example:
     classId: <classId>

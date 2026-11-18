@@ -42,8 +42,7 @@ x-zhs-crypto:
             questionType:
               type: integer
             dataVos:
-              type: object
-              nullable: true
+              type: [object, 'null']
   example:
     examTestId: <examTestId>
     examPaperId: <examPaperId>

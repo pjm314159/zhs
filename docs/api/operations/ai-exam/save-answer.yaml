@@ -26,8 +26,7 @@ x-zhs-crypto:
       questionId:
         type: integer
       dataVos:
-        type: object
-        nullable: true
+        type: [object, 'null']
         description: 固定 null
       answer:
         type: string
