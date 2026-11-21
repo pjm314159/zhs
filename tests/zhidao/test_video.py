@@ -4,7 +4,7 @@ Task 3.4 — zhidao/video.py
 TDD 步骤:
 1. 已看完视频 → 跳过
 2. played_time = min(played_time + speed, end_time) 截断
-3. 随机暂停 0.25% → played_time 不前进
+3. 随机暂停 0.25% → 冻结 played_time，不回滚已上报进度；倍速默认 1.5 + 抖动
 4. saveDatabaseIntervalTimeV2 initial=True 格式
 5. saveDatabaseIntervalTimeV2 initial=False 格式（ewssw/sdsew/zwsds）
 6. _watch_video 使用独立 httpx.Client
@@ -15,6 +15,7 @@ TDD 步骤:
 
 from collections.abc import Iterator
 from datetime import timedelta
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,6 +27,7 @@ from zhs.exceptions import ApiError, CaptchaRequired, TimeLimitExceeded
 from zhs.session import ZhsSession
 from zhs.zhidao.models import (
     CourseInfo,
+    QuestionPoint,
     VideoChapter,
     VideoLesson,
     VideoSmallLesson,
@@ -127,22 +129,259 @@ class TestPlayedTimeCapped:
         assert min(played_time + speed, end_time) == 51.5
 
 
-class TestRandomPause:
-    """随机暂停 0.25% → played_time 不前进"""
+class TestClassicHeartbeat:
+    """真实主循环与编码数据的确定性回归。"""
 
-    def test_pause_no_progress(self) -> None:
-        """暂停期间 played_time = last_submit（不前进）"""
-        last_submit = 50
-        played_time = 50
-        # 暂停时 played_time 回退到 last_submit
-        played_time = last_submit
-        assert played_time == 50
+    @staticmethod
+    def run_loop(
+        session: ZhsSession,
+        end: float = 901.0,
+        jitter: int = 0,
+        speed: float | None = None,
+        popup_at: int = 0,
+        fail_first: bool = False,
+        fail_db: bool = False,
+        start: float = 0.0,
+        total_base: int = 0,
+        pause_at: int = 0,
+        uniform_value: float = 0.0,
+        uniform_values: list[float] | None = None,
+    ) -> list[tuple[str, int, list[int | str]]]:
+        ctx = _make_context(video_sec=2000)
+        player = ZhidaoVideoPlayer(session, speed=speed)
+        calls: list[tuple[str, int, list[int | str]]] = []
+        encoded: list[int | str] = []
+        tick = 0
 
-    def test_pause_countdown(self) -> None:
-        """暂停倒计时递减"""
-        pause = 60
-        pause -= 1
-        assert pause == 59
+        def encode(raw: list[int | str], key: str) -> str:
+            encoded[:] = raw
+            return "encoded"
+
+        def pause_random() -> float:
+            """默认不触发随机暂停；pause_at 指定的轮次触发一次。"""
+            nonlocal tick
+            tick += 1
+            return 0.0 if pause_at and tick == pause_at else 1.0
+
+        def query(url: str, data: dict[str, Any]) -> dict[str, Any]:
+            calls.append(("cache" if "Cache" in url else "db", ctx.fucked_time, encoded.copy()))
+            if (fail_first and len(calls) == 1) or (fail_db and ctx.fucked_time == 300):
+                raise ApiError(-1, "temporary failure")
+            return {}
+
+        questions = [QuestionPoint(time_sec=popup_at, question_ids=[1])] if popup_at else []
+        with (
+            patch.object(session, "zhidao_query", side_effect=query),
+            patch("zhs.zhidao.video.encode_ev", side_effect=encode),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print"),
+            patch("zhs.zhidao.video.randint", return_value=jitter),
+            patch("zhs.zhidao.video.random", side_effect=pause_random),
+            patch(
+                "zhs.zhidao.video.uniform",
+                **(
+                    {"side_effect": list(uniform_values)}
+                    if uniform_values is not None
+                    else {"return_value": uniform_value}
+                ),
+            ),
+            patch("zhs.zhidao.quiz.ZhidaoQuizzer"),
+        ):
+            player._main_loop("ABC123", 100, ctx, start, end, end, "token", questions, total_base)
+        return calls
+
+    @staticmethod
+    def delta(call: tuple[str, int, list[int | str]]) -> int:
+        return int(call[2][8 if call[0] == "cache" else 6])
+
+    @pytest.mark.parametrize("jitter", [-5, 0, 5])
+    def test_independent_cadence_and_shared_delta(self, mock_session: ZhsSession, jitter: int) -> None:
+        calls = self.run_loop(mock_session, jitter=jitter)
+        assert [(kind, tick) for kind, tick, _ in calls[:3]] == [
+            ("cache", 180 + jitter),
+            ("db", 300 + jitter),
+            ("cache", 2 * (180 + jitter)),
+        ]
+        assert sum(map(self.delta, calls)) == 901
+        assert calls[-1][0] == "db"
+
+    @pytest.mark.parametrize("speed", [None, 1.0, 2.0])
+    def test_fixed_configured_speed(self, mock_session: ZhsSession, speed: float | None) -> None:
+        calls = self.run_loop(mock_session, end=1000, speed=speed)
+        actual_speed = speed if speed is not None else 1.5
+        for kind, tick, raw in calls[:-1]:
+            assert raw[5 if kind == "cache" else 7] == int(tick * actual_speed)
+        assert calls[-1][1] == -(-1000 // actual_speed)
+        assert sum(map(self.delta, calls)) == 1000
+
+    def test_popup_reports_database_immediately(self, mock_session: ZhsSession) -> None:
+        calls = self.run_loop(mock_session, end=610, popup_at=300)
+        assert [(kind, tick) for kind, tick, _ in calls[:3]] == [("cache", 180), ("db", 200), ("cache", 360)]
+        assert sum(map(self.delta, calls)) == 610
+
+    def test_failed_cache_keeps_shared_delta(self, mock_session: ZhsSession) -> None:
+        calls = self.run_loop(mock_session, end=610, fail_first=True)
+        assert calls[1][:2] == ("db", 300)
+        assert self.delta(calls[1]) == 450
+        assert sum(map(self.delta, calls[1:])) == 610
+
+    def test_failed_db_retries_after_30_seconds(self, mock_session: ZhsSession) -> None:
+        calls = self.run_loop(mock_session, end=610, fail_db=True)
+        db_calls = [call for call in calls if call[0] == "db"]
+        assert [call[1] for call in db_calls[:2]] == [300, 330]
+        assert self.delta(db_calls[1]) == 225
+        assert sum(self.delta(call) for call in calls if call[1] != 300) == 610
+
+    def test_precheck_sync_total_reaches_first_heartbeats(self, mock_session: ZhsSession) -> None:
+        ctx = _make_context(video_sec=700, study_total_time=798)
+        player = ZhidaoVideoPlayer(mock_session, end_threshold=1.0)
+        calls: list[tuple[str, int, list[int | str]]] = []
+        encoded: list[int | str] = []
+        note_count = 0
+
+        def encode(raw: list[int | str], key: str) -> str:
+            encoded[:] = raw
+            return "encoded"
+
+        def query(url: str, data: dict[str, Any]) -> dict[str, Any]:
+            nonlocal note_count
+            if "prelearningNote" in url:
+                note_count += 1
+                return {
+                    "data": {
+                        "studiedLessonDto": {
+                            "id": note_count,
+                            "learnTimeSec": 42,
+                            "studyTotalTime": 800 if note_count == 1 else 2000,
+                        }
+                    }
+                }
+            calls.append(("cache" if "Cache" in url else "db", ctx.fucked_time, encoded.copy()))
+            if len(calls) == 1:
+                raise ApiError(-8, "study time decreased")
+            return {}
+
+        with (
+            patch.object(mock_session, "zhidao_query", side_effect=query),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.encode_ev", side_effect=encode),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print"),
+            patch("zhs.zhidao.video.randint", return_value=0),
+            patch("zhs.zhidao.video.random", return_value=1),
+            patch("zhs.zhidao.video.uniform", return_value=0),
+        ):
+            player.play_video("ABC123", 100, ctx)
+        assert note_count == 2
+        assert calls[0][2][6:9] == [0, 800, "00:00:42"]
+        assert calls[1][2][6:9] == [0, 2000, "00:00:42"]
+        assert calls[2][:2] == ("cache", 180)
+        assert calls[2][2][4:6] == ["00:05:12", 2270]
+        assert calls[2][2][8] == 270
+        assert calls[3][:2] == ("db", 300)
+        assert calls[3][2][6:9] == [180, 2450, "00:08:12"]
+
+    def test_resumed_loop_accumulates_without_skipping(self, mock_session: ZhsSession) -> None:
+        calls = self.run_loop(mock_session, start=42, end=610, total_base=800)
+        assert calls[0][2][4:6] == ["00:05:12", 1070]
+        assert calls[-1][2][7:9] == [1368, "00:10:10"]
+        assert sum(map(self.delta, calls)) == 568
+
+    def test_end_at_cache_deadline_reports_database_only(self, mock_session: ZhsSession) -> None:
+        calls = self.run_loop(mock_session, end=270)
+        assert len(calls) == 1
+        assert calls[0][:2] == ("db", 180)
+        assert self.delta(calls[0]) == 270
+
+    def test_random_pause_freezes_total_without_rollback(self, mock_session: ZhsSession) -> None:
+        """随机暂停冻结播放位置，不回滚已上报进度，恢复后累计仍等于观看时长"""
+        calls = self.run_loop(mock_session, end=630, pause_at=170)
+        ticks = [(kind, tick) for kind, tick, _ in calls]
+
+        # 暂停开始时立即上报一次；暂停期间心跳不再前进
+        assert ticks[:2] == [("db", 170), ("cache", 180)]
+        paused = [call for call in calls if 170 <= call[1] <= 230]
+        totals = {raw[5] if kind == "cache" else raw[7] for kind, _, raw in paused}
+        assert totals == {253}
+        assert all(self.delta(call) == 0 for call in paused[1:])
+
+        # 没有负增量或重复回滚，累计增量与观看时长一致
+        assert min(map(self.delta, calls)) >= 0
+        assert sum(map(self.delta, calls)) == 630
+
+    def test_speed_jitter_advances_at_jittered_rate(self, mock_session: ZhsSession) -> None:
+        """倍速抖动恢复：心跳按抖动后的速度推进，累计增量不丢失"""
+        calls = self.run_loop(mock_session, end=610, uniform_value=0.15)
+        # 1.5 + 0.15 = 1.65，tick=180 时累计位置为 297
+        assert calls[0][:2] == ("cache", 180)
+        assert calls[0][2][5] == pytest.approx(297, abs=1)
+        assert min(map(self.delta, calls)) >= 0
+        assert sum(map(self.delta, calls)) == 610
+
+    def test_speed_jitter_redrawn_after_each_database(self, mock_session: ZhsSession) -> None:
+        """每次 Database 成功后重新抽取倍速抖动，后续心跳按新速度推进"""
+        calls = self.run_loop(mock_session, end=1000, uniform_values=[0.1, -0.1, 0.0, 0.0, 0.0])
+        assert [(kind, tick) for kind, tick, _ in calls[:3]] == [("cache", 180), ("db", 300), ("cache", 360)]
+        assert calls[0][2][5] == pytest.approx(288, abs=1)  # 180 * (1.5 + 0.1)
+        assert calls[1][2][7] == pytest.approx(480, abs=1)  # 300 * 1.6
+        assert calls[2][2][5] == pytest.approx(564, abs=1)  # 480 + 60 * (1.5 - 0.1)
+        assert sum(map(self.delta, calls)) == 1000
+
+    def test_cache_and_database_use_course_info_course_id(self, mock_session: ZhsSession) -> None:
+        """两种心跳的 courseId 都取 courseInfo.courseId，不能用 videoList 的 ctx.course_id"""
+        ctx = _make_context(video_sec=2000)
+        assert ctx.course_id != (ctx.course.course_info.course_id if ctx.course.course_info else 0)
+        player = ZhidaoVideoPlayer(mock_session)
+        raw: list[int | str] = []
+        sent: dict[str, Any] = {}
+
+        def encode(ev: list[int | str], key: str) -> str:
+            raw[:] = ev
+            return "encoded"
+
+        def query(url: str, data: dict[str, Any]) -> dict[str, Any]:
+            sent["kind"] = "cache" if "Cache" in url else "db"
+            sent["data"] = data
+            return {}
+
+        with (
+            patch.object(mock_session, "zhidao_query", side_effect=query),
+            patch("zhs.zhidao.video.encode_ev", side_effect=encode),
+        ):
+            player._report_cache_progress(100, ctx, 180.0, 0.0, "0,1", "token", 180)
+            assert sent["kind"] == "cache"
+            assert raw[2] == 456
+            assert sent["data"]["zwsds"] == "token"
+            assert "courseId" not in sent["data"]
+
+            sent.clear()
+            player._report_progress_v2("ABC123", 100, ctx, 180.0, 0.0, "0,1", "token", initial=False, total=180)
+            assert sent["kind"] == "db"
+            assert sent["data"]["courseId"] == 456
+            assert sent["data"]["zwsds"] == "token"
+
+    def test_resume_position_and_total(self, mock_session: ZhsSession) -> None:
+        ctx = _make_context(video_sec=452, study_total_time=798)
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(
+                mock_session,
+                "zhidao_query",
+                return_value={"data": {"studiedLessonDto": {"id": 1, "learnTimeSec": 42, "studyTotalTime": 800}}},
+            ),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_start_watch_thread"),
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch.object(player, "_main_loop") as loop,
+            patch("zhs.zhidao.video.encode_ev", return_value="encoded") as encode,
+            patch("zhs.zhidao.video.time.sleep"),
+        ):
+            player.play_video("ABC123", 100, ctx)
+        assert loop.call_args.args[3] == 42.0
+        raw = encode.call_args.args[0]
+        assert raw[6:9] == [0, 800, "00:00:42"]
 
 
 class TestReportV2Initial:
@@ -261,15 +500,6 @@ class TestAnswerDelay:
         # 当 answer_delay == 0 时，执行答题
         should_answer = answer_delay == 0
         assert should_answer
-
-    def test_answer_delay_causes_pause(self) -> None:
-        """答题延迟期间产生暂停"""
-        answer_delay = 2
-        # 延迟期间 pause = pause or 1
-        pause = 0
-        if answer_delay > 0:
-            pause = pause or 1
-        assert pause == 1
 
 
 class TestHumanDelay:
@@ -415,6 +645,8 @@ class TestMainLoopCompletion:
             patch.object(player, "_start_watch_thread"),
             patch.object(player, "_three_dimensional_course_ware"),
             patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.random", return_value=1),
+            patch("zhs.zhidao.video.uniform", return_value=0),
             patch("zhs.zhidao.video.print") as mock_print,
         ):
             player.play_video("ABC123", 100, ctx)
@@ -439,6 +671,8 @@ class TestProgressNoResidue:
             patch.object(player, "_start_watch_thread"),
             patch.object(player, "_three_dimensional_course_ware"),
             patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.random", return_value=1),
+            patch("zhs.zhidao.video.uniform", return_value=0),
             patch("zhs.zhidao.video.print") as mock_print,
         ):
             player.play_video("ABC123", 100, ctx)
@@ -559,23 +793,27 @@ class TestReportFailureNoLastSubmitUpdate:
     """上报失败时 last_submit 不更新，确保下次增量正确"""
 
     def test_failure_keeps_last_submit(self, mock_session: ZhsSession) -> None:
-        """上报失败时 last_submit 保持不变，下次上报增量正确"""
+        """上报失败时 last_submit 保持不变，下次上报增量包含全部未确认进度"""
         ctx = _make_context()
         player = ZhidaoVideoPlayer(mock_session)
-        # 模拟 _report_progress_v2 返回失败
         with (
-            patch.object(player, "_report_progress_v2", return_value=(100.0, False)),
+            patch.object(player, "_report_progress_v2", return_value=(100.0, False)) as mock_report,
             patch.object(player, "_load_questions", return_value=[]),
             patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
             patch.object(player, "_start_watch_thread"),
             patch.object(player, "_three_dimensional_course_ware"),
             patch("zhs.zhidao.video.time.sleep"),
             patch("zhs.zhidao.video.print"),
+            patch("zhs.zhidao.video.random", return_value=1),
+            patch("zhs.zhidao.video.uniform", return_value=0),
         ):
-            # played_time 从 70 开始，end_time=91%*1800=1638
-            # 但我们设置 end_threshold=1.0 让循环快速结束
-            player.end_threshold = 0.05  # end_time=90
+            player.end_threshold = 0.05  # end_time=90，循环快速结束
             player.play_video("ABC123", 100, ctx)
+
+        # 所有失败心跳的 last_submit 都停留在起始位置 0，增量不被丢掉
+        assert len(mock_report.call_args_list) >= 2
+        assert {call.args[4] for call in mock_report.call_args_list} == {0.0}
+        assert mock_report.call_args_list[-1].args[3] > 0
 
 
 class TestStartPrecheck:
