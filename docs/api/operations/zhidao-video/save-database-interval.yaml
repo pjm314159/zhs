@@ -8,6 +8,14 @@ description: |
   否则服务端返回 `-1 参数解码错误`。
 
   > 两者共用一条增量链，服务端把两种上报的本段秒都累加进 `studyTotalTime`。
+
+  `sdsew` 解密后是一个数组，顺序如下（与 Cache 心跳不同）：
+
+  ```text
+  recruitId;lessonId;lessonVideoId;videoId;chapterId;"0";本段秒;累计秒;HH:MM:SS;uuid+"zhs"
+  ```
+
+  时间字段统一为 `HH:MM:SS`（补前导零）。
 x-zhs-service: study
 x-zhs-status: confirmed
 x-zhs-evidence:
@@ -30,8 +38,8 @@ x-zhs-crypto:
           type: integer
         description: 观察点增量
       sdsew:
-        type: integer
-        description: 本段秒数
+        type: string
+        description: 加密后的定位参数数组（见上方字段顺序）
       zwsds:
         type: string
         description: base64 后的学习令牌
