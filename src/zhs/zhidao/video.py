@@ -13,7 +13,6 @@ import re
 import threading
 import time
 from base64 import b64encode
-from datetime import timedelta
 from random import randint, random, uniform
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +26,17 @@ from zhs.utils.display import course_tag, msg_done, msg_error, msg_skip, msg_war
 if TYPE_CHECKING:
     from zhs.session import ZhsSession
     from zhs.zhidao.models import PopupQuestion, QuestionPoint, ZhidaoContext
+
+
+CLASSIC_CACHE_INTERVAL = 180
+CLASSIC_DB_INTERVAL = 300
+
+
+def _hms(seconds: int) -> str:
+    """播放位置格式化为网页端的 HH:MM:SS。"""
+    hours, rest = divmod(max(seconds, 0), 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 class ZhidaoVideoPlayer:
@@ -44,6 +54,7 @@ class ZhidaoVideoPlayer:
         self.end_threshold = end_threshold
         self._time_limit = time_limit
         self._progress_line: str | None = None
+        self._resume_time = 0.0
 
     def _print_with_progress(self, text: str, depth: int = 0, enabled: bool = True) -> None:
         """打印消息，保持进度条在底部（若激活则清除→打印→重印进度条）"""
@@ -140,12 +151,10 @@ class ZhidaoVideoPlayer:
             logger.debug(f"Skipping completed video: {video.name} (watchState=1)")
             return
 
-        # 获取学习令牌（同时获取最新的学习时间）
+        # 续播位置与累计观看时长独立，重看时累计可能超过视频长度。
         token_id, server_time = self._prelearning_note(rac_id, video_id, ctx)
-        # 使用服务器返回的最新学习时间，避免 -8 学习总时长下降
-        if server_time > played_time:
-            logger.info(f"Server time {server_time}s > local {played_time}s, using server time")
-            played_time = float(server_time)
+        played_time = self._resume_time
+        total_base = max(server_time, video.study_total_time)
 
         # 获取弹窗题目
         questions = self._load_questions(rac_id, video_id, ctx)
@@ -191,7 +200,7 @@ class ZhidaoVideoPlayer:
 
         # 开播预检：立即上报一次零进度心跳（与服务端风控评估的常规心跳同格式），
         # 提前发现验证码(-12)/时长上限(-9)，避免进入观看循环后白等首个心跳(~30s)才发现
-        self._precheck(rac_id, video_id, ctx, played_time, token_id)
+        total_base = self._precheck(rac_id, video_id, ctx, played_time, token_id, total=total_base)
 
         # 启动视频流请求（反检测）
         self._start_watch_thread(video.video_id)
@@ -200,7 +209,7 @@ class ZhidaoVideoPlayer:
         self._three_dimensional_course_ware(video.video_id)
 
         # 进入主循环
-        self._main_loop(rac_id, video_id, ctx, played_time, end_time, real_end_time, token_id, questions)
+        self._main_loop(rac_id, video_id, ctx, played_time, end_time, real_end_time, token_id, questions, total_base)
 
         logger.info(
             f"play_video done: videoId={video_id}, name={video.name}, "
@@ -220,15 +229,19 @@ class ZhidaoVideoPlayer:
         real_end_time: float,
         token_id: str,
         questions: list["QuestionPoint"],
+        total_base: int = 0,
     ) -> None:
         """视频播放主循环"""
         from zhs.zhidao.quiz import ZhidaoQuizzer
 
         video = ctx.videos[video_id]
-        speed = (self._speed or 1.5) + uniform(-0.15, 0.15)
+        base_speed = self._speed or 1.5
+        speed = base_speed + uniform(-0.15, 0.15)
+        start_position = played_time
         last_submit = played_time
         elapsed_time = 0
-        db_interval = 30 + randint(-5, 5)
+        db_next = CLASSIC_DB_INTERVAL + randint(-5, 5)
+        cache_next = CLASSIC_CACHE_INTERVAL + randint(-5, 5)
         answer_delay: int | None = None
         current_question: PopupQuestion | None = None
         report = False
@@ -241,7 +254,6 @@ class ZhidaoVideoPlayer:
             time.sleep(1)
             ctx.fucked_time += 1
             elapsed_time += 1
-            played_time = min(played_time + speed, end_time)
 
             if elapsed_time % 30 == 0:
                 logger.debug(
@@ -251,14 +263,17 @@ class ZhidaoVideoPlayer:
                     f"answer_delay={answer_delay}"
                 )
 
-            # 随机暂停 0.25%
-            pause = pause or int(random() < 0.0025) * 60
-            report = report or pause == 60
-
-            # 暂停期间不前进
+            # 随机暂停：冻结播放位置，但不回滚已累计的未上报增量
+            paused_now = pause > 0
             if pause:
                 pause -= 1
-                played_time = last_submit
+            elif random() < 0.0025:
+                pause = 60
+                paused_now = True
+                # 暂停开始时立即同步一次，避免增量长时间悬空
+                report = True
+            elif answer_delay is None:
+                played_time = min(played_time + speed, end_time)
 
             # 更新 WatchPoint（每 2 秒）
             if not elapsed_time % 2:
@@ -319,36 +334,45 @@ class ZhidaoVideoPlayer:
                             course_id=course_id,
                         )
                 else:
-                    pause = pause or 1
                     answer_delay -= 1
 
-            # 上报进度
-            if elapsed_time % db_interval == 0 or played_time >= end_time or report:
+            # 两种心跳各自计时，但只有成功上报才推进共享增量链。
+            total = total_base + int(played_time) - int(start_position)
+            due_db = elapsed_time >= db_next or played_time >= end_time or report
+            if elapsed_time >= cache_next and not due_db:
+                wp.add(int(played_time))
+                if self._report_cache_progress(video_id, ctx, played_time, last_submit, wp.get(), token_id, total):
+                    last_submit = played_time
+                    wp.reset(int(played_time))
+                cache_next = elapsed_time + CLASSIC_CACHE_INTERVAL + randint(-5, 5)
+
+            if due_db:
                 report = False
                 wp.add(int(played_time))
                 server_played, success = self._report_progress_v2(
-                    rac_id, video_id, ctx, played_time, last_submit, wp.get(), token_id, initial=False
+                    rac_id, video_id, ctx, played_time, last_submit, wp.get(), token_id, initial=False, total=total
                 )
                 if success:
-                    # 同步服务器时间（处理 -8 学习总时长下降）
-                    if server_played > played_time:
-                        played_time = server_played
+                    # -8 返回的是累计时间，不能用它改变播放位置。
+                    if server_played > total:
+                        total_base += int(server_played) - total
                     last_submit = played_time
                     wp.reset(int(played_time))
-                    db_interval = 30 + randint(-5, 5)
-                    speed = (self._speed or 1.5) + uniform(-0.15, 0.15)
+                    db_next = elapsed_time + CLASSIC_DB_INTERVAL + randint(-5, 5)
+                    speed = base_speed + uniform(-0.15, 0.15)
                 else:
                     # 上报失败：不更新 last_submit，下次重试时增量正确
                     logger.warning(f"Progress report failed, will retry with delta={played_time - last_submit:.1f}s")
+                    db_next = elapsed_time + 30
 
             # 显示进度条（始终相对于真实结束时间，不受时间限制影响）
-            bar_current, bar_total = (60 - pause, 60.0) if pause else (played_time, real_end_time)
             if answer_delay is not None:
                 action = "answering"
-            elif pause:
+            elif paused_now:
                 action = "pause"
             else:
                 action = f"playing {video.video_id}"
+            bar_current, bar_total = (60 - pause, 60.0) if paused_now else (played_time, real_end_time)
             bar_str = progress_bar(bar_current, bar_total)
             line = f"{action} {bar_str}"
             self._progress_line = line
@@ -378,6 +402,13 @@ class ZhidaoVideoPlayer:
         }
         result = self._session.zhidao_query(url, data)
         dto = result.get("data", {}).get("studiedLessonDto", {})
+        # 续播位置取 learnTimeSec（播放位置），累计时长取 studyTotalTime，两者不能混用
+        try:
+            # learnTimeSec 是播放位置；用 float 兼容 "42.5" 这类返回值
+            self._resume_time = float(min(max(int(float(dto.get("learnTimeSec") or 0)), 0), video.video_sec))
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid learnTimeSec, restarting from 0: {dto.get('learnTimeSec')!r}")
+            self._resume_time = 0.0
         token_id = dto.get("id", 0)
         server_time = dto.get("studyTotalTime", 0)
         return b64encode(str(token_id).encode()).decode(), server_time
@@ -453,26 +484,60 @@ class ZhidaoVideoPlayer:
 
     def _report_cache_progress(
         self,
+        video_id: int,
+        ctx: "ZhidaoContext",
+        played_time: float,
+        last_submit: float,
         watch_point: str,
-        sdsew: str,
         token_id: str,
-    ) -> None:
-        """上报缓存进度（saveCacheIntervalTimeV2）
-
-        与 saveDatabaseIntervalTimeV2 共用 ewssw/sdsew/zwsds，
-        但不含 courseId。cache 上报失败不影响主流程。
-        """
+        total: int,
+    ) -> bool:
+        """Cache 使用独立字段顺序；返回成功与否以维护共享增量链。"""
+        video = ctx.videos[video_id]
+        course_info = ctx.course.course_info
+        raw_ev: list[int | str] = [
+            ctx.course.recruit_id or 0,
+            video.chapter_id,
+            course_info.course_id if course_info else 0,
+            video.lesson_id,
+            _hms(min(video.video_sec, int(played_time))),
+            total,
+            video.video_id,
+            video.id,
+            int(played_time) - int(last_submit),
+            (self._session.uuid or "") + "zhs",
+        ]
+        sdsew = encode_ev(raw_ev, self._session.crypto.ev_key)
         url = f"{self._session.urls.study}/gateway/t/v1/learning/saveCacheIntervalTimeV2"
         data: dict[str, Any] = {
             "ewssw": watch_point,
             "sdsew": sdsew,
             "zwsds": token_id,
         }
-        with contextlib.suppress(Exception):
+        try:
             self._session.zhidao_query(url, data)
+        except CaptchaRequired:
+            raise
+        except ApiError as exc:
+            if exc.code == -9:
+                raise TimeLimitExceeded(f"学习时间已达上限: {exc.message}") from exc
+            logger.debug(f"Cache progress report failed: {exc}")
+            return False
+        except Exception as exc:
+            logger.debug(f"Cache progress report failed: {exc}")
+            return False
+        return True
 
-    def _precheck(self, rac_id: str, video_id: int, ctx: "ZhidaoContext", played_time: float, token_id: str) -> None:
-        """开播前预检上报：delta=0 的常规心跳格式，提前发现验证码/时长上限
+    def _precheck(
+        self,
+        rac_id: str,
+        video_id: int,
+        ctx: "ZhidaoContext",
+        played_time: float,
+        token_id: str,
+        total: int | None = None,
+    ) -> int:
+        """开播前预检上报：delta=0 的常规心跳格式，返回已确认累计时长
 
         实测：服务端风控仅在常规心跳（initial=False）上评估，
         initial=True 补报不返回 -12/-9，故用 last_submit=played_time 的
@@ -484,9 +549,10 @@ class ZhidaoVideoPlayer:
         """
         watch_point = WatchPoint()
         watch_point.add(int(played_time))
-        self._report_progress_v2(
-            rac_id, video_id, ctx, played_time, played_time, watch_point.get(), token_id, initial=False
+        confirmed_total, success = self._report_progress_v2(
+            rac_id, video_id, ctx, played_time, played_time, watch_point.get(), token_id, initial=False, total=total
         )
+        return int(confirmed_total) if success else (int(played_time) if total is None else total)
 
     def _report_progress_v2(
         self,
@@ -498,8 +564,10 @@ class ZhidaoVideoPlayer:
         watch_point: str,
         token_id: str,
         initial: bool = False,
+        total: int | None = None,
     ) -> tuple[float, bool]:
-        """上报进度 V2，返回 (服务器最新学习时间, 是否上报成功)"""
+        """上报进度 V2，返回 (累计学习时长, 是否上报成功)。"""
+        total_seconds = int(played_time) if total is None else total
         url = f"{self._session.urls.study}/gateway/t/v1/learning/saveDatabaseIntervalTimeV2"
         video = ctx.videos[video_id]
         recruit_id = ctx.course.recruit_id or 0
@@ -521,7 +589,7 @@ class ZhidaoVideoPlayer:
                 video.chapter_id,
                 course_id,
                 video.lesson_id,
-                str(timedelta(seconds=min(video.video_sec, int(played_time)))),
+                _hms(min(video.video_sec, int(played_time))),
                 int(played_time),
                 video.video_id,
                 "0",
@@ -536,15 +604,13 @@ class ZhidaoVideoPlayer:
                 video.video_id,
                 video.chapter_id,
                 "0",
-                int(played_time - last_submit),
-                int(played_time),
-                str(timedelta(seconds=min(video.video_sec, int(played_time)))),
+                int(played_time) - int(last_submit),
+                total_seconds,
+                _hms(min(video.video_sec, int(played_time))),
                 session_uuid + "zhs",
             ]
 
         sdsew = encode_ev(raw_ev, self._session.crypto.ev_key)
-        # 先上报缓存进度（与 database 共用 sdsew，不含 courseId，失败不影响主流程）
-        self._report_cache_progress(watch_point, sdsew, token_id)
 
         data: dict[str, Any] = {
             "ewssw": watch_point,
@@ -556,7 +622,7 @@ class ZhidaoVideoPlayer:
 
         try:
             self._session.zhidao_query(url, data)
-            return played_time, True
+            return float(total_seconds), True
         except CaptchaRequired:
             raise
         except Exception as exc:
@@ -574,7 +640,7 @@ class ZhidaoVideoPlayer:
                     data["zwsds"] = new_token
                     self._session.zhidao_query(url, data)
                     logger.info("Progress report succeeded after token refresh")
-                    return played_time, True
+                    return float(total_seconds), True
                 except Exception as retry_exc:
                     logger.error(f"Progress report failed after retry: {retry_exc}")
             elif "-8" in exc_msg:
@@ -583,15 +649,9 @@ class ZhidaoVideoPlayer:
                 logger.warning(f"Study time decreased, syncing with server: {exc}")
                 try:
                     new_token, server_time = self._prelearning_note(rac_id, video_id, ctx)
-                    if server_time > int(played_time):
-                        # 用服务器时间重新构造 ev
-                        new_played = float(server_time)
-                        new_delta = new_played - last_submit
-                        if new_delta < 0:
-                            new_delta = 0
-                        raw_ev[6] = int(new_delta)
-                        raw_ev[7] = int(new_played)
-                        raw_ev[8] = str(timedelta(seconds=min(video.video_sec, int(new_played))))
+                    if server_time > total_seconds and not initial:
+                        # 只同步累计字段，保持本段增量和播放位置不变。
+                        raw_ev[7] = server_time
                         data["sdsew"] = encode_ev(raw_ev, self._session.crypto.ev_key)
                         data["zwsds"] = new_token
                         self._session.zhidao_query(url, data)
@@ -601,4 +661,4 @@ class ZhidaoVideoPlayer:
                     logger.error(f"Progress report failed after -8 retry: {retry_exc}")
             else:
                 logger.error(f"Failed to report progress: {exc}")
-        return played_time, False
+        return float(total_seconds), False

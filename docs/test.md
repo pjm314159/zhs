@@ -913,7 +913,7 @@ class TestZhidaoVideoPlayer:
         assert min(played_time + speed, end_time) == 100  # 截断
 
     def test_random_pause_no_progress(self) -> None:
-        """随机暂停时 played_time = last_submit（不前进）"""
+        """随机暂停时冻结 played_time，不回滚已上报进度"""
 
     def test_report_v2_initial_format(self) -> None:
         """saveDatabaseIntervalTimeV2 initial=True 格式"""
