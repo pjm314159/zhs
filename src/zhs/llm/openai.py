@@ -1,6 +1,5 @@
 """OpenAI 兼容接口 LLM 提供者"""
 
-import contextlib
 import re
 import time
 from queue import Empty, Full, Queue
@@ -78,8 +77,8 @@ class OpenAIProvider(LLMProvider):
         即使 OpenAI SDK 的 __next__() 阻塞，主线程也能在 timeout 后超时退出。
 
         主线程一旦离开（找到答案标记 / 超时 / 流内异常）都会置位 stop_event 并关闭 stream：
-        否则后台 reader 会继续读取已被抛弃的响应，而队列再无人消费，
-        每次 put 白等 5 秒才超时丢一个 chunk（同时白烧 token / 流量 / 连接）。
+        队列满时以可取消的背压等待消费者，正文、结束和异常信号都不丢弃；
+        消费者退出后，reader 不会永久阻塞在无人消费的队列上。
 
         空闲超时（`idle_timeout`）语义是"**连一个 delta 都没收到**"：思考型模型只发
         `reasoning_content`（`delta.content` 为空）时，空 delta 也会入队作为活跃信号，
@@ -97,17 +96,28 @@ class OpenAIProvider(LLMProvider):
         # Queue item: str = content delta, None = 流结束, Exception = 错误
         chunk_queue: Queue[str | None | Exception] = Queue(maxsize=100)
         stop_event = Event()
-        dropped = 0
         content_chunks = 0
         empty_deltas = 0
 
+        def _enqueue(item: str | None | Exception) -> bool:
+            while not stop_event.is_set():
+                try:
+                    chunk_queue.put(item, timeout=0.05)
+                    return True
+                except Full:
+                    continue
+            return False
+
         def _reader() -> None:
-            nonlocal dropped, content_chunks, empty_deltas
+            nonlocal content_chunks, empty_deltas
             try:
                 for chunk in stream:
                     if stop_event.is_set():
                         logger.debug("reader 收到停止信号，停止读取流")
                         return
+                    if not chunk.choices:
+                        # stream_options.include_usage 的统计 chunk 没有 choices。
+                        continue
                     delta = chunk.choices[0].delta
                     content = delta.content or ""
                     if content:
@@ -116,20 +126,12 @@ class OpenAIProvider(LLMProvider):
                         # 空 delta（典型：思考型模型只发 reasoning_content）必须照样入队：
                         # 主线程靠"收到队列项"刷新空闲超时，丢掉它会让长思考被误判为连接已死。
                         empty_deltas += 1
-                    try:
-                        chunk_queue.put_nowait(content)
-                    except Full:
-                        dropped += 1
-                if not stop_event.is_set():
-                    with contextlib.suppress(Full):
-                        chunk_queue.put_nowait(None)  # 流结束信号
+                    if not _enqueue(content):
+                        return
+                _enqueue(None)  # 流结束信号也必须等待队列空间
             except Exception as e:
-                if not stop_event.is_set():
-                    with contextlib.suppress(Full):
-                        chunk_queue.put_nowait(e)
+                _enqueue(e)
             finally:
-                if dropped:
-                    logger.warning(f"chunk_queue 满，丢弃 {dropped} 个 chunk（消费者滞后）")
                 logger.debug(f"流式统计: 正文 chunk={content_chunks}, 空 delta(含 thinking)={empty_deltas}")
 
         reader_thread = Thread(target=_reader, daemon=True)

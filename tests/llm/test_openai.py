@@ -2,6 +2,9 @@
 
 import time
 from collections.abc import Iterator
+from queue import Queue
+from threading import Event, Thread
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -131,6 +134,120 @@ class TestStreamEarlyTermination:
         result = provider.completion("prompt")
 
         assert "```answer" in result
+
+
+class _BackpressureQueue(Queue[str | None | Exception]):
+    """Hold the consumer until a producer attempts to enqueue into a full queue."""
+
+    def __init__(self, maxsize: int) -> None:
+        super().__init__(maxsize)
+        self.backpressured = Event()
+
+    def put(self, item: str | None | Exception, block: bool = True, timeout: float | None = None) -> None:
+        if self.full():
+            self.backpressured.set()
+        super().put(item, block=block, timeout=timeout)
+
+    def get(self, block: bool = True, timeout: float | None = None) -> str | None | Exception:
+        assert self.backpressured.wait(2), "producer never reached queue capacity"
+        return super().get(block=block, timeout=timeout)
+
+
+class TestStreamBackpressure:
+    @pytest.mark.parametrize("count,fail", [(101, False), (100, False), (100, True)])
+    def test_full_queue_preserves_text_end_and_error(self, count: int, fail: bool) -> None:
+        parts = [f"part-{i};" for i in range(count)]
+        if count > 100:
+            parts.append("```answer complete```")
+        error = RuntimeError("upstream failed")
+
+        def chunks() -> Iterator[SimpleNamespace]:
+            for part in parts:
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=part))])
+            if fail:
+                raise error
+
+        stream = MagicMock()
+        stream.__iter__.side_effect = chunks
+        threads: list[Thread] = []
+
+        def reader_thread(**kwargs: object) -> Thread:
+            thread = Thread(**kwargs)  # type: ignore[arg-type]
+            threads.append(thread)
+            return thread
+
+        with (
+            patch("zhs.llm.openai.OpenAI") as client,
+            patch("zhs.llm.openai.Queue", _BackpressureQueue),
+            patch("zhs.llm.openai.Thread", side_effect=reader_thread),
+        ):
+            client.return_value.chat.completions.create.return_value = stream
+            provider = OpenAIProvider(api_key="test-key", timeout=2, idle_timeout=0.2)
+            try:
+                if fail:
+                    with pytest.raises(ZhsError, match="upstream failed") as caught:
+                        provider._stream_completion("prompt")
+                    assert caught.value.__cause__ is error
+                elif count > 100:
+                    assert provider._stream_completion("prompt") == "".join(parts)
+                else:
+                    # No answer marker: reaching EOF must report the complete response length,
+                    # rather than time out because the end signal was dropped.
+                    with pytest.raises(ZhsError, match=f"响应长度={len(''.join(parts))}"):
+                        provider._stream_completion("prompt")
+            finally:
+                for thread in threads:
+                    thread.join(1)
+                    assert not thread.is_alive()
+                stream.close.assert_called_once()
+
+    @pytest.mark.parametrize("early_answer", [True, False])
+    def test_full_queue_reader_exits_when_consumer_stops(self, early_answer: bool) -> None:
+        parts = ["```answer ok```" if early_answer else "text"] * 1000
+        stream = _FakeStream(parts)
+        threads: list[Thread] = []
+
+        def reader_thread(**kwargs: object) -> Thread:
+            thread = Thread(**kwargs)  # type: ignore[arg-type]
+            threads.append(thread)
+            return thread
+
+        with (
+            patch("zhs.llm.openai.OpenAI") as client,
+            patch("zhs.llm.openai.Queue", _BackpressureQueue),
+            patch("zhs.llm.openai.Thread", side_effect=reader_thread),
+            patch("zhs.llm.openai.time.monotonic", side_effect=[0, 0, 2]),
+        ):
+            client.return_value.chat.completions.create.return_value = stream
+            provider = OpenAIProvider(api_key="test-key", timeout=1)
+            try:
+                if early_answer:
+                    assert provider._stream_completion("prompt") == parts[0]
+                else:
+                    with pytest.raises(ZhsError, match="timeout"):
+                        provider._stream_completion("prompt")
+            finally:
+                for thread in threads:
+                    thread.join(1)
+                    assert not thread.is_alive()
+                assert stream.closed
+            assert stream.yielded < len(parts)
+
+    def test_empty_choices_usage_chunk_is_ignored(self) -> None:
+        stream = MagicMock()
+        stream.__iter__.return_value = iter(
+            [
+                SimpleNamespace(choices=[]),
+                _chunk("```answer text"),
+                SimpleNamespace(choices=[]),
+                _chunk("```"),
+            ]
+        )
+        with patch("zhs.llm.openai.OpenAI") as client:
+            client.return_value.chat.completions.create.return_value = stream
+            provider = OpenAIProvider(api_key="test-key")
+            assert provider._stream_completion("prompt") == "```answer text```"
+        stream.close.assert_called_once()
 
 
 class TestOpenAIRetryPolicy:
