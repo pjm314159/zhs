@@ -169,7 +169,7 @@ def play(
     ai_course: int | None = typer.Option(None, "--ai-course", help="AI 课程 courseId"),  # noqa: B008
     ai_class: int | None = typer.Option(None, "--ai-class", help="AI 课程 classId"),  # noqa: B008
     speed: float | None = typer.Option(None, "-s", "--speed", help="播放速度"),  # noqa: B008
-    limit: int = typer.Option(0, "-l", "--limit", help="每门课程时间限制(分钟)", min=0),  # noqa: B008
+    limit: int = typer.Option(0, "-l", "--limit", help="每门课程时间限制(分钟，按视频时长计)", min=0),  # noqa: B008
     learn_optional: bool = typer.Option(False, "--learn-optional", help="AI 课程学习选学资源"),  # noqa: B008
     proxy: str | None = typer.Option(None, "--proxy", help="代理"),  # noqa: B008
     debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),  # noqa: B008

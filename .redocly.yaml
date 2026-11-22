@@ -1,0 +1,16 @@
+extends:
+  - recommended
+
+rules:
+  # 项目有 15 个域名，servers 表达不了，域名只写在 description 的「完整 URL」里
+  no-empty-servers: off
+
+  # securityScheme 名带空格与括号（如 "AES-128-CBC (video_key)"），便于页面展示
+  spec-components-invalid-map-name: off
+
+  # 示例值统一用 <占位符>，与 schema 的 integer 类型不一致是预期行为
+  no-invalid-media-type-examples: off
+
+  # 多数接口只定义 200，不逐个补 4xx
+  operation-4xx-response: off
+  operation-2xx-response: off

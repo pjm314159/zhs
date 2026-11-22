@@ -1,0 +1,82 @@
+tags: [知到-视频]
+summary: 保存弹窗答案
+operationId: saveLessonPopupExamSaveAnswer
+description: |
+  提交弹窗题目的答案。
+
+  - `answer` 传**选项 ID**（`questionOptions[].id`），不是 `1/0`，也不是选项序号
+  - `isCurrent` 是字符串 `"1"`，`testType` 是数字 `0`，类型不一致
+  - 多选题的 `answer` 拼接格式待补（本次为判断题）
+x-zhs-service: study
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, recruitId, testQuestionId, isCurrent, lessonId, lessonVideoId, answer, testType]
+    properties:
+      courseId:
+        type: integer
+        description: 课程 ID
+      recruitId:
+        type: integer
+        description: 招募 ID
+      testQuestionId:
+        type: integer
+        description: 题目 ID
+      isCurrent:
+        type: string
+        description: 固定 `"1"`
+      lessonId:
+        type: integer
+        description: 课时 ID
+      lessonVideoId:
+        type: integer
+        description: 课时视频 ID
+      answer:
+        type: string
+        description: 选项 ID，正确项来自 `questionOptions[].result == "1"`
+      testType:
+        type: integer
+        description: 固定 `0`
+      dateFormate:
+        type: integer
+        description: 毫秒时间戳
+  example:
+    courseId: <courseId>
+    recruitId: <recruitId>
+    testQuestionId: <questionId>
+    isCurrent: '1'
+    lessonId: <lessonId>
+    lessonVideoId: <lessonVideoId>
+    answer: <optionId>
+    testType: 0
+    dateFormate: 1781740820451
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 0`）
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            data:
+              type: object
+              properties:
+                submitStatus:
+                  type: boolean
+                  description: 值为 true 表示已提交

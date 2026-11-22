@@ -1,0 +1,16 @@
+tags: [登录]
+summary: 获取登录用户信息（登录态探活）
+operationId: getLoginUserInfo
+x-zhs-service: base
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-notes: |
+  代码：`src/zhs/api/session_auth.py:36`。
+
+  启动时先用 CAS 票据换取 `onlineservice-api` 会话，再调用本接口；只有响应里能取到用户信息才算登录有效。
+
+  待补：响应结构、未登录时的返回。
+responses:
+  '200':
+    description: 用户信息（字段待补）

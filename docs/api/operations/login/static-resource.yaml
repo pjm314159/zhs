@@ -1,0 +1,45 @@
+tags: [登录]
+summary: 登录页展示配置
+operationId: staticResource
+description: |
+  登录页的背景视频、logo、标题等展示配置，与登录流程无关，仅记录。
+x-zhs-service: user
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+parameters:
+  - name: source
+    in: query
+    required: true
+    description: 来源标识，固定 `zhs`
+    schema:
+      type: string
+      default: zhs
+responses:
+  '200':
+    description: 成功
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            status:
+              type: integer
+            currentTime:
+              type: integer
+              format: int64
+            msg:
+              type: string
+            rt:
+              type: object
+              properties:
+                video:
+                  type: string
+                  description: 背景视频 URL
+                logo:
+                  type: string
+                  description: logo 图片 URL
+                title:
+                  type: string
+                titleEn:
+                  type: string

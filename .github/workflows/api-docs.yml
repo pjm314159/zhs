@@ -1,0 +1,81 @@
+name: API Docs
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "docs/api/**"
+      - "scripts/api_docs/**"
+      - ".github/workflows/api-docs.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "docs/api/**"
+      - "scripts/api_docs/**"
+      - ".github/workflows/api-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: api-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build API Docs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Build docs (x-zhs compile + Redoc)
+        run: uv run python scripts/api_docs/build.py
+
+      - name: Lint OpenAPI
+        run: npx --yes @redocly/cli@2 lint --config .redocly.yaml docs/api/build/openapi.bundled.yaml
+
+      - name: Upload HTML
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: api-docs
+          path: docs/api/build/api.html
+          retention-days: 14
+
+      - name: Prepare Pages site
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p docs/api/build/site
+          cp docs/api/build/api.html docs/api/build/site/index.html
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: docs/api/build/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5.0.1

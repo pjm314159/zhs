@@ -1,0 +1,44 @@
+tags: [知到-考试]
+summary: 提交考试
+operationId: examSubmit
+description: |
+  提交考试。默认不提交，只有用户显式 `--submit` 时才调用。
+
+  响应示例：`{"rt": {"msg": "提交成功", "statu": "1"}, "status": "200"}`
+x-zhs-service: taurusexam
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, examId, stuExamId, achieveCount]
+    properties:
+      recruitId:
+        type: string
+        description: 招募 ID
+      examId:
+        type: string
+        description: 考试 ID
+      stuExamId:
+        type: string
+        description: 学生考试记录 ID
+      achieveCount:
+        type: string
+        description: 已答题数量（字符串）
+  example:
+    recruitId: '<recruitId>'
+    examId: <examId>
+    stuExamId: <studentExamId>
+    achieveCount: '5'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`），`rt.statu == "1"` 表示提交成功

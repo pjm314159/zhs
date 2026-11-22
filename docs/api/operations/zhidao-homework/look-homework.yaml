@@ -1,0 +1,49 @@
+tags: [知到-作业]
+summary: 查看已提交作业
+operationId: lookHomework
+description: |
+  查看已提交的作业，返回题目详情。
+
+  > 与 `doHomework` 的区别：`lookHomework` 返回数字型 `id`（无 `eid`），
+  > 用于 `getStuAnswerInfo` 与 AI 解析；`doHomework` 返回加密 `eid` 用于保存答案。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, studentExamId, examId, schoolId, courseId]
+    properties:
+      recruitId:
+        type: string
+        description: 招募 ID
+      studentExamId:
+        type: string
+        description: 学生作业 ID
+      examId:
+        type: string
+        description: 作业 ID
+      schoolId:
+        type: string
+        description: 学校 ID
+      courseId:
+        type: string
+        description: 课程 ID
+  example:
+    recruitId: '<recruitId>'
+    studentExamId: <studentExamId>
+    examId: <examId>
+    schoolId: '<schoolId>'
+    courseId: '<courseId>'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`），题目 `id` 为数字型

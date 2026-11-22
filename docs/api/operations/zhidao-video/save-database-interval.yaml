@@ -1,0 +1,44 @@
+tags: [知到-视频]
+summary: 上报视频进度（Database 心跳）
+operationId: saveDatabaseIntervalTimeV2
+description: |
+  Database 心跳，约 300 秒一次；弹题时会立即补一次。
+
+  与 Cache 心跳的差异：**必须带 `courseId`**，且要用 `queryCourse` 返回的 `courseInfo.courseId`，
+  否则服务端返回 `-1 参数解码错误`。
+
+  > 两者共用一条增量链，服务端把两种上报的本段秒都累加进 `studyTotalTime`。
+x-zhs-service: study
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, ewssw, sdsew, zwsds]
+    properties:
+      courseId:
+        type: integer
+        description: 必须用 `courseInfo.courseId`，不能用 videoList 返回的
+      ewssw:
+        type: string
+        description: 观看轨迹点，逗号分隔（如 "0,1,44,45"）；上报后重置为 [0,1]，再从当前位置续写
+      sdsew:
+        type: string
+        description: '加密后的数组，解密后按 ";" 分隔，顺序与 Cache 心跳不同：recruitId;lessonId;lessonVideoId;videoId;chapterId;"0";本段秒;累计秒;HH:MM:SS;uuid+"zhs"；时间字段统一 HH:MM:SS（补前导零）'
+      zwsds:
+        type: string
+        description: base64 后的学习令牌
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "courseId": "<courseInfo.courseId>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功；`-8` 表示学习总时长下降（字段待补）

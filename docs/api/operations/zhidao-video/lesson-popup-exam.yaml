@@ -1,0 +1,119 @@
+tags: [知到-视频]
+summary: 获取弹窗题目详情
+operationId: lessonPopupExam
+description: |
+  播放到 `loadVideoPointerInfo` 返回的 `timeSec` 时触发，返回弹窗题目与选项。
+
+  > `questionOptions[].result` 已标注对错：`"1"` 是正确项，`"0"` 是干扰项，
+  > 不需要再请求答案接口。
+x-zhs-service: study
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [lessonId, lessonVideoId, questionIds, dateFormate]
+    properties:
+      lessonId:
+        type: integer
+        description: 课时 ID
+      lessonVideoId:
+        type: integer
+        description: 课时视频 ID
+      questionIds:
+        type: string
+        description: 题目 ID，逗号分隔
+      dateFormate:
+        type: integer
+        description: 毫秒时间戳
+  example:
+    lessonId: <lessonId>
+    lessonVideoId: <lessonVideoId>
+    questionIds: <questionId>
+    dateFormate: 1781740820451
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 0`）
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            data:
+              type: object
+              properties:
+                lessonTestQuestionUseInterfaceDtos:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: [integer, 'null']
+                      testQuestion:
+                        type: object
+                        properties:
+                          inputType:
+                            type: integer
+                            description: 14=判断题
+                          name:
+                            type: string
+                            description: 题干
+                          questionId:
+                            type: integer
+                          questionOptions:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: integer
+                                  description: 选项 ID，提交答案时用
+                                content:
+                                  type: string
+                                sort:
+                                  type: integer
+                                result:
+                                  type: string
+                                  description: '"1"=正确，"0"=错误'
+                          questionType:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              inputType:
+                                type: string
+                                description: radio / checkbox
+                          videoInfo:
+                            type: array
+                            items:
+                              type: object
+                          imgUrls:
+                            type: array
+                            items:
+                              type: string
+                          txtInfo:
+                            type: [string, 'null']
+                      analysis:
+                        type: [string, 'null']
+                      datas:
+                        type: [object, 'null']
+                      data:
+                        type: [object, 'null']
+                      zAnswer:
+                        type: [string, 'null']

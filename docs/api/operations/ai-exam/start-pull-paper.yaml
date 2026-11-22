@@ -1,0 +1,47 @@
+tags: [AI-智慧课程]
+summary: 拉取试卷
+operationId: startPullPaper
+description: |
+  AI 考试**开考前必调**，否则 `openExam` 可能拿不到题目。失败时 ZHS 最多重试 3 次。
+x-zhs-service: ai
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, classId, examTestId, pageNumber, pageSize]
+    properties:
+      courseId:
+        type: string
+        description: 课程 ID
+      classId:
+        type: integer
+        description: 班级 ID
+      examTestId:
+        type: integer
+        description: 考试 ID
+      pageNumber:
+        type: integer
+        description: 页码，从 1 开始
+      pageSize:
+        type: integer
+        description: 每页数量，代码用 10
+  example:
+    courseId: '<courseId>'
+    classId: <classId>
+    examTestId: <examTestId>
+    pageNumber: 1
+    pageSize: 10
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`）

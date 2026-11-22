@@ -1,0 +1,44 @@
+tags: [AI-智慧课程]
+summary: 获取 AI 解析用户 ID
+operationId: aiAnalysisUserInfo
+description: |
+  AI 题目解析的前置接口，返回当前用户在课程下的 `userId`。
+
+  > 明文请求，不加密，与作业 / 考试不是同一套加密体系。
+x-zhs-service: ai_analysis
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+parameters:
+  - name: userId
+    in: query
+    required: true
+    description: 固定传 `"0"`，由服务端按登录态返回真实 ID
+    schema:
+      type: string
+      default: '0'
+  - name: courseId
+    in: query
+    required: true
+    schema:
+      type: string
+  - name: recruitId
+    in: query
+    required: true
+    schema:
+      type: string
+responses:
+  '200':
+    description: 成功，`data.userId` 为真实用户 ID
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+            data:
+              type: object
+              properties:
+                userId:
+                  type: integer

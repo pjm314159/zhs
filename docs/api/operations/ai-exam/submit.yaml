@@ -1,0 +1,49 @@
+tags: [AI-智慧课程]
+summary: 提交考试 / 作业
+operationId: submitExamOrHomework
+description: |
+  **考试**：`{examTestId, recruitId, examPaperId}`，无返回体。
+  **作业**：`{examTestId, courseId, courseType: 8, examPaperId, aiKnlowledgeId}`。
+
+  > 作业的 `aiKnlowledgeId` 拼写如此（少一个 `w`），照实传。
+x-zhs-service: exam
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-12
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [examTestId, examPaperId]
+    properties:
+      examTestId:
+        type: integer
+      examPaperId:
+        type: integer
+      recruitId:
+        type: string
+        description: 考试场景必填（代码里传课程 ID）
+      courseId:
+        type: string
+        description: 作业场景必填
+      courseType:
+        type: integer
+        description: 作业固定 `8`
+      aiKnlowledgeId:
+        type: integer
+        description: 作业场景的知识点 ID
+  example:
+    examTestId: <examTestId>
+    examPaperId: <examPaperId>
+    recruitId: '<courseId>'
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（考试无返回体；作业返回 `code == 0`）

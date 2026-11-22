@@ -196,7 +196,7 @@ zhs exam --type ai
 ```toml
 # 基础设置
 save_cookies = true
-limit = 0                # 刷课时间限制（分钟，0 = 不限制）
+limit = 0                # 刷课时间限制（分钟，0 = 不限制；按视频时长累计）
 threshold = 0.91         # 视频结束阈值（0.0-1.0）
 
 [video]

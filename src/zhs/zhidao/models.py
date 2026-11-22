@@ -125,4 +125,5 @@ class ZhidaoContext(BaseModel):
     chapters: list[VideoChapter]
     videos: dict[int, VideoSmallLesson]
     course_id: int = 0
-    fucked_time: int = 0
+    # 本门课已学完的视频时长（秒，按播放位置推进量累加，含倍速），用于 -l 限额
+    fucked_time: float = 0.0

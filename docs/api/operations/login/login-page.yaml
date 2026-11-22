@@ -1,0 +1,14 @@
+tags: [登录]
+summary: 登录页面
+operationId: loginPage
+x-zhs-service: passport
+x-zhs-status: pending
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-notes: |
+  代码：`src/zhs/login.py:58`。扫码登录的入口页，用于建立浏览器会话，无业务参数。
+
+  待补：是否需要携带 `redirect` / `service` 参数。
+responses:
+  '200':
+    description: HTML 登录页（字段待补）

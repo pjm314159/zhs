@@ -1,0 +1,44 @@
+tags: [AI-智慧课程]
+summary: 标记资源完成
+operationId: studyRecordCompleted
+description: |
+  把某个资源标记为已完成。待补：`watchUId` 的实际含义、幂等性。
+x-zhs-service: ai
+x-zhs-status: code-only
+x-zhs-evidence:
+  capturedAt: 2026-11-18
+x-zhs-crypto:
+  key: ai_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [courseId, classId, knowledgeId, resourcesUid, watchUId]
+    properties:
+      courseId:
+        type: integer
+      classId:
+        type: integer
+      knowledgeId:
+        type: integer
+      resourcesUid:
+        type: integer
+        description: 资源 UID
+      watchUId:
+        type: integer
+        description: 代码固定传 `1`
+  example:
+    courseId: <courseId>
+    classId: <classId>
+    knowledgeId: <knowledgeId>
+    resourcesUid: <resourcesUid>
+    watchUId: 1
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功（`code == 200`）
