@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.6] - 2026-11-22
+
+### Features
+
+- **cli**: -l 改为按视频时长计，配额用完即停课 (**BREAKING**)
+
+### Bug Fixes
+
+- **ci**: Setup-uv 等 action 改用具体版本号
+- **video**: 修复经典课程心跳累计与暂停回滚
+- **video**: 心跳按累计学习时长推进并支持位置回绕
+
+### Documentation
+
+- **api**: 引入 OpenAPI 文档构建工具与首批接口描述
+- **api**: 版本跟随 pyproject，示例数据脱敏
+- **api**: 补充 30 个接口描述并统一示例占位符
+- **api**: 补全知到视频弹窗与断点接口字段
+- **api**: 补充登录、AI 课程与 Hike 接口
+- **api**: 重写 README 为标准项目文档
+- **pr**: 提示新增接口需同步 docs/api
+- **api**: 补充两种视频心跳的 sdsew 字段布局
+- **api**: 同步两种视频心跳的 sdsew 字段顺序
+
+### Miscellaneous
+
+- **api**: 用 GitHub Actions 自动构建 API 文档
+- **api**: 加 Redocly lint 与 OpenAPI 3.1 兼容修复
+- **api**: 升级 action 到支持 Node 24 的版本
+- **api**: 部署 API 文档到 GitHub Pages
+
 ## [0.1.5] - 2026-11-04
 
 ### Features
