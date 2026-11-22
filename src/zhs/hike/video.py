@@ -27,7 +27,8 @@ class HikeVideoPlayer:
         self._speed = speed
         self._end_threshold = end_threshold
         self._time_limit = time_limit
-        self._fucked_time = 0
+        # 已学完的视频时长（秒，按播放位置推进量累加，含倍速），用于 -l 限额
+        self._fucked_time = 0.0
 
     @property
     def speed(self) -> float:
@@ -124,10 +125,10 @@ class HikeVideoPlayer:
 
         while played_time <= end_time:
             time.sleep(1)
-            self._fucked_time += 1
+            self._fucked_time += speed
             played_time = min(played_time + speed, end_time)
 
-            # 时间限制检查
+            # 时间限制检查（-l 按视频时长累计，与 zhidao 一致）
             if self._time_limit > 0 and self._fucked_time >= self._time_limit:
                 raise TimeLimitExceeded(f"Time limit reached for course {course_id}")
 

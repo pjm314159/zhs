@@ -198,7 +198,7 @@ Configuration file is located at `~/.zhs/config.toml`. For more configuration op
 ```toml
 # Basic Settings
 save_cookies = true
-limit = 0                # Time limit in minutes (0 = no limit)
+limit = 0                # Time limit in minutes, counted by video time (0 = no limit)
 threshold = 0.91         # Video end threshold (0.0-1.0)
 
 [video]
