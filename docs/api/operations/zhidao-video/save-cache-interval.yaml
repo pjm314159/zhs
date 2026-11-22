@@ -4,19 +4,11 @@ operationId: saveCacheIntervalTimeV2
 description: |
   Cache 心跳，约 180 秒一次（与 Database 心跳各自计时，但共用一条增量链）。
 
-  - `ewssw` 是观察点增量，上报后重置为 `[0,1]`
-  - `sdsew` 是本段秒数，服务端按它累加学习时长
+  - `ewssw` 是观看轨迹点，逗号分隔的字符串；上报后重置为 `[0,1]`，再从当前位置续写
+  - `sdsew` 是本段增量参数（加密数组，字段顺序见 `sdsew` 字段说明），服务端按其中的本段秒累加学习时长
   - `zwsds` 是 `prelearningNote` 返回的 `id` 做 base64
 
   > 两种心跳各自计算增量会重复累加，下次上报会返回 `-8 学习总时长下降了`。
-
-  `sdsew` 解密后是一个**字段顺序与 Database 不同**的数组，顺序如下：
-
-  ```text
-  recruitId;chapterId;courseId;lessonId;HH:MM:SS;累计秒;videoId;lessonVideoId;本段秒;uuid+"zhs"
-  ```
-
-  其中 `courseId` 与 Database 一致，取 `queryCourse` 返回的 `courseInfo.courseId`。
 x-zhs-service: study
 x-zhs-status: confirmed
 x-zhs-evidence:
@@ -31,13 +23,11 @@ x-zhs-crypto:
     required: [ewssw, sdsew, zwsds]
     properties:
       ewssw:
-        type: array
-        items:
-          type: integer
-        description: 观察点增量，上报后重置为 [0,1]
+        type: string
+        description: 观看轨迹点，逗号分隔（如 "0,1,44,45"）；上报后重置为 [0,1]，再从当前位置续写
       sdsew:
         type: string
-        description: 加密后的定位参数数组（见上方字段顺序）
+        description: '加密后的数组，解密后按 ";" 分隔，顺序与 Database 心跳不同：recruitId;chapterId;courseId;lessonId;HH:MM:SS;累计秒;videoId;lessonVideoId;本段秒;uuid+"zhs"；其中 courseId 与 Database 一致（取 courseInfo.courseId），时间字段统一 HH:MM:SS（补前导零）'
       zwsds:
         type: string
         description: base64 后的学习令牌
