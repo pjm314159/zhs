@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from base64 import b64encode
-from random import randint, random, uniform
+from random import randint, random
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -109,6 +109,16 @@ class ZhidaoVideoPlayer:
             for lesson in chapter.video_lessons:
                 self._print_with_progress(f"课时: {lesson.name}", depth=2, enabled=tv)
                 for video in lesson.video_small_lessons:
+                    # 配额用完就停掉整门课，避免对剩余每个视频都打印一次「跳过(时间限制)」
+                    if self._time_limit > 0 and ctx.fucked_time >= self._time_limit:
+                        logger.info(
+                            f"Course stopped: study time limit reached "
+                            f"({ctx.fucked_time:.0f}s / {self._time_limit}s, racId={rac_id})"
+                        )
+                        self._print_with_progress(
+                            msg_skip(f"时间配额已用完（{self._time_limit}s），停止本课程"), depth=1, enabled=tv
+                        )
+                        return
                     try:
                         self.play_video(rac_id, video.video_id, ctx)
                     except CaptchaRequired:
@@ -198,7 +208,7 @@ class ZhidaoVideoPlayer:
                 logger.info(f"Time limit reached, skipping {video.name}")
                 self._print_with_progress(msg_skip(f"跳过(时间限制): {video.name}"), depth=3, enabled=True)
                 return
-            affordable = total_base + int(remaining * (self._speed or 1.5))
+            affordable = total_base + int(remaining)
             if affordable < target:
                 target = max(affordable, total_base)
                 logger.warning(
@@ -261,8 +271,7 @@ class ZhidaoVideoPlayer:
 
         video = ctx.videos[video_id]
         duration = video.video_sec
-        base_speed = self._speed or 1.5
-        speed = base_speed + uniform(-0.15, 0.15)
+        speed = self._speed or 1.5
         watched = 0.0
         submitted_total = float(total_base)
         elapsed_time = 0
@@ -280,7 +289,6 @@ class ZhidaoVideoPlayer:
         while total_base + int(watched) < target:
             time.sleep(1)
             elapsed_time += 1
-            ctx.fucked_time += 1
 
             # 暂停与答题期间冻结：位置和累计都不前进，也不消耗 -l 配额（-l 按视频时长计）
             paused_now = pause > 0
@@ -296,6 +304,7 @@ class ZhidaoVideoPlayer:
             else:
                 position = _advance(position, speed, duration)
                 watched += speed
+                ctx.fucked_time += speed
 
             if elapsed_time % 30 == 0:
                 logger.debug(
@@ -389,7 +398,6 @@ class ZhidaoVideoPlayer:
                     submitted_total = float(total)
                     wp.reset(total)
                     db_next = elapsed_time + _jitter(CLASSIC_DB_INTERVAL)
-                    speed = base_speed + uniform(-0.15, 0.15)
                 else:
                     logger.warning(
                         f"Progress report failed, retry in {DB_RETRY_DELAY}s "

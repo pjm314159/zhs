@@ -144,8 +144,6 @@ class TestClassicHeartbeat:
         start: float = 0.0,
         total_base: int = 0,
         pause_at: int = 0,
-        uniform_value: float = 0.0,
-        uniform_values: list[float] | None = None,
         video_sec: int = 2000,
     ) -> list[tuple[str, int, list[int | str]]]:
         ctx = _make_context(video_sec=video_sec)
@@ -183,14 +181,6 @@ class TestClassicHeartbeat:
             patch("zhs.zhidao.video.print"),
             patch("zhs.zhidao.video.randint", return_value=jitter),
             patch("zhs.zhidao.video.random", side_effect=pause_random),
-            patch(
-                "zhs.zhidao.video.uniform",
-                **(
-                    {"side_effect": list(uniform_values)}
-                    if uniform_values is not None
-                    else {"return_value": uniform_value}
-                ),
-            ),
             patch("zhs.zhidao.quiz.ZhidaoQuizzer"),
         ):
             player._main_loop("ABC123", 100, ctx, start, int(end), total_base, "token", questions)
@@ -242,7 +232,7 @@ class TestClassicHeartbeat:
         # video_sec 取 3000，让 -8 同步后的累计（2000）还没到目标（3000）
         ctx = _make_context(video_sec=3000, study_total_time=798)
         player = ZhidaoVideoPlayer(mock_session, end_threshold=1.0)
-        calls: list[tuple[str, int, list[int | str]]] = []
+        calls: list[tuple[str, float, list[int | str]]] = []
         encoded: list[int | str] = []
         note_count = 0
 
@@ -278,16 +268,16 @@ class TestClassicHeartbeat:
             patch("zhs.zhidao.video.print"),
             patch("zhs.zhidao.video.randint", return_value=0),
             patch("zhs.zhidao.video.random", return_value=1),
-            patch("zhs.zhidao.video.uniform", return_value=0),
         ):
             player.play_video("ABC123", 100, ctx)
         assert note_count == 2
         assert calls[0][2][6:9] == [0, 800, "00:00:42"]
         assert calls[1][2][6:9] == [0, 2000, "00:00:42"]
-        assert calls[2][:2] == ("cache", 180)
+        # 第二列是 ctx.fucked_time，即累计视频秒（1.5 倍速下 180 秒墙钟 = 270 秒视频）
+        assert calls[2][:2] == ("cache", 270.0)
         assert calls[2][2][4:6] == ["00:05:12", 2270]
         assert calls[2][2][8] == 270
-        assert calls[3][:2] == ("db", 300)
+        assert calls[3][:2] == ("db", 450.0)
         assert calls[3][2][6:9] == [180, 2450, "00:08:12"]
 
     def test_resumed_loop_accumulates_without_skipping(self, mock_session: ZhsSession) -> None:
@@ -319,22 +309,21 @@ class TestClassicHeartbeat:
         assert min(map(self.delta, calls)) >= 0
         assert sum(map(self.delta, calls)) == 630
 
-    def test_speed_jitter_advances_at_jittered_rate(self, mock_session: ZhsSession) -> None:
-        """倍速抖动恢复：心跳按抖动后的速度推进，累计增量不丢失"""
-        calls = self.run_loop(mock_session, end=610, uniform_value=0.15)
-        # 1.5 + 0.15 = 1.65，tick=180 时累计位置为 297
+    def test_speed_is_fixed_constant(self, mock_session: ZhsSession) -> None:
+        """倍速不做抖动：默认恒定 1.5，整条链路上的累计等于次数 × 1.5"""
+        calls = self.run_loop(mock_session, end=610)
         assert calls[0][:2] == ("cache", 180)
-        assert calls[0][2][5] == pytest.approx(297, abs=1)
+        assert calls[0][2][5] == 270  # 180 * 1.5
         assert min(map(self.delta, calls)) >= 0
         assert sum(map(self.delta, calls)) == 610
 
-    def test_speed_jitter_redrawn_after_each_database(self, mock_session: ZhsSession) -> None:
-        """每次 Database 成功后重新抽取倍速抖动，后续心跳按新速度推进"""
-        calls = self.run_loop(mock_session, end=1000, uniform_values=[0.1, -0.1, 0.0, 0.0, 0.0])
+    def test_speed_stays_constant_across_heartbeats(self, mock_session: ZhsSession) -> None:
+        """心跳成功后不重抽倍速，各点累计严格是 1.5 的倍数"""
+        calls = self.run_loop(mock_session, end=1000)
         assert [(kind, tick) for kind, tick, _ in calls[:3]] == [("cache", 180), ("db", 300), ("cache", 360)]
-        assert calls[0][2][5] == pytest.approx(288, abs=1)  # 180 * (1.5 + 0.1)
-        assert calls[1][2][7] == pytest.approx(480, abs=1)  # 300 * 1.6
-        assert calls[2][2][5] == pytest.approx(564, abs=1)  # 480 + 60 * (1.5 - 0.1)
+        assert calls[0][2][5] == 270  # 180 * 1.5
+        assert calls[1][2][7] == 450  # 300 * 1.5
+        assert calls[2][2][5] == 540  # 360 * 1.5
         assert sum(map(self.delta, calls)) == 1000
 
     def test_cache_and_database_use_course_info_course_id(self, mock_session: ZhsSession) -> None:
@@ -389,8 +378,8 @@ class TestClassicHeartbeat:
         ):
             player.play_video("ABC123", 100, ctx)
         assert loop.call_args.args[3] == 42.0  # 位置
-        assert loop.call_args.args[4] == 411  # 累计目标 = 452 * 0.91
         assert loop.call_args.args[5] == 200  # 累计基数
+        assert loop.call_args.args[4] == 411  # 累计目标 = 452 * 0.91
         raw = encode.call_args.args[0]
         assert raw[6:9] == [0, 200, "00:00:42"]
 
@@ -401,6 +390,34 @@ class TestClassicHeartbeat:
         assert len(set(positions)) > 1  # 位置确实回绕过
         assert min(map(self.delta, calls)) >= 0
         assert sum(map(self.delta, calls)) == 400
+
+    def test_pause_does_not_consume_time_limit(self, mock_session: ZhsSession) -> None:
+        """随机暂停只冻结进度，不消耗 -l 配额；-l 按视频时长累计（1.5 倍速记 1.5 秒）"""
+        ctx = _make_context(video_sec=2000)
+        player = ZhidaoVideoPlayer(mock_session)
+        wall = 0
+        rolls = {"n": 0}
+
+        def fake_sleep(_seconds: float) -> None:
+            nonlocal wall
+            wall += 1
+
+        def pause_once() -> float:
+            rolls["n"] += 1
+            return 0.0 if rolls["n"] == 1 else 1.0
+
+        with (
+            patch.object(mock_session, "zhidao_query", return_value={}),
+            patch("zhs.zhidao.video.encode_ev", return_value="encoded"),
+            patch("zhs.zhidao.video.time.sleep", side_effect=fake_sleep),
+            patch("zhs.zhidao.video.print"),
+            patch("zhs.zhidao.video.randint", return_value=0),
+            patch("zhs.zhidao.video.random", side_effect=pause_once),
+            patch("zhs.zhidao.quiz.ZhidaoQuizzer"),
+        ):
+            player._main_loop("ABC123", 100, ctx, 0.0, 10, 0, "token", [])
+        assert ctx.fucked_time == pytest.approx(10.5)  # 7 秒 × 1.5 倍速 = 10.5 秒视频时长
+        assert wall == 68  # 60 秒暂停 + 7 秒播放，暂停的 1 分钟不计入配额
 
     def test_total_reaching_target_skips_loop(self, mock_session: ZhsSession) -> None:
         """累计已达标（位置可能没到底）时不再空转，只发一条预检心跳"""
@@ -611,6 +628,20 @@ class TestPlayCourse:
             player.play_course("ABC123", ctx)
             mock_play.assert_called_once_with("ABC123", 100, ctx)
 
+    def test_stops_course_once_when_budget_exhausted(self, mock_session: ZhsSession) -> None:
+        """配额用完后整门课停止，只提示一次，不再逐个视频打印「跳过(时间限制)」"""
+        ctx = _make_context()
+        ctx.fucked_time = 60.0
+        player = ZhidaoVideoPlayer(mock_session, time_limit=60)
+        with (
+            patch.object(player, "play_video") as mock_play,
+            patch.object(player, "_print_with_progress") as printer,
+            patch("zhs.zhidao.video.print"),
+        ):
+            player.play_course("ABC123", ctx)
+        mock_play.assert_not_called()
+        assert sum("时间配额已用完" in str(call.args[0]) for call in printer.call_args_list) == 1
+
     def test_play_course_prints_new_course(self, mock_session: ZhsSession) -> None:
         """play_course 开始时打印 '新课程' 标识"""
         ctx = _make_context()
@@ -691,7 +722,6 @@ class TestMainLoopCompletion:
             patch.object(player, "_three_dimensional_course_ware"),
             patch("zhs.zhidao.video.time.sleep"),
             patch("zhs.zhidao.video.random", return_value=1),
-            patch("zhs.zhidao.video.uniform", return_value=0),
             patch("zhs.zhidao.video.print") as mock_print,
         ):
             player.play_video("ABC123", 100, ctx)
@@ -717,7 +747,6 @@ class TestProgressNoResidue:
             patch.object(player, "_three_dimensional_course_ware"),
             patch("zhs.zhidao.video.time.sleep"),
             patch("zhs.zhidao.video.random", return_value=1),
-            patch("zhs.zhidao.video.uniform", return_value=0),
             patch("zhs.zhidao.video.print") as mock_print,
         ):
             player.play_video("ABC123", 100, ctx)
@@ -850,7 +879,6 @@ class TestReportFailureNoLastSubmitUpdate:
             patch("zhs.zhidao.video.time.sleep"),
             patch("zhs.zhidao.video.print"),
             patch("zhs.zhidao.video.random", return_value=1),
-            patch("zhs.zhidao.video.uniform", return_value=0),
         ):
             player.end_threshold = 0.05  # end_time=90，循环快速结束
             player.play_video("ABC123", 100, ctx)
