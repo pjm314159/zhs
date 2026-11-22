@@ -146,16 +146,22 @@ class TestClassicHeartbeat:
         pause_at: int = 0,
         uniform_value: float = 0.0,
         uniform_values: list[float] | None = None,
+        video_sec: int = 2000,
     ) -> list[tuple[str, int, list[int | str]]]:
-        ctx = _make_context(video_sec=2000)
+        ctx = _make_context(video_sec=video_sec)
         player = ZhidaoVideoPlayer(session, speed=speed)
         calls: list[tuple[str, int, list[int | str]]] = []
         encoded: list[int | str] = []
+        wall = 0
         tick = 0
 
         def encode(raw: list[int | str], key: str) -> str:
             encoded[:] = raw
             return "encoded"
+
+        def fake_sleep(_seconds: float) -> None:
+            nonlocal wall
+            wall += 1
 
         def pause_random() -> float:
             """默认不触发随机暂停；pause_at 指定的轮次触发一次。"""
@@ -164,8 +170,8 @@ class TestClassicHeartbeat:
             return 0.0 if pause_at and tick == pause_at else 1.0
 
         def query(url: str, data: dict[str, Any]) -> dict[str, Any]:
-            calls.append(("cache" if "Cache" in url else "db", ctx.fucked_time, encoded.copy()))
-            if (fail_first and len(calls) == 1) or (fail_db and ctx.fucked_time == 300):
+            calls.append(("cache" if "Cache" in url else "db", wall, encoded.copy()))
+            if (fail_first and len(calls) == 1) or (fail_db and wall == 300):
                 raise ApiError(-1, "temporary failure")
             return {}
 
@@ -173,7 +179,7 @@ class TestClassicHeartbeat:
         with (
             patch.object(session, "zhidao_query", side_effect=query),
             patch("zhs.zhidao.video.encode_ev", side_effect=encode),
-            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.time.sleep", side_effect=fake_sleep),
             patch("zhs.zhidao.video.print"),
             patch("zhs.zhidao.video.randint", return_value=jitter),
             patch("zhs.zhidao.video.random", side_effect=pause_random),
@@ -187,7 +193,7 @@ class TestClassicHeartbeat:
             ),
             patch("zhs.zhidao.quiz.ZhidaoQuizzer"),
         ):
-            player._main_loop("ABC123", 100, ctx, start, end, end, "token", questions, total_base)
+            player._main_loop("ABC123", 100, ctx, start, int(end), total_base, "token", questions)
         return calls
 
     @staticmethod
@@ -233,7 +239,8 @@ class TestClassicHeartbeat:
         assert sum(self.delta(call) for call in calls if call[1] != 300) == 610
 
     def test_precheck_sync_total_reaches_first_heartbeats(self, mock_session: ZhsSession) -> None:
-        ctx = _make_context(video_sec=700, study_total_time=798)
+        # video_sec 取 3000，让 -8 同步后的累计（2000）还没到目标（3000）
+        ctx = _make_context(video_sec=3000, study_total_time=798)
         player = ZhidaoVideoPlayer(mock_session, end_threshold=1.0)
         calls: list[tuple[str, int, list[int | str]]] = []
         encoded: list[int | str] = []
@@ -284,10 +291,11 @@ class TestClassicHeartbeat:
         assert calls[3][2][6:9] == [180, 2450, "00:08:12"]
 
     def test_resumed_loop_accumulates_without_skipping(self, mock_session: ZhsSession) -> None:
-        calls = self.run_loop(mock_session, start=42, end=610, total_base=800)
+        # 续播：位置 42s、累计 800s，目标累计 1100s → 继续补 300 秒而不是从 42s 重来
+        calls = self.run_loop(mock_session, start=42, end=1100, total_base=800)
         assert calls[0][2][4:6] == ["00:05:12", 1070]
-        assert calls[-1][2][7:9] == [1368, "00:10:10"]
-        assert sum(map(self.delta, calls)) == 568
+        assert calls[-1][2][7:9] == [1100, "00:05:42"]
+        assert sum(map(self.delta, calls)) == 300
 
     def test_end_at_cache_deadline_reports_database_only(self, mock_session: ZhsSession) -> None:
         calls = self.run_loop(mock_session, end=270)
@@ -363,13 +371,14 @@ class TestClassicHeartbeat:
             assert sent["data"]["zwsds"] == "token"
 
     def test_resume_position_and_total(self, mock_session: ZhsSession) -> None:
-        ctx = _make_context(video_sec=452, study_total_time=798)
+        """续播位置（learnTimeSec）与累计（studyTotalTime）必须分开传给主循环"""
+        ctx = _make_context(video_sec=452, study_total_time=200)
         player = ZhidaoVideoPlayer(mock_session)
         with (
             patch.object(
                 mock_session,
                 "zhidao_query",
-                return_value={"data": {"studiedLessonDto": {"id": 1, "learnTimeSec": 42, "studyTotalTime": 800}}},
+                return_value={"data": {"studiedLessonDto": {"id": 1, "learnTimeSec": 42, "studyTotalTime": 200}}},
             ),
             patch.object(player, "_load_questions", return_value=[]),
             patch.object(player, "_start_watch_thread"),
@@ -379,9 +388,45 @@ class TestClassicHeartbeat:
             patch("zhs.zhidao.video.time.sleep"),
         ):
             player.play_video("ABC123", 100, ctx)
-        assert loop.call_args.args[3] == 42.0
+        assert loop.call_args.args[3] == 42.0  # 位置
+        assert loop.call_args.args[4] == 411  # 累计目标 = 452 * 0.91
+        assert loop.call_args.args[5] == 200  # 累计基数
         raw = encode.call_args.args[0]
-        assert raw[6:9] == [0, 800, "00:00:42"]
+        assert raw[6:9] == [0, 200, "00:00:42"]
+
+    def test_position_wraps_and_delta_stays_non_negative(self, mock_session: ZhsSession) -> None:
+        """位置播到底回绕到开头，累计继续补，本段秒不出现负数"""
+        calls = self.run_loop(mock_session, video_sec=100, end=400)
+        positions = [call[2][4] if call[0] == "cache" else call[2][8] for call in calls]
+        assert len(set(positions)) > 1  # 位置确实回绕过
+        assert min(map(self.delta, calls)) >= 0
+        assert sum(map(self.delta, calls)) == 400
+
+    def test_total_reaching_target_skips_loop(self, mock_session: ZhsSession) -> None:
+        """累计已达标（位置可能没到底）时不再空转，只发一条预检心跳"""
+        ctx = _make_context(video_sec=680, study_total_time=680)
+        player = ZhidaoVideoPlayer(mock_session)
+        sent: list[str] = []
+
+        def query(url: str, data: dict[str, Any]) -> dict[str, Any]:
+            sent.append(url)
+            return {}
+
+        with (
+            patch.object(mock_session, "zhidao_query", side_effect=query),
+            patch.object(player, "_load_questions", return_value=[]),
+            patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 680)),
+            patch.object(player, "_main_loop") as loop,
+            patch.object(player, "_start_watch_thread") as watch_thread,
+            patch.object(player, "_three_dimensional_course_ware"),
+            patch("zhs.zhidao.video.time.sleep"),
+            patch("zhs.zhidao.video.print"),
+        ):
+            player.play_video("ABC123", 100, ctx)
+        loop.assert_not_called()
+        watch_thread.assert_not_called()
+        assert len(sent) == 1
+        assert "saveDatabaseIntervalTimeV2" in sent[0]
 
 
 class TestReportV2Initial:
@@ -639,7 +684,7 @@ class TestMainLoopCompletion:
         ctx = _make_context(video_sec=100, study_total_time=0)
         player = ZhidaoVideoPlayer(mock_session, end_threshold=0.05)
         with (
-            patch.object(player, "_report_progress_v2", return_value=(5.0, True)),
+            patch.object(player, "_report_progress_v2", return_value=(0.0, True)),
             patch.object(player, "_load_questions", return_value=[]),
             patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
             patch.object(player, "_start_watch_thread"),
@@ -665,7 +710,7 @@ class TestProgressNoResidue:
         # 模拟上一视频残留的长进度行
         player._progress_line = "x" * 100
         with (
-            patch.object(player, "_report_progress_v2", return_value=(5.0, True)),
+            patch.object(player, "_report_progress_v2", return_value=(0.0, True)),
             patch.object(player, "_load_questions", return_value=[]),
             patch.object(player, "_prelearning_note", return_value=("dG9rZW4=", 0)),
             patch.object(player, "_start_watch_thread"),
@@ -694,8 +739,8 @@ class TestReportProgressV2Return:
                 "ABC123",
                 100,
                 ctx,
-                played_time=100.0,
-                last_submit=70.0,
+                position=100.0,
+                submitted_total=70.0,
                 watch_point="0,1",
                 token_id="dG9rZW4=",
                 initial=False,
@@ -712,8 +757,8 @@ class TestReportProgressV2Return:
                 "ABC123",
                 100,
                 ctx,
-                played_time=100.0,
-                last_submit=70.0,
+                position=100.0,
+                submitted_total=70.0,
                 watch_point="0,1",
                 token_id="dG9rZW4=",
                 initial=False,
@@ -745,8 +790,8 @@ class TestReportProgressV2Return:
                 "ABC123",
                 100,
                 ctx,
-                played_time=100.0,
-                last_submit=70.0,
+                position=100.0,
+                submitted_total=70.0,
                 watch_point="0,1",
                 token_id="dG9rZW4=",
                 initial=False,
@@ -779,8 +824,8 @@ class TestReportProgressV2Return:
                 "ABC123",
                 100,
                 ctx,
-                played_time=100.0,
-                last_submit=70.0,
+                position=100.0,
+                submitted_total=70.0,
                 watch_point="0,1",
                 token_id="dG9rZW4=",
                 initial=False,
@@ -877,8 +922,8 @@ class TestStartPrecheck:
                 "ABC123",
                 100,
                 ctx,
-                played_time=100.0,
-                last_submit=70.0,
+                position=100.0,
+                submitted_total=70.0,
                 watch_point="0,1",
                 token_id="dG9rZW4=",
                 initial=False,
