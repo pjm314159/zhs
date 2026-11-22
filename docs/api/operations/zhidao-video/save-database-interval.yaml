@@ -25,13 +25,11 @@ x-zhs-crypto:
         type: integer
         description: 必须用 `courseInfo.courseId`，不能用 videoList 返回的
       ewssw:
-        type: array
-        items:
-          type: integer
-        description: 观察点增量
+        type: string
+        description: 观看轨迹点，逗号分隔（如 "0,1,44,45"）；上报后重置为 [0,1]，再从当前位置续写
       sdsew:
-        type: integer
-        description: 本段秒数
+        type: string
+        description: '加密后的数组，解密后按 ";" 分隔，顺序与 Cache 心跳不同：recruitId;lessonId;lessonVideoId;videoId;chapterId;"0";本段秒;累计秒;HH:MM:SS;uuid+"zhs"；时间字段统一 HH:MM:SS（补前导零）'
       zwsds:
         type: string
         description: base64 后的学习令牌
