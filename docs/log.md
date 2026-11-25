@@ -456,3 +456,14 @@ API 参考：`.temp/questions_bank.md`
   - `docs/linter.md`：UP046/§6.2 的 PEP 695 示例类由 `BaseQuestionCache[T]` 换为中性 `Repository[T]`；"项目应用"注改为"当前源码中暂无泛型类"（base.py 是 src 中唯一的 PEP 695 泛型类，删除后原注释失实）
 - Test: 删除测试本身；`tests/cache/` 72 passed，全量 1158 passed（较此前 1170 少 12 = test_base 用例数，符合预期）
 - Refactor: ruff check / format --check / mypy（156 文件）全部通过；分支 `refactor/cache-remove-base`
+
+### Task 40 — 修复智慧课程 validateSlideToken 上报 ev 错误（-1 参数解码发生错误）✅
+- 背景：智慧课程触发 `-12` 后过码成功，但上报 `learning/validateSlideToken` 返回 `-1 参数解码发生错误`。两份抓包解码证明普通课程与智慧课程的上报字段、易盾参数完全一致，`ev` 都是 `encode_ev([recruitId, lessonId, lessonVideoId, videoId, chapterId])`；而旧实现直接回传失败心跳的 `sdsew`（10 段分号连接），服务端按 5 段解析失败
+- Red：`tests/zhidao/test_video.py::TestSolveCaptchaEv::test_ev_is_reencoded_from_five_ids`（断言上报 `ev` 为 5 个 ID 的重编码，且不等于 `sdsew`）→ 失败：`TypeError: _try_solve_captcha() takes 2 positional arguments but 4 were given`
+- Green：`src/zhs/zhidao/video.py`
+  - `_try_solve_captcha(exc)` → `_try_solve_captcha(exc, ctx, video)`，调用点同步传入 `ctx` 与当前 `video`
+  - `ev` 改为 `encode_ev([ctx.course.recruit_id or 0, video.lesson_id, video.id, video.video_id, video.chapter_id], self._session.crypto.ev_key)`；不再读取 `exc.payload['sdsew']`，也不按课程类型分支
+- Test: `tests/zhidao/test_video.py` 57 passed
+- 实测（2026-11-25 16:33，智慧课程《大学生心理健康》）：`-12` 触发后 `ev_len=96`（5 个 ID）→ 易盾 `check` error=0 → `validateSlideToken` 返回 `pass=true` → 日志 `验证码已通过，重试当前视频`，重试心跳不再被拦；修复前同一路径因回传 132 字符 `sdsew` 返回 `-1 参数解码发生错误`
+- 文档：`docs/api/operations/zhidao-video/validate-slide-token.yaml` 删除错误的“普通课程沿用失败心跳 ev”表格，改为统一 5 段规则并注明 `sdsew` 不可直接回传；`ev` 长度随 ID 位数变化（抓包样本 78 字符）。同批修正 `docs/api/operations/yidun/{getconf,get-captcha,check-captcha}.yaml`：`referer` 实测可省略（`getconf`/`get` 缺失时仍 `error=0`），`required` 改为 `false`
+- Refactor: ruff check / format --check / mypy 通过；分支 `feat/captcha`

@@ -25,7 +25,7 @@ from zhs.utils.display import course_tag, msg_done, msg_error, msg_skip, msg_war
 
 if TYPE_CHECKING:
     from zhs.session import ZhsSession
-    from zhs.zhidao.models import PopupQuestion, QuestionPoint, ZhidaoContext
+    from zhs.zhidao.models import PopupQuestion, QuestionPoint, VideoSmallLesson, ZhidaoContext
 
 
 CLASSIC_CACHE_INTERVAL = 180
@@ -125,7 +125,7 @@ class ZhidaoVideoPlayer:
                             self.play_video(rac_id, video.video_id, ctx)
                             break
                         except CaptchaRequired as exc:
-                            if not captcha_solved and self._try_solve_captcha(exc):
+                            if not captcha_solved and self._try_solve_captcha(exc, ctx, video):
                                 captcha_solved = True
                                 continue
                             self._clear_progress()
@@ -167,20 +167,33 @@ class ZhidaoVideoPlayer:
         logger.info("play_course done: {} ({:.1f}s)", course_name, cost)
         tree_print(msg_done(f"完成课程: {course_name} ({cost:.1f}s)"), depth=1, enabled=tv)
 
-    def _try_solve_captcha(self, exc: CaptchaRequired) -> bool:
+    def _try_solve_captcha(
+        self,
+        exc: CaptchaRequired,
+        ctx: "ZhidaoContext",
+        video: "VideoSmallLesson",
+    ) -> bool:
         """尝试自动过码并上报 validateSlideToken；任何失败都返回 False。
 
-        ``-12`` 来自心跳时，``exc.payload['sdsew']`` 就是服务端要求回传的 ev。
+        ``ev`` 必须用视频的 5 个 ID 重新编码；失败心跳的 ``sdsew`` 是 10 段
+        分号连接的 ev，直接回传会被服务端以 ``-1 参数解码发生错误`` 拒绝。
+        普通课程与智慧课程规则一致，不依赖课程类型。
         """
-        ev = str((exc.payload or {}).get("sdsew", ""))
+        ev = encode_ev(
+            [
+                ctx.course.recruit_id or 0,
+                video.lesson_id,
+                video.id,
+                video.video_id,
+                video.chapter_id,
+            ],
+            self._session.crypto.ev_key,
+        )
         logger.debug(
             f"验证码上下文: ev_len={len(ev)} ev_head={ev[:12]!r} "
             f"payload_keys={list((exc.payload or {}).keys())} "
             f"response={str(exc.response)[:160]}"
         )
-        if not ev:
-            logger.debug("验证码上下文缺少 ev，跳过自动求解")
-            return False
 
         from zhs.captcha.service import CaptchaTrigger
 
