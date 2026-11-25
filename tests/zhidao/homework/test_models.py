@@ -37,14 +37,14 @@ class TestHomeworkItem:
     def test_from_api_data(self) -> None:
         """从 API 响应数据构造"""
         data = {
-            "id": "wMqNNxQp",
-            "examId": "5kNKk0qe",
+            "id": "hw001",
+            "examId": "exam001",
             "state": 1,
             "score": None,
             "isMarking": 0,
             "backNum": 3,
-            "courseId": 1000008156,
-            "courseName": "形势与政策",
+            "courseId": 123456,
+            "courseName": "示例课程",
             "examName": "第一章单元测试",
             "cpOrderNumber": "第一章",
             "chapterId": 7567890123,
@@ -52,14 +52,43 @@ class TestHomeworkItem:
             "problemNum": 5,
         }
         item = HomeworkItem.model_validate(data)
-        assert item.id == "wMqNNxQp"
-        assert item.exam_id == "5kNKk0qe"
+        assert item.id == "hw001"
+        assert item.exam_id == "exam001"
         assert item.state == 1
         assert item.score is None
-        assert item.course_id == 1000008156
+        assert item.course_id == 123456
         assert item.total_score == "10"
         assert item.back_num == 3
         assert item.is_marking == 0
+
+    def test_api_null_fields_fall_back_to_defaults(self) -> None:
+        """API 显式返回 null 的章节字段不应导致整条作业解析失败
+
+        真机 getStudentHomework 样例：cpOrderNumber/chapterId/chapterRank 为 null，
+        pydantic 默认值只在字段缺失时生效，显式 null 会触发类型校验错误。
+        """
+        data = {
+            "id": "hw002",
+            "state": 1,
+            "score": None,
+            "achieveCount": 0,
+            "isMarking": 0,
+            "backNum": 3,
+            "courseId": 123456,
+            "courseName": "示例课程",
+            "cpOrderNumber": None,
+            "examName": "第四章单元测试",
+            "examId": "exam002",
+            "totalScore": "12",
+            "problemNum": 6,
+            "chapterRank": None,
+            "chapterId": None,
+        }
+        item = HomeworkItem.model_validate(data)
+        assert item.id == "hw002"
+        assert item.cp_order_number == ""
+        assert item.chapter_id == 0
+        assert item.chapter_rank == 0
 
     def test_submitted_item(self) -> None:
         """已提交作业"""
@@ -121,9 +150,9 @@ class TestHomeworkDetail:
     def test_from_api_data(self) -> None:
         data = {
             "examBase": {
-                "id": "5kNKk0qe",
+                "id": "exam001",
                 "name": "第一章单元测试",
-                "courseName": "形势与政策",
+                "courseName": "示例课程",
                 "toChapter": "第一章",
                 "problemNum": 5,
                 "totalScore": "10",
@@ -149,7 +178,7 @@ class TestHomeworkDetail:
             "state": 4,
         }
         detail = HomeworkDetail.model_validate(data)
-        assert detail.exam_base.id == "5kNKk0qe"
+        assert detail.exam_base.id == "exam001"
         assert len(detail.exam_base.work_exam_parts) == 1
         assert len(detail.exam_base.work_exam_parts[0].question_dtos) == 1
 
