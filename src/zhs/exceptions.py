@@ -15,7 +15,23 @@ class ApiError(ZhsError):
 
 
 class CaptchaRequired(ZhsError):
-    """服务端要求验证码（API 返回 code -12）"""
+    """服务端要求验证码（API 返回 code -12）
+
+    携带触发时的响应与请求体，便于调用方决定是否自动求解。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        response: dict | None = None,
+        payload: dict | None = None,
+        url: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.response = response or {}
+        self.payload = payload or {}
+        self.url = url
 
 
 class SliderVerificationRequired(ZhsError):

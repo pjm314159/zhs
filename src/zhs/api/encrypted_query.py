@@ -129,7 +129,7 @@ class EncryptedQuery:
             return {}
 
         result = self._http.api_query(url, data=form_data, method=method, content_type=strategy.content_type)
-        self._check_result(strategy, result)
+        self._check_result(strategy, result, data, url)
         return result
 
     @staticmethod
@@ -179,12 +179,18 @@ class EncryptedQuery:
             form_data["dateFormate"] = str(payload["dateFormate"])
         return form_data
 
-    def _check_result(self, strategy: QueryStrategy, result: dict[str, Any]) -> None:
+    def _check_result(
+        self,
+        strategy: QueryStrategy,
+        result: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+        url: str = "",
+    ) -> None:
         """检查响应码"""
         actual = result.get(strategy.check_field, strategy.ok_value)
 
         if strategy.check_captcha and actual == -12:
-            raise CaptchaRequired("服务端要求验证码")
+            raise CaptchaRequired("服务端要求验证码", response=result, payload=payload, url=url)
 
         if actual != strategy.ok_value:
             code = int(actual) if isinstance(actual, str) and actual.isdigit() else actual
