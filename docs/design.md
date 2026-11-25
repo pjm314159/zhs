@@ -457,6 +457,8 @@ class ZhsSession:
     def cookies(self, value: httpx.Cookies | list[dict] | dict[str, str]) -> None: ...
     @property
     def uuid(self) -> str | None: ...
+    @property
+    def captcha(self) -> "CaptchaService": ...   # 懒加载，函数内导入
 
     def _get_client(self) -> httpx.Client: ...
     def _parse_uuid(self) -> None: ...
@@ -537,6 +539,7 @@ class ZhsSession:
 - **仅同步**：内部持有 `httpx.Client`，无 `AsyncClient`，无 `async def`/`await`
 - Cookie 设置时自动解析 `uuid`（从 `CASLOGC` cookie 的 JSON 中提取），并设置 `exitRecod_{uuid}=2`
 - API 地址通过 `self.urls.base` / `self.urls.passport` 等拼接
+- `captcha` 属性首次访问时懒加载 `CaptchaService`（函数内导入，避免 `captcha → config` 循环依赖）；求解走易盾独立客户端，不共享主会话 Cookie
 
 **加密查询方法对比**：
 
@@ -995,6 +998,14 @@ flowchart TD
     HumanDelay --> End
 ```
 
+**验证码处理（`_try_solve_captcha`）**：
+
+- `play_course` 捕获 `CaptchaRequired` 后调用一次 `_try_solve_captcha`；`captcha_solved` 标志保证一次触发只尝试一次，避免死循环
+- 用 `CaptchaTrigger(kind="click", referer="https://studyvideoh5.zhihuishu.com/stuStudy")` 求解
+- `ev` 必须用 `encode_ev([recruitId, lessonId, smallLessonId, videoId, chapterId])` 重新编码；失败心跳里的 `sdsew` 是 10 段分号拼接串，直接回传会被服务端以 `-1 参数解码发生错误` 拒绝
+- 上报 `learning/validateSlideToken`（`{token: solution.validate, ev, checkType: 1}`），以 `data.pass` 为通过判据；通过后重试当前视频
+- 求解失败 / 上报失败 / `pass=false` 一律返回 False，按原逻辑停止本课程
+
 #### 2.7.4 quiz.py
 
 ```python
@@ -1241,6 +1252,7 @@ flowchart TD
 - 其他 `data_type` → 检查 `file_id` 和 `file_name`，存在则 `play_file`，否则跳过
 - 非标准节点（讨论帖子、微课链接、直播回放、外部跳转链接等）无 `file_id`，自动跳过并记录日志
 - `play_file` 内部对 API 返回做 try/except 防护，避免非标准文件导致 KeyError 崩溃
+- 验证码：捕获 `CaptchaRequired` 后仅记录日志并停止本课程，不自动求解（Hike 未接入 validate 上报）
 
 ### 2.9 ai/ — AI 课程
 
@@ -2201,6 +2213,95 @@ def detect_course_type(...) -> str:  # 只取类型；显式 --type 时零查询
 
 ---
 
+### 2.15 captcha/ — 验证码求解模块（易盾）
+
+```
+captcha/
+├── __init__.py
+├── models.py     # CaptchaKind / CaptchaChallenge / CaptchaSolution
+├── codec.py      # 易盾自定义加密原语（非标准 AES、双 base64 字母表、crc32、xor、cb）
+├── fp.py         # fp 规范化与格式校验
+├── yidun.py      # 协议层：getconf / get / check、JSONP 剥壳、validate 组装
+├── slider.py     # 滑块缺口识别、轨迹生成、data 五字段
+├── click.py      # 原图坐标 → CSS 坐标、点选 data 三字段
+├── vision.py     # 点选识图（OpenAI 兼容视觉模型）
+└── service.py    # 编排：CaptchaTrigger / CaptchaService.solve
+```
+
+```python
+@dataclass(frozen=True)
+class CaptchaTrigger:
+    kind: CaptchaKind                  # "slide" / "click"
+    referer: str                       # 承载验证码的页面地址
+    width_override: int | None = None  # 页面渲染宽度（登录页 452）
+
+    @property
+    def captcha_id(self) -> str: ...   # click → CAPTCHA_CLICK；slide → CAPTCHA_SLIDE
+    @property
+    def width(self) -> int: ...        # width_override or (320 click / 400 slide)
+    @property
+    def type_code(self) -> int: ...    # 11 click / 2 slide
+
+class CaptchaService:
+    def __init__(self, config: AppConfig) -> None: ...
+    def enabled(self) -> bool: ...     # enabled 且 fp 非空
+    def solve(self, trigger: CaptchaTrigger) -> CaptchaSolution | None: ...
+```
+
+**协议层（yidun.py）**：
+
+```python
+def create_client(config: AppConfig, timeout: float = 20.0) -> httpx.Client: ...
+def parse_jsonp(text: str) -> dict[str, Any]: ...
+def getconf(client: httpx.Client, captcha_id: str, referer: str) -> dict[str, Any]: ...
+def fetch(client, captcha_id: str, fp: str, width: int,
+          dt: str = "", ir_token: str = "", referer: str = "") -> dict[str, Any]: ...
+def check(client, captcha_id: str, token: str, data: dict[str, Any],
+          width: int, type_: int, dt: str = "", referer: str = "") -> dict[str, Any]: ...
+def compose_validate(raw_validate: str, fp: str, zone_id: str = "CN31") -> str: ...
+```
+
+**求解时序**：
+
+```mermaid
+sequenceDiagram
+    participant Caller as 调用方 video/homework/login
+    participant S as CaptchaService
+    participant Y as 易盾 c.dun.163.com
+    participant V as OpenCV / 视觉模型
+
+    Caller->>S: solve(CaptchaTrigger)
+    S->>Y: GET /api/v2/getconf（id + referer）
+    Y-->>S: data.dt
+    loop 最多 max_retry 次
+        S->>Y: GET /api/v3/get（fp / width / dt）
+        Y-->>S: token / bg / front
+        alt 滑块
+            S->>V: find_gap_x + build_track
+        else 点选
+            S->>V: click_point（整图 + 提示文案）
+        end
+        S->>Y: GET /api/v3/check（data 密文）
+        Y-->>S: error=0 且 data.result=true → data.validate
+    end
+    S-->>Caller: CaptchaSolution(validate, raw_validate) 或 None
+```
+
+**设计要点**：
+
+- **单一出口**：`solve` 成功返回 `CaptchaSolution`，任何失败都返回 `None`（未启用、fp 空、依赖缺失、网络/解析异常、重试用尽），调用方自行决定停止或继续，不产生二次异常
+- **独立客户端**：不携带智慧树 Cookie，只沿用 `[proxy]`；易盾响应为 JSONP，统一剥壳后按 `error` / `data` 取值
+- **宽度必须与页面一致**：点选 320（知到视频/作业）、滑块默认 400、登录页滑块 452（`width_override`）。宽度不符时 `check` 仍返回 `error=0 msg=ok`，但 `data.result=false`，表现为“坐标判错”
+- **滑块**：Canny 边缘 + `matchTemplate(TM_CCOEFF_NORMED)` 取缺口左边缘；`distance = gap * width / bg_width`；四段轨迹采样 50 点；`build_data` 输出 `d/m/p/f/ext` 五个密文字段
+- **点选**：整图 + 提示文案交给视觉模型（`temperature=0`、`max_tokens=8000`、只输出 JSON），`to_css` 按 `width / image_width` 等比缩放；`build_data` 只输出 `m/p/ext`，`d` 为空
+- **加密差异**：滑块 `aes` 在明文后拼 crc32；点选 `aes_click` 不拼，`p`/`ext` 各自用 `with_crc` 追加 crc32；`cb` 由 32 位随机串按固定位置替换后加密生成
+- **validate 组装**：`{zoneId}_{aes(raw_validate + "::" + fp)}_v_i_1`，`raw_validate` 需保留以便排查
+- **fp**：只能手动采集（浏览器 cookie `gdxidpyhxdE` 经 `decodeURIComponent`），`normalize_fp` 去空白/引号，`validate_fp_format` 校验长度 150~260、尾段 13 位时间戳、不含 `%`；配置读取时 `normalize_captcha_fp` 把 `fp = "..."` 改为单引号字面量，避免反斜杠触发 TOML 转义
+- **素材落盘**：`save_challenge_dir` 非空时保存 `{token}_{index}.img`，默认关闭
+- **日志约束**：只记录 `error`/`msg`、validate 长度、点选坐标；fp 与 validate 明文不落日志
+
+---
+
 ## 3. 数据流
 
 ### 3.1 知到视频刷课数据流
@@ -2292,6 +2393,43 @@ flowchart TD
     ExamCtx -->|openExamDetail ai_task_query| TASK
     TASK -->|isLookAnswer| ExamCtx
     ExamCtx -->|可查看答案| Cache
+```
+
+### 3.4 验证码求解数据流
+
+```mermaid
+flowchart TD
+    API[业务接口响应 code=-12] --> QS{QueryStrategy.check_captcha?}
+    QS -->|否| ERR[按普通 ApiError 处理]
+    QS -->|是| CR[抛出 CaptchaRequired]
+
+    CR --> V{来源}
+    V -->|知到视频| V1[ZhidaoVideoPlayer._try_solve_captcha]
+    V -->|知到作业| V2[HomeworkWorker._with_captcha]
+    V -->|Hike 视频 / 知到考试| STOP1[记录日志并停止/跳过]
+    V -->|账号密码登录| LOGIN[LoginManager._solve_login_captcha]
+
+    V1 --> SOLVE
+    V2 --> SOLVE
+    LOGIN --> SOLVE
+
+    subgraph CaptchaService
+        SOLVE[CaptchaTrigger] --> CONF[getconf 取 dt]
+        CONF --> GET[get 取题]
+        GET --> BUILD[滑块 OpenCV / 点选视觉模型]
+        BUILD --> CHECK[check 提交答案]
+        CHECK -->|error=0 且 result=true| OK[compose_validate]
+        CHECK -->|失败且未达 max_retry| GET
+        CHECK -->|失败且重试用尽| FAIL[返回 None]
+    end
+
+    OK --> VIA{来源}
+    VIA -->|视频 / 作业| REPORT[上报 validateSlideToken]
+    REPORT --> PASS{data.pass?}
+    PASS -->|true| RETRY[重试业务请求一次]
+    PASS -->|false| STOP2[按原逻辑停止]
+    VIA -->|登录| LOGIN_REPORT[作为 validate 随密码登录提交]
+    FAIL --> STOP2
 ```
 
 ---

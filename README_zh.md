@@ -4,7 +4,7 @@
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课、Hike 职教云课、AI 智慧课程三类课程的自动学习。核心能力包括：扫码登录、账号密码登录、视频进度模拟、弹窗答题、AI 自动作业与考试。
+ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课、Hike 职教云课、AI 智慧课程三类课程的自动学习。核心能力包括：扫码登录、账号密码登录、验证码自动求解（纯 HTTP，无浏览器环境）、视频进度模拟、弹窗答题、AI 自动作业与考试。
 
 > 如果我的项目对你有帮助，欢迎 star ⭐
 
@@ -14,6 +14,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 - **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离，`zhs --version`（或 `-v`）查看版本号
 - **扫码登录**：自动保存 Cookie，避免重复登录
 - **账号密码登录**：配置 `[login]` 后可用 `--method password` 登录，Cookie 失效可自动重登
+- **验证码自动求解（正式支持）**：内置易盾滑块 / 点选求解（OpenCV 缺口识别 + 视觉模型识图），**纯 HTTP 实现，不引入 Playwright / Selenium 等任何浏览器环境**；知到视频遇到风控验证码后会自动过码并重试，不再中断看视频
 - **视频自动刷课**：模拟真人观看（随机暂停、随机延迟、进度条显示）
 - **弹窗答题**：视频内弹窗题目自动选择正确答案
 - **作业自动作答**：知到作业 + AI 课程作业，支持 LLM 答题与答案缓存
@@ -22,6 +23,8 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 - **多 LLM 后端**：默认使用智慧树内置 AI，也可配置 OpenAI 兼容接口（DeepSeek、MoonShot 等），**推荐使用自定义AI，默认的AI性能较低**
 - **PPT 转文本**：使用 python-pptx 本地提取 PPT 文本作为答题参考
 - **代理支持**：HTTP / HTTPS / SOCKS5
+
+> **关于验证码**：验证码自动求解默认关闭，需要手动采集 `fp`（见 [教程 2.4](docs/tutorial.md#24-验证码配置与-fp-采集)）。它依赖易盾当前算法，而验证码算法具有时效性，服务端升级后可能失效，因此**该功能可能不会长期支持**。失效时将 `[captcha] enabled` 改回 `false` 即可回到“遇验证码停止课程并提示人工处理”的旧行为。
 
 ## 技术栈
 
@@ -39,6 +42,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 | 二维码 | qrcode + Pillow            |
 | PPT 解析 | python-pptx                |
 | HTML 文本提取 | beautifulsoup4             |
+| 验证码识别 | OpenCV（滑块）+ OpenAI 兼容视觉模型（点选），纯 HTTP 无浏览器 |
 | 测试 | pytest + respx + freezegun |
 | Lint / Format | ruff                       |
 | 类型检查 | mypy strict                |
@@ -153,6 +157,8 @@ zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 > - AI 学习页（`learnPage/{courseId}/{nodeUid}/{classId}`）→ 直接模式，只刷该知识点
 > - AI 课程页（`knowledgeStudy/{courseId}/{classId}`）→ 扫描模式全刷
 
+> **验证码不再打断刷课**：启用 `[captcha]` 后，知到视频遇到风控验证码会先自动求解并重试当前视频，不会因此中断整门课程；求解失败才按原逻辑停止。未启用时行为与旧版一致。
+
 ### 5. 写章节测试
 
 ```bash
@@ -190,6 +196,8 @@ zhs exam --url "https://ai-smart-course-student-pro.zhihuishu.com/testDetail/cou
 # 自动遍历所有 AI 课程的未完成考试
 zhs exam --type ai
 ```
+
+> **想考高分？** 建议先用 `zhs homework` 把该课程的平时作业全部做完：答对的题目与答案会写入本地答案缓存（`~/.zhs/cache/questions_bank.db`），考试遇到相同题目时可直接命中缓存作答。覆盖面最大的方式是启用外部题库：将 `[question_bank]` 的 `enabled` 设为 `true` 并填写 `token`（到 [tk.enncy.cn](https://tk.enncy.cn) 个人中心获取），`scopes` 包含 `zhidao_exam` / `ai_exam` 即可在考试中查询，命中率明显高于仅靠作业缓存。
 
 ## CLI 命令一览
 
@@ -255,6 +263,16 @@ max_token = 27900
 stream_timeout = 120.0      # 流式响应总时长（秒），不得小于 stream_idle_timeout
 stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定首包最长等待
 
+[captcha]                # 验证码自动求解（可选，默认关闭）
+enabled = false          # 开启后账号密码登录硬性依赖它
+fp = ''                  # 易盾 IRisk 设备指纹；enabled=true 时必填（采集见教程 2.4）
+api_key = ""             # 点选识图 Key（OpenAI 兼容；enabled=true 时必填）
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"         # 必须支持图片输入
+timeout = 120.0          # 单次识图超时（秒）
+max_retry = 3            # 单次触发最多重取题次数
+save_challenge_dir = ""  # 非空时落盘验证码素材，仅排查用
+
 [crypto]                 # 加密密钥（一般无需修改）
 [urls]                   # API URL（一般无需修改）
 ```
@@ -264,6 +282,8 @@ stream_idle_timeout = 30.0  # 相邻 chunk 空闲等待上限（秒），决定�
 > **流式超时**：`stream_timeout` 限制整个流的总时长，`stream_idle_timeout` 限制相邻 chunk 的空闲等待（也就是首包最长等待）。`stream_timeout` 不得小于 `stream_idle_timeout`，否则加载配置时直接报错。两项只作用于 OpenAI 兼容接口；智慧树内置 AI 走另一套 SSE 端点。
 >
 > **登录态判定**：Cookie 从 `~/.zhs/cookies.json` 本地恢复；启动时先用 CAS 票据换取 `onlineservice-api` 会话，再调用 `getLoginUserInfo`，只有响应中能取到用户信息才算登录有效。会话过期与接口不可用会分别给出不同提示。
+
+> **验证码**：`[captcha]` 是可选能力，**默认关闭**。启用后账号密码登录必须依赖它，知到视频/作业遇到风控会自动求解并上报 validate，通过后重试一次；全程纯 HTTP（OpenCV + 视觉模型），**不使用 Playwright 等浏览器环境**。由于验证码算法具有时效性，该能力可能随易盾升级失效、**不承诺长期支持**；失效时改回 `enabled = false`，程序会按原逻辑停止并提示人工处理。
 
 ## 数据目录
 

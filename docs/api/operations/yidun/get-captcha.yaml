@@ -8,10 +8,12 @@ description: |
   | captchaId | 题型 | `get.type` | `front` 形态 | `width` |
   | --- | --- | --- | --- | --- |
   | `4da3050565514a35a50541b0e1f54538`（space） | 点选 | 11 | 提示文案字符串 | 320 |
-  | `75f9f716460a422f89a628f50fd8cc2b`（common） | 滑块 | 2 | 滑块图 URL 数组 | 400 |
+  | `75f9f716460a422f89a628f50fd8cc2b`（common） | 滑块 | 2 | 滑块图 URL 数组 | 400 / 登录页 452 |
 
   - `bg` 原图 480×240（`@2x`），页面以 CSS 320×160 展示；
-  - 点选的点击坐标基准是 **CSS 像素**，不是原图尺寸。
+  - 点选的点击坐标基准是 **CSS 像素**，不是原图尺寸；
+  - `width` 必须与**页面实际渲染宽度**一致：视频/作业滑块 400，登录页 `initNECaptchaWithFallback({width:"452px"})` 为 452；
+    宽度不符时 `check` 仍返回 `error=0 msg=ok`，但 `data.result=false`（位置被判错）。
 x-zhs-service: yidun
 x-zhs-status: confirmed
 x-zhs-evidence:
@@ -163,10 +165,10 @@ parameters:
   - name: width
     in: query
     required: true
-    description: 点选 320、滑块 400，须与画布一致
+    description: 须与页面实际渲染宽度一致：点选 320、视频/作业滑块 400、登录页滑块 452
     schema:
       type: integer
-      enum: [320, 400]
+      enum: [320, 400, 452]
   - name: audio
     in: query
     required: false

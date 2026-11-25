@@ -153,6 +153,48 @@ ZHS 的 AI 答题按课程类型分成两条链路：
 > 智慧树内置 AI 只服务 AI 智慧课程，且指令遵从性较差，建议使用自定义 LLM：`use_builtin_ai = false` + `api_key` + `base_url`。
 > 知到作业/考试没有内置 AI 可用（非 AI 课程的 `get-course-mapUid` 实测返回 500），未配置 `api_key` 时只会用题库/随机答案。
 
+### 2.4 验证码配置与 fp 采集
+
+ZHS 使用易盾验证码自动求解，**默认关闭**。启用后：
+
+- **账号密码登录**：硬性要求启用；未启用或 `fp` 无效时 `zhs login --method password` 直接报错
+- **知到视频 / 知到作业**：遇到风控（响应 `code: -12`）时自动求解并上报 validate，通过后重试一次
+- 关闭时行为不变：遇到验证码按原逻辑停止当前课程
+
+配置示例：
+
+```toml
+[captcha]
+enabled = true               # 启用验证码自动求解
+fp = ''                      # 设备指纹，采集方法见下；约 190 字符
+api_key = ""                 # 识图模型 API Key（点选需要）
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"             # 必须支持图片输入
+timeout = 120.0              # 单次识图超时（秒）
+max_retry = 3                # 单次触发最多重取题次数
+save_challenge_dir = ""      # 非空时落盘验证码素材，仅供排查
+```
+
+`fp` 是易盾 IRisk 设备指纹，只能手动采集（不支持文件、环境变量或自动续期）：
+
+1. Chrome 打开 <https://login.zhihuishu.com/>（无需登录），等页面加载完成；
+2. 按 F12 → Console（首次粘贴需手动输入 `allow pasting` 并回车）；
+3. 执行：
+
+```js
+const raw = document.cookie.match(/(?:^|;\s*)gdxidpyhxdE=([^;]+)/i)?.[1];
+console.log(raw ? decodeURIComponent(raw) : '未找到 gdxidpyhxdE，请等页面加载后重试');
+```
+
+4. 输出一行约 190 字符、尾段为 `:13位毫秒时间戳` 的字符串，整串填入 `[captcha] fp`。
+
+注意：
+
+- 必须在该域名页面取值，其它站点没有 `gdxidpyhxdE`；
+- fp 会过期，失效后重新采集并整串替换；建议在 TOML 里用单引号字面量（程序读取时也会自动把 `fp = "..."` 改写为单引号，避免反斜杠被转义）。
+
+`enabled = true` 时启动会自检：`fp` 非空、长度 150~260、尾段为 13 位毫秒时间戳、且不含 `%`；点选还需 `api_key` 与 `model` 非空（滑块所需的 OpenCV / numpy 已包含在默认依赖中）。不通过会直接报配置错误，并打印上面的采集脚本。
+
 ---
 
 ## 3. 登录
@@ -190,7 +232,7 @@ zhs login --method password -u <账号> -p <密码>
 ```
 
 - `-u` 与 `-p` 必须同时提供或都不提供；都不提供时使用 `[login] account/password`，仍为空则交互输入。
-- 需要启用验证码自动求解：`[captcha] enabled = true` 且 `fp` 有效，否则直接报错。
+- 需要启用验证码自动求解：`[captcha] enabled = true` 且 `fp` 有效，否则直接报错。`fp` 采集见 [2.4 验证码配置与 fp 采集](#24-验证码配置与-fp-采集)。
 - 一次命令只提交一次，不重试。
 - 配置 `[login] auto_login = true` 后，Cookie 缺失或失效时会自动用配置的账号密码登录一次。
 
@@ -625,10 +667,15 @@ cat ~/.zhs/execution.json
 
 ### Q11: 遇到"需要验证码，停止课程"怎么办？
 
-这是服务端风控触发的滑块验证码（API 返回 `code: -12`），**不是登录失效**。程序按设计停下、交给人工处理，不会自动过验证码。
+这是服务端风控触发的易盾验证码（响应 `code: -12`），**不是登录失效**。
+
+- 已启用 `[captcha]`：知到视频 / 作业会先自动求解并上报 validate，通过后重试一次；求解失败或上报未通过才会停止
+- 未启用、求解失败，或来源为 Hike / 知到考试：按原逻辑停止，等待人工处理
 
 处理步骤：
 
-1. 打开智慧树网页版（`studyvideoh5.zhihuishu.com`）或 APP，进入**被拦的那门课程**，按提示完成滑块验证；
-2. 回到命令行**直接重新运行 `zhs play`**——沿用原来的 Cookie 即可，**不需要 `zhs login` 重新扫码**；
+1. 想自动过码：按 [2.4 验证码配置与 fp 采集](#24-验证码配置与-fp-采集) 配置 `enabled = true` 与 `fp`（点选还需 `api_key` / `model`），再重新运行；
+2. 或打开智慧树网页版（`studyvideoh5.zhihuishu.com`）或 APP，进入**被拦的那门课程**，按提示手动完成验证；
+3. 回到命令行直接重新运行 `zhs play`——沿用原来的 Cookie 即可，**不需要 `zhs login` 重新扫码**；
+4. 频繁触发时更换 `fp` 或降低播放速度，风控通常与请求频率相关。
 
