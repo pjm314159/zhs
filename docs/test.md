@@ -975,6 +975,9 @@ class TestHomeworkItem:
     def test_optional_fields_default_none(self) -> None:
         """可选字段默认 None"""
 
+    def test_api_null_fields_fall_back_to_defaults(self) -> None:
+        """cpOrderNumber/chapterId/chapterRank 显式 null 回落默认值，不整条丢弃"""
+
 
 class TestHomeworkQuestion:
     def test_question_type_mapping(self) -> None:
@@ -1019,6 +1022,34 @@ class TestHomeworkWorker:
     def test_max_submit_limit(self) -> None:
         """达到 max_submit 次数后停止"""
 ```
+
+验证码自动处理（`TestHomeworkWorkerCaptcha`，mock `session.captcha.solve` 与
+`session.homework_validate_slide_token`）：
+
+```python
+class TestHomeworkWorkerCaptcha:
+    def test_do_homework_captcha_solved_and_retried(self) -> None:
+        """doHomework 抛 -12 → 求解上报 → 重试一次成功"""
+
+    def test_do_homework_captcha_unsolved_raises(self) -> None:
+        """solve 返回 None → 抛出 CaptchaRequired，不重复请求"""
+
+    def test_do_homework_captcha_validate_not_pass_raises(self) -> None:
+        """validateSlideToken 返回 pass=false → 抛出 CaptchaRequired"""
+
+    def test_do_homework_captcha_retries_only_once(self) -> None:
+        """重试后仍 -12 → 直接抛出，solve 只调用一次"""
+
+    def test_save_answer_captcha_solved_and_retried(self) -> None:
+        """saveStudentAnswer 抛 -12 → 求解上报 → 重试保存成功"""
+
+    def test_save_answer_captcha_unsolved_raises(self) -> None:
+        """保存阶段求解失败 → CaptchaRequired 不被包装为滑块异常"""
+```
+
+`tests/api/test_zhidao_homework_api.py::TestHomeworkValidateSlideToken` 解密
+`secretStr` 校验载荷固定为 `{recruitId, token, checkType=1, chapterId=examId}`
+且不含 `dateFormate`。
 
 #### 4.8.4 homework/test_analyzer.py
 

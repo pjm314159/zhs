@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from zhs.cache.zhidao_cache import ZhidaoHomeworkCache
+from zhs.captcha.models import CaptchaSolution
 from zhs.config import AppConfig, HomeworkConfig
+from zhs.exceptions import CaptchaRequired
 from zhs.session import ZhsSession
 from zhs.zhidao.homework.models import (
     HomeworkItem,
@@ -257,7 +259,7 @@ class TestHomeworkWorkerSaveAnswer:
         item = _make_item()
         question = _make_question()
 
-        worker._save_answer(question, 103, item, "414804", "625")
+        worker._save_answer(question, 103, item, "10001", "1000")
 
         session.homework_save_answer.assert_called_once()
         call_args = session.homework_save_answer.call_args
@@ -278,7 +280,7 @@ class TestHomeworkWorkerSaveAnswer:
         item = _make_item()
         question = _make_question(question_type_id=2)
 
-        worker._save_answer(question, "101,103", item, "414804", "625")
+        worker._save_answer(question, "101,103", item, "10001", "1000")
 
         call_args = session.homework_save_answer.call_args
         answer_item = call_args[0][0]
@@ -298,7 +300,7 @@ class TestHomeworkWorkerSaveAnswer:
         question = _make_question(eid=None, qid=123)
 
         try:
-            worker._save_answer(question, 103, item, "414804", "625")
+            worker._save_answer(question, 103, item, "10001", "1000")
             assert False, "Should have raised ZhsError"
         except ZhsError:
             pass
@@ -316,7 +318,7 @@ class TestHomeworkWorkerSubmit:
         worker = HomeworkWorker(session, config, cache)
 
         item = _make_item()
-        rate = worker._submit(item, "414804", 5)
+        rate = worker._submit(item, "10001", 5)
 
         assert rate == 80.0  # 8/10 * 100
 
@@ -329,7 +331,7 @@ class TestHomeworkWorkerSubmit:
         worker = HomeworkWorker(session, config, cache)
 
         item = _make_item()
-        rate = worker._submit(item, "414804", 5)
+        rate = worker._submit(item, "10001", 5)
 
         assert rate == 0.0
 
@@ -342,7 +344,7 @@ class TestHomeworkWorkerSubmit:
         worker = HomeworkWorker(session, config, cache)
 
         item = _make_item()
-        rate = worker._submit(item, "414804", 5)
+        rate = worker._submit(item, "10001", 5)
 
         assert rate == 100.0
 
@@ -393,7 +395,7 @@ class TestLlmFailureVisibility:
         mock_llm.single_choice.side_effect = Exception("Error code: 402 - Insufficient Balance")
         worker = HomeworkWorker(session, config, cache, llm=mock_llm, reporter=reporter)
 
-        worker.do_homework(_make_item(), "414804", "625")
+        worker.do_homework(_make_item(), "10001", "1000")
 
         texts = [str(call.args[0]) for call in reporter.print.call_args_list if call.args]
         assert sum(1 for t in texts if "降级为随机答案" in t) == 1
@@ -416,7 +418,7 @@ class TestHomeworkWorkerDoHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item()
-        rate = worker.do_homework(item, "414804", "625")
+        rate = worker.do_homework(item, "10001", "1000")
 
         assert rate == 80.0
         session.homework_do.assert_called_once()
@@ -434,7 +436,7 @@ class TestHomeworkWorkerDoHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item()
-        rate = worker.do_homework(item, "414804", "625")
+        rate = worker.do_homework(item, "10001", "1000")
 
         assert rate == 0.0
         session.homework_save_answer.assert_not_called()
@@ -455,7 +457,7 @@ class TestHomeworkWorkerDoHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item()
-        rate = worker.do_homework(item, "414804", "625")
+        rate = worker.do_homework(item, "10001", "1000")
 
         assert rate == 100.0
         assert session.homework_save_answer.call_count == 2
@@ -477,7 +479,7 @@ class TestHomeworkWorkerDoHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item()
-        rate = worker.do_homework(item, "414804", "625")
+        rate = worker.do_homework(item, "10001", "1000")
 
         # 只有第二题保存成功，提交 1 题
         assert rate == 20.0  # 2/10 * 100
@@ -498,7 +500,7 @@ class TestHomeworkWorkerDoHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item()
-        worker.do_homework(item, "414804", "625")
+        worker.do_homework(item, "10001", "1000")
 
         # 验证使用了缓存答案 103
         call_args = session.homework_save_answer.call_args
@@ -690,7 +692,7 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=2, isMarking=0)
-        rate = worker.run_homework(item, "414804", "625")
+        rate = worker.run_homework(item, "10001", "1000")
 
         assert rate == 90.0
         # 提交后应调用 lookHomework 检查对错并写入缓存
@@ -719,7 +721,7 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=2, isMarking=0)
-        rate = worker.run_homework(item, "414804", "625")
+        rate = worker.run_homework(item, "10001", "1000")
 
         assert rate == 90.0
         # 应调用了两次 lookHomework（首次 + 重做后各检查一次）
@@ -746,7 +748,7 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=0, isMarking=1)
-        rate = worker.run_homework(item, "414804", "625")
+        rate = worker.run_homework(item, "10001", "1000")
 
         assert rate == 50.0
         # 提交后应调用 lookHomework 检查对错
@@ -770,7 +772,7 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(backNum=2, isMarking=1)
-        rate = worker.run_homework(item, "414804", "625")
+        rate = worker.run_homework(item, "10001", "1000")
 
         assert rate == 50.0
         # 提交后应调用 lookHomework 检查对错
@@ -794,7 +796,7 @@ class TestHomeworkWorkerRunHomework:
 
         worker = HomeworkWorker(session, config, cache)
         item = _make_item(state=4, backNum=3, isMarking=0)
-        rate = worker.run_homework(item, "414804", "625")
+        rate = worker.run_homework(item, "10001", "1000")
 
         assert rate == 90.0
         # state=4 时应先调用 homework_redo
@@ -820,7 +822,7 @@ class TestHomeworkWorkerRunHomework:
         worker = HomeworkWorker(session, config, cache, question_bank=mock_bank)
         item = _make_item()
 
-        rate = worker.run_homework(item, "414804", "625")
+        rate = worker.run_homework(item, "10001", "1000")
 
         assert rate == 90.0
         captured = capsys.readouterr()
@@ -828,3 +830,135 @@ class TestHomeworkWorkerRunHomework:
         assert "题库" in captured.out
         assert "3" in captured.out
         assert "5" in captured.out
+
+
+class TestHomeworkWorkerCaptcha:
+    """作业验证码（易盾点选）自动处理"""
+
+    @staticmethod
+    def _setup_solvable(session: MagicMock) -> CaptchaSolution:
+        """让 solve 返回可用的 validate，validateSlideToken 返回 pass"""
+        solution = CaptchaSolution(validate="CN31_solved_v_i_1", raw_validate="raw")
+        session.captcha.solve.return_value = solution
+        session.homework_validate_slide_token.return_value = {"status": "200", "pass": True}
+        return solution
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_do_homework_captcha_solved_and_retried(self, mock_sleep: MagicMock) -> None:
+        """doHomework 抛 -12 → 求解并上报 → 重试一次成功"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        solution = self._setup_solvable(session)
+
+        session.homework_do.side_effect = [
+            CaptchaRequired("服务端要求验证码", response={"code": "-12"}),
+            _make_do_homework_response([_make_question()]),
+        ]
+        session.homework_save_answer.return_value = {"status": "200"}
+        session.homework_submit.return_value = _make_submit_response("8")
+
+        worker = HomeworkWorker(session, config, cache)
+        rate = worker.do_homework(_make_item(), "10001", "1000")
+
+        assert rate == 80.0
+        assert session.homework_do.call_count == 2
+        session.homework_validate_slide_token.assert_called_once_with(
+            recruit_id="10001",
+            exam_id="exam1",
+            token=solution.validate,
+        )
+        trigger = session.captcha.solve.call_args[0][0]
+        assert trigger.kind == "click"
+        assert "stuExamWeb" in trigger.referer
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_do_homework_captcha_unsolved_raises(self, mock_sleep: MagicMock) -> None:
+        """求解失败 → 抛出 CaptchaRequired（由上层按课程级中止）"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        session.captcha.solve.return_value = None
+        session.homework_do.side_effect = CaptchaRequired("服务端要求验证码", response={"code": "-12"})
+
+        worker = HomeworkWorker(session, config, cache)
+        with pytest.raises(CaptchaRequired):
+            worker.do_homework(_make_item(), "10001", "1000")
+
+        assert session.homework_do.call_count == 1
+        session.homework_validate_slide_token.assert_not_called()
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_do_homework_captcha_validate_not_pass_raises(self, mock_sleep: MagicMock) -> None:
+        """validateSlideToken 返回 pass=false → 抛出 CaptchaRequired"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        self._setup_solvable(session)
+        session.homework_validate_slide_token.return_value = {"status": "200", "pass": False}
+        session.homework_do.side_effect = CaptchaRequired("服务端要求验证码", response={"code": "-12"})
+
+        worker = HomeworkWorker(session, config, cache)
+        with pytest.raises(CaptchaRequired):
+            worker.do_homework(_make_item(), "10001", "1000")
+
+        assert session.homework_do.call_count == 1
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_do_homework_captcha_retries_only_once(self, mock_sleep: MagicMock) -> None:
+        """重试后仍返回 -12 → 不再重复求解，直接抛出"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        self._setup_solvable(session)
+        session.homework_do.side_effect = [
+            CaptchaRequired("服务端要求验证码", response={"code": "-12"}),
+            CaptchaRequired("服务端要求验证码", response={"code": "-12"}),
+        ]
+
+        worker = HomeworkWorker(session, config, cache)
+        with pytest.raises(CaptchaRequired):
+            worker.do_homework(_make_item(), "10001", "1000")
+
+        assert session.homework_do.call_count == 2
+        assert session.captcha.solve.call_count == 1
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_save_answer_captcha_solved_and_retried(self, mock_sleep: MagicMock) -> None:
+        """saveStudentAnswer 抛 -12 → 求解上报 → 重试保存成功"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        self._setup_solvable(session)
+
+        session.homework_do.return_value = _make_do_homework_response([_make_question()])
+        session.homework_save_answer.side_effect = [
+            CaptchaRequired("服务端要求验证码", response={"code": "-12"}),
+            {"status": "200"},
+        ]
+        session.homework_submit.return_value = _make_submit_response("8")
+
+        worker = HomeworkWorker(session, config, cache)
+        rate = worker.do_homework(_make_item(), "10001", "1000")
+
+        assert rate == 80.0
+        assert session.homework_save_answer.call_count == 2
+        session.homework_validate_slide_token.assert_called_once()
+        session.homework_submit.assert_called_once()
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_save_answer_captcha_unsolved_raises(self, mock_sleep: MagicMock) -> None:
+        """保存阶段求解失败 → 抛出 CaptchaRequired，不被包装成滑块异常"""
+        session = _make_mock_session()
+        config = _make_config()
+        cache = _make_cache()
+        session.captcha.solve.return_value = None
+        session.homework_do.return_value = _make_do_homework_response([_make_question()])
+        session.homework_save_answer.side_effect = CaptchaRequired("服务端要求验证码", response={"code": "-12"})
+
+        worker = HomeworkWorker(session, config, cache)
+        with pytest.raises(CaptchaRequired):
+            worker.do_homework(_make_item(), "10001", "1000")
+
+        assert session.homework_save_answer.call_count == 1
+        session.homework_submit.assert_not_called()

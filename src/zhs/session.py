@@ -320,6 +320,15 @@ class ZhsSession:
             recruit_id, stu_exam_id, exam_id, school_id, course_id, question_ids
         )
 
+    def homework_validate_slide_token(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        token: str,
+    ) -> dict[str, Any]:
+        """上报验证码 validate（validateSlideToken）"""
+        return self._homework_api.homework_validate_slide_token(recruit_id, exam_id, token)
+
     # --- 知到考试业务 API（委托给 ZhidaoExamApi）---
 
     def exam_list(
@@ -357,7 +366,7 @@ class ZhsSession:
         部分用户未绑定学校，此时返回空字符串。
 
         Returns:
-            学校 ID 字符串（如 "625"），未绑定时返回 ""
+            学校 ID 字符串（如 "1000"），未绑定时返回 ""
         """
         return self._exam_api.get_login_school_info()
 

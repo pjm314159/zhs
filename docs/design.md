@@ -1066,6 +1066,8 @@ flowchart TD
 - 提交后通过 `homework_look` + `homework_get_answer` 获取对错，保存到缓存供下次使用
 - 失败时抛出 `ZhsError` 而非原始异常
 - 滑块验证触发 `SliderVerificationRequired` 异常
+- 验证码（`code="-12"` → `CaptchaRequired`）：`_with_captcha` 包裹 `doHomework` 与 `saveStudentAnswer`，先调 `CaptchaService.solve(kind="click")` 自动过易盾点选，再上报 `homework_validate_slide_token`（载荷 `{recruitId, token, checkType=1, chapterId=examId}`，判据 `pass`），通过后重试一次；求解失败 / `pass=false` / 重试仍 -12 则抛出，由 CLI 按课程级中止
+- `_save_answer` 显式 `except CaptchaRequired: raise`，避免其消息含"验证"被误映射为 `SliderVerificationRequired`
 
 ##### analyzer.py
 

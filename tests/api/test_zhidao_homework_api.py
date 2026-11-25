@@ -9,7 +9,9 @@
 - homework_get_answer: 获取学生答案信息（getStuAnswerInfo）
 """
 
+import json
 from typing import Any
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -19,6 +21,7 @@ from zhs.api.encrypted_query import EncryptedQuery
 from zhs.api.http_client import HttpClient
 from zhs.api.zhidao_homework_api import ZhidaoHomeworkApi
 from zhs.config import AppConfig
+from zhs.crypto import Cipher
 
 
 @pytest.fixture
@@ -76,7 +79,7 @@ class TestHomeworkDo:
                 recruit_id="r1",
                 exam_id="e1",
                 student_exam_id="s1",
-                school_id="625",
+                school_id="1000",
                 course_id="c1",
             )
             assert route.called
@@ -139,7 +142,7 @@ class TestHomeworkLook:
                 recruit_id="r1",
                 student_exam_id="s1",
                 exam_id="e1",
-                school_id="625",
+                school_id="1000",
                 course_id="c1",
             )
             assert route.called
@@ -158,7 +161,7 @@ class TestHomeworkGetAnswer:
                 recruit_id="r1",
                 stu_exam_id="s1",
                 exam_id="e1",
-                school_id="625",
+                school_id="1000",
                 course_id="c1",
                 question_ids=[1, 2, 3],
             )
@@ -168,3 +171,31 @@ class TestHomeworkGetAnswer:
             body = request.content.decode()
             assert "secretStr" in body
             assert result["status"] == "200"
+
+
+class TestHomeworkValidateSlideToken:
+    """上报验证码 validate（作业风控解锁）"""
+
+    def test_encrypts_expected_payload(self, config: AppConfig, api: ZhidaoHomeworkApi) -> None:
+        """加密载荷为 recruitId/token/checkType=1/chapterId=examId，且不带 dateFormate"""
+        with respx.mock:
+            route = respx.post(
+                "https://studentexam-api.zhihuishu.com/studentExam/gateway/t/v1/answer/validateSlideToken"
+            ).mock(return_value=httpx.Response(200, json={"status": "200", "pass": True}))
+            result = api.homework_validate_slide_token(
+                recruit_id="r1",
+                exam_id="exam-1",
+                token="CN31_abc_v_i_1",
+            )
+            assert route.called
+            body = route.calls[0].request.content.decode()
+            secret = parse_qs(body)["secretStr"][0]
+            cipher = Cipher(config.crypto.key_bytes("exam_key"), config.crypto.key_bytes("iv"))
+            payload = json.loads(cipher.decrypt(secret))
+            assert payload == {
+                "recruitId": "r1",
+                "token": "CN31_abc_v_i_1",
+                "checkType": 1,
+                "chapterId": "exam-1",
+            }
+            assert result["pass"] is True

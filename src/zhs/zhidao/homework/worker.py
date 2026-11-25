@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import random
 import time
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from loguru import logger
 
 from zhs.config import AppConfig
-from zhs.exceptions import SliderVerificationRequired, ZhsError
+from zhs.exceptions import CaptchaRequired, SliderVerificationRequired, ZhsError
 from zhs.llm.base import LLMProvider
 from zhs.question_bank.models import map_question_type
 from zhs.reporter import ConsoleReporter, ProgressReporter
@@ -36,6 +37,11 @@ from zhs.zhidao.homework.models import (
 if TYPE_CHECKING:
     from zhs.cache.zhidao_cache import ZhidaoHomeworkCache as HomeworkCache
     from zhs.question_bank.client import QuestionBankClient
+
+_T = TypeVar("_T")
+
+# 作业页来源（易盾取题/校验的 referer，实测可缺省但保持一致更稳妥）
+_HOMEWORK_CAPTCHA_REFERER = "https://onlineexamh5new.zhihuishu.com/stuExamWeb.html"
 
 
 class HomeworkWorker:
@@ -235,6 +241,9 @@ class HomeworkWorker:
             except SliderVerificationRequired:
                 # 滑块验证错误：立即停止整个作业流程，向上传播
                 raise
+            except CaptchaRequired:
+                # 自动过码失败：按课程级中止，向上传播
+                raise
             except Exception as e:
                 self._reporter.print(f"    {msg_error(f'保存失败: {e}')}")
                 logger.error(f"第 {i} 题保存答案失败: {e}")
@@ -272,16 +281,83 @@ class HomeworkWorker:
         )
 
     def _fetch_homework_detail(self, item: HomeworkItem, recruit_id: str, school_id: str) -> HomeworkDetail:
-        """调用 doHomework 获取题目详情"""
-        result = self._session.homework_do(
-            recruit_id=recruit_id,
-            exam_id=item.exam_id,
-            student_exam_id=item.id,
-            school_id=school_id,
-            course_id=str(item.course_id),
+        """调用 doHomework 获取题目详情（遇到验证码时自动过码并重试一次）"""
+        result = self._with_captcha(
+            lambda: self._session.homework_do(
+                recruit_id=recruit_id,
+                exam_id=item.exam_id,
+                student_exam_id=item.id,
+                school_id=school_id,
+                course_id=str(item.course_id),
+            ),
+            item,
+            recruit_id,
         )
         rt = result.get("rt", {})
         return HomeworkDetail.model_validate(rt)
+
+    def _with_captcha(
+        self,
+        action: Callable[[], _T],
+        item: HomeworkItem,
+        recruit_id: str,
+    ) -> _T:
+        """执行一次请求；遇到验证码时尝试自动过码并重试一次，失败则抛出。
+
+        重试后仍触发验证码会直接向上抛出，由上层按课程级中止，
+        避免对同一请求反复求解。
+        """
+        try:
+            return action()
+        except CaptchaRequired as exc:
+            if not self._try_solve_captcha(exc, item, recruit_id):
+                raise
+            return action()
+
+    def _try_solve_captcha(
+        self,
+        exc: CaptchaRequired,
+        item: HomeworkItem,
+        recruit_id: str,
+    ) -> bool:
+        """尝试自动过码并上报 validateSlideToken；任何失败都返回 False。"""
+        from zhs.captcha.service import CaptchaTrigger
+
+        self._reporter.print(f"  {msg_info('检测到验证码，尝试自动过码...')}")
+        logger.info(
+            f"作业验证码: exam={item.exam_name}, "
+            f"payload_keys={list((exc.payload or {}).keys())}, "
+            f"response={str(exc.response)[:160]}"
+        )
+
+        try:
+            solution = self._session.captcha.solve(CaptchaTrigger(kind="click", referer=_HOMEWORK_CAPTCHA_REFERER))
+        except Exception as err:
+            logger.warning(f"验证码求解异常: {err}")
+            return False
+
+        if solution is None:
+            logger.info("验证码未能自动求解，停止当前课程")
+            return False
+
+        try:
+            result = self._session.homework_validate_slide_token(
+                recruit_id=recruit_id,
+                exam_id=item.exam_id,
+                token=solution.validate,
+            )
+        except Exception as err:
+            logger.warning(f"validateSlideToken 上报失败: {err}")
+            return False
+
+        passed = bool(result.get("pass"))
+        if passed:
+            logger.info("验证码已通过，重试当前请求")
+            self._reporter.print(f"  {msg_done('验证码已通过')}")
+        else:
+            logger.warning("validateSlideToken 未通过，停止当前课程")
+            self._reporter.print(f"  {msg_warn('验证码未通过')}")
+        return passed
 
     def _extract_questions(self, detail: HomeworkDetail) -> list[HomeworkQuestion]:
         """从 HomeworkDetail 中提取所有题目"""
@@ -610,7 +686,14 @@ class HomeworkWorker:
         }
 
         try:
-            self._session.homework_save_answer(answer_item, recruit_id)
+            self._with_captcha(
+                lambda: self._session.homework_save_answer(answer_item, recruit_id),
+                item,
+                recruit_id,
+            )
+        except CaptchaRequired:
+            # 验证码异常交给调用方自动求解，不能包装成“滑块验证”
+            raise
         except Exception as e:
             error_msg = str(e)
             if "滑块" in error_msg or "验证" in error_msg:
