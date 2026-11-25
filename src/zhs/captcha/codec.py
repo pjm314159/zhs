@@ -58,7 +58,7 @@ def _string_to_bytes(text: str) -> list[int]:
     index = 0
     while index < len(encoded):
         if encoded[index] == "%" and index + 2 < len(encoded):
-            result.append(_hex_to_byte(encoded[index + 1:index + 3]))
+            result.append(_hex_to_byte(encoded[index + 1 : index + 3]))
             index += 3
         else:
             result.append(_to_byte(ord(encoded[index])))
@@ -152,7 +152,7 @@ def _base64_encode_core(values: list[int], alphabet: str, padding: str) -> str:
     parts: list[str] = []
     index = 0
     while index < len(unsigned):
-        chunk = unsigned[index:index + 3]
+        chunk = unsigned[index : index + 3]
         parts.append(_b64_encode_3to4(chunk, alphabet, padding))
         index += 3
     return "".join(parts)
@@ -165,7 +165,7 @@ def _base64_decode_core(value: str, alphabet: str, padding: str) -> list[int]:
     result: list[int] = []
     index = 0
     while index < len(indices):
-        result.extend(_b64_decode_4to3(indices[index:index + 4]))
+        result.extend(_b64_decode_4to3(indices[index : index + 4]))
         index += 4
     return result
 
@@ -204,7 +204,7 @@ def gen_crc32(values: list[int]) -> str:
     return _bytes_to_hex(_int_to_bytes((crc ^ 0xFFFFFFFF) & 0xFFFFFFFF))
 
 
-_SBOX_BYTES = [_to_byte(int(__SBOX__[index:index + 2], 16)) for index in range(0, len(__SBOX__), 2)]
+_SBOX_BYTES = [_to_byte(int(__SBOX__[index : index + 2], 16)) for index in range(0, len(__SBOX__), 2)]
 
 
 def _sub_bytes(block: list[int]) -> list[int]:
@@ -215,8 +215,8 @@ def _apply_round_key(block: list[int]) -> list[int]:
     round_key = __ROUND_KEY__
     index = 0
     while index < len(round_key):
-        operation = _hex_to_byte(round_key[index:index + 2])
-        argument = _hex_to_byte(round_key[index + 2:index + 4])
+        operation = _hex_to_byte(round_key[index : index + 2])
+        argument = _hex_to_byte(round_key[index + 2 : index + 4])
         if operation == 1:
             block = [_xor_byte(value, argument) for value in block] if block else []
         elif operation == 2:
@@ -257,7 +257,7 @@ def _blocks_from_bytes(values: list[int]) -> list[list[int]]:
     if len(values) % _B64_GROUP != 0:
         return []
     count = len(values) // _B64_GROUP
-    return [values[index * _B64_GROUP:(index + 1) * _B64_GROUP] for index in range(count)]
+    return [values[index * _B64_GROUP : (index + 1) * _B64_GROUP] for index in range(count)]
 
 
 def _generate_iv() -> tuple[list[int], list[int]]:

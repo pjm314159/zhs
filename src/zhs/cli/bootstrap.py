@@ -96,9 +96,7 @@ def check_captcha_config(config: AppConfig) -> None:
         )
 
     if not cap.api_key.strip() or not cap.model.strip():
-        raise ZhsError(
-            "captcha.enabled = true，但 captcha.api_key / captcha.model 未配置；点选需要支持图片输入的模型"
-        )
+        raise ZhsError("captcha.enabled = true，但 captcha.api_key / captcha.model 未配置；点选需要支持图片输入的模型")
 
 
 def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -> tuple[AppConfig, ZhsSession] | None:

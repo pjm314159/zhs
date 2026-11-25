@@ -26,8 +26,7 @@ RUN_ENV = "10"
 BASE_URL = "https://c.dun.163.com"
 
 _USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 )
 
 
@@ -51,7 +50,8 @@ def parse_jsonp(text: str) -> dict[str, Any]:
     match = re.search(r"\((\{.*\})\)", text, re.S)
     if not match:
         raise ValueError(f"响应不是 JSONP: {text[:120]}")
-    return json.loads(match.group(1))
+    parsed: dict[str, Any] = json.loads(match.group(1))
+    return parsed
 
 
 def _callback(index: int = 0) -> str:

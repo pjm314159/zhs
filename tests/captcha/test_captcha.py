@@ -16,8 +16,8 @@ _pos = 0
 while _pos < len(codec.__ROUND_KEY__):  # noqa: SLF001
     _OPS.append(
         (
-            int(codec.__ROUND_KEY__[_pos:_pos + 2], 16),  # noqa: SLF001
-            int(codec.__ROUND_KEY__[_pos + 2:_pos + 4], 16),  # noqa: SLF001
+            int(codec.__ROUND_KEY__[_pos : _pos + 2], 16),  # noqa: SLF001
+            int(codec.__ROUND_KEY__[_pos + 2 : _pos + 4], 16),  # noqa: SLF001
         )
     )
     _pos += 4
@@ -52,7 +52,7 @@ def decrypt(value: str) -> bytes:
     out = bytearray()
     pos = 4
     while pos + 64 <= len(raw):
-        chunk = raw[pos:pos + 64]
+        chunk = raw[pos : pos + 64]
         stage = [_INV_SBOX[item & 0xFF] for item in chunk]
         stage = [_INV_SBOX[item & 0xFF] for item in stage]
         mixed = [(stage[i] ^ previous[i]) & 0xFF for i in range(64)]
@@ -63,15 +63,15 @@ def decrypt(value: str) -> bytes:
     return bytes(out[: int.from_bytes(out[-4:], "big")])
 
 
-def test_parse_jsonp():
+def test_parse_jsonp() -> None:
     payload = '{"error":0,"data":{"token":"t"}}'
     assert yidun.parse_jsonp(f"__JSONP_abc_1({payload})")["data"]["token"] == "t"
     with pytest.raises(ValueError):
         yidun.parse_jsonp("not jsonp")
 
 
-def test_compose_validate_shape():
-    raw = "a" * 172      # 真实裸 validate 长度
+def test_compose_validate_shape() -> None:
+    raw = "a" * 172  # 真实裸 validate 长度
     fp_value = "b" * 190  # 真实 fp 长度
     composed = yidun.compose_validate(raw, fp_value)
     assert len(composed) == 531
@@ -79,20 +79,20 @@ def test_compose_validate_shape():
     assert composed.endswith("_v_i_1")
 
 
-def test_aes_includes_crc():
+def test_aes_includes_crc() -> None:
     plain = "00000000"
     expected = plain.encode() + codec.gen_crc32(codec._string_to_bytes(plain)).encode()  # noqa: SLF001
     assert decrypt(codec.aes(plain)) == expected
     assert len(codec.aes(plain)) == 92
 
 
-def test_aes_click_has_no_crc():
+def test_aes_click_has_no_crc() -> None:
     plain = "iAWvniEj0AZ32836f5a5"
     assert decrypt(codec.aes_click(plain)) == plain.encode()
     assert len(codec.aes_click(plain)) == 92
 
 
-def test_click_data_matches_captured_sample():
+def test_click_data_matches_captured_sample() -> None:
     token = "19cd4e391ce349d29903d3b5367ce095"
     data = click.build_data(token, 226, 99)
     assert data["d"] == ""
@@ -102,12 +102,12 @@ def test_click_data_matches_captured_sample():
     assert decrypt(data["ext"]) == b"i/vP4675e9cc"
 
 
-def test_click_to_css():
+def test_click_to_css() -> None:
     assert click.to_css(339, 148, 480) == (226, 99)
     assert click.to_css(480, 240, 480) == (320, 160)
 
 
-def test_fp_format():
+def test_fp_format() -> None:
     assert fp.validate_fp_format("") == ["fp 为空"]
     assert fp.validate_fp_format("abc")
     good = "x" * 175 + ":1795408610061"
@@ -115,20 +115,20 @@ def test_fp_format():
     assert fp.validate_fp_format(good + "%2F")
 
 
-def test_vision_parse():
+def test_vision_parse() -> None:
     assert _parse('{"x": 12, "y": 34}') == (12.0, 34.0)
     assert _parse('分析如下 {"x": 5.5, "y": 6}') == (5.5, 6.0)
     assert _parse("x=7, y=8") == (7.0, 8.0)
     assert _parse("看不出") is None
 
 
-def test_service_disabled_returns_none():
+def test_service_disabled_returns_none() -> None:
     config = AppConfig()
     service = CaptchaService(config)
     assert service.solve(CaptchaTrigger(kind="click", referer="https://example.com")) is None
 
 
-def test_service_requires_fp():
+def test_service_requires_fp() -> None:
     config = AppConfig()
     config.captcha.enabled = True
     service = CaptchaService(config)
@@ -136,7 +136,7 @@ def test_service_requires_fp():
     assert service.solve(CaptchaTrigger(kind="click", referer="https://example.com")) is None
 
 
-def test_service_without_vision_key():
+def test_service_without_vision_key() -> None:
     config = AppConfig()
     config.captcha.enabled = True
     config.captcha.fp = "x" * 175 + ":1795408610061"
@@ -145,7 +145,7 @@ def test_service_without_vision_key():
     assert service.solve(CaptchaTrigger(kind="click", referer="https://example.com")) is None
 
 
-def test_trigger_metadata():
+def test_trigger_metadata() -> None:
     click_trigger = CaptchaTrigger(kind="click", referer="r")
     slide_trigger = CaptchaTrigger(kind="slide", referer="r")
     assert (click_trigger.width, click_trigger.type_code) == (320, 11)

@@ -24,6 +24,7 @@ PROMPT = """这是网易易盾的点选验证码图片，尺寸 {width}x{height}
 只输出 JSON，不要解释：
 {{"x": <横坐标整数>, "y": <纵坐标整数>}}"""
 
+
 @dataclass(frozen=True)
 class VisionOptions:
     """识图调用参数。"""
@@ -52,7 +53,7 @@ def click_point(options: VisionOptions, image: bytes, tips: str) -> tuple[float,
     payload = base64.b64encode(image).decode()
     client = OpenAI(api_key=options.api_key, base_url=options.base_url, timeout=options.timeout)
     try:
-        response = client.chat.completions.create(  # type: ignore[call-overload]
+        response = client.chat.completions.create(
             model=options.model,
             messages=[
                 {

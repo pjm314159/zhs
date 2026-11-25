@@ -1,5 +1,7 @@
 """ZHS 全局异常定义"""
 
+from typing import Any
+
 
 class ZhsError(Exception):
     """ZHS 基础异常"""
@@ -24,8 +26,8 @@ class CaptchaRequired(ZhsError):
         self,
         message: str,
         *,
-        response: dict | None = None,
-        payload: dict | None = None,
+        response: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
         url: str = "",
     ) -> None:
         super().__init__(message)
