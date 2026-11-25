@@ -1,0 +1,235 @@
+tags: [易盾验证码]
+summary: 获取验证码题目（图片 + 提示 + token）
+operationId: yidunGetCaptcha
+description: |
+  返回题目资源与 `token`。**题型由 `id` 决定，调用方无法通过 `type` / `sizeType` 指定**——
+  浏览器自身请求的 `type` 就是空串。
+
+  | captchaId | 题型 | `get.type` | `front` 形态 | `width` |
+  | --- | --- | --- | --- | --- |
+  | `4da3050565514a35a50541b0e1f54538`（space） | 点选 | 11 | 提示文案字符串 | 320 |
+  | `75f9f716460a422f89a628f50fd8cc2b`（common） | 滑块 | 2 | 滑块图 URL 数组 | 400 |
+
+  - `bg` 原图 480×240（`@2x`），页面以 CSS 320×160 展示；
+  - 点选的点击坐标基准是 **CSS 像素**，不是原图尺寸。
+x-zhs-service: yidun
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-25
+parameters:
+  - name: referer
+    in: query
+    required: true
+    description: 当前页面地址（URL 编码）
+    schema:
+      type: string
+      example: https://wisdom-mooc.zhihuishu.com/study/index
+  - name: zoneId
+    in: query
+    required: true
+    description: 固定 `CN31`
+    schema:
+      type: string
+      default: CN31
+  - name: dt
+    in: query
+    required: true
+    description: 来自 `getconf`
+    schema:
+      type: string
+  - name: irToken
+    in: query
+    required: false
+    description: 来自 `getconf`，可空
+    schema:
+      type: string
+  - name: id
+    in: query
+    required: true
+    description: 验证码 captchaId，决定题型
+    schema:
+      type: string
+      enum:
+        - 4da3050565514a35a50541b0e1f54538
+        - 75f9f716460a422f89a628f50fd8cc2b
+  - name: fp
+    in: query
+    required: true
+    description: |
+      IRisk 设备指纹，约 190 字符，尾段为 `:13位毫秒时间戳`。
+      由浏览器加载易盾脚本后写入 `window.gdxidpyhxde` 与 cookie `gdxidpyhxdE`，
+      GET 前需 `decodeURIComponent`。**必须是真实值，不能伪造或改写时间戳。**
+    schema:
+      type: string
+      example: <fp>
+  - name: https
+    in: query
+    required: false
+    schema:
+      type: string
+      default: 'true'
+  - name: type
+    in: query
+    required: false
+    description: 固定为空串，传值不改变题型
+    schema:
+      type: string
+      default: ''
+  - name: version
+    in: query
+    required: false
+    description: 验证码核心脚本版本
+    schema:
+      type: string
+      default: 2.28.5
+  - name: dpr
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '2'
+  - name: dev
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '3'
+  - name: cb
+    in: query
+    required: true
+    description: 客户端签名串，由 SDK 生成，长度约 92 字符
+    schema:
+      type: string
+      example: <cb>
+  - name: ipv6
+    in: query
+    required: false
+    schema:
+      type: string
+      default: 'false'
+  - name: runEnv
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '10'
+  - name: group
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: scene
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: lang
+    in: query
+    required: false
+    schema:
+      type: string
+      default: zh-CN
+  - name: sdkVersion
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: loadVersion
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '2.5.0'
+  - name: iv
+    in: query
+    required: false
+    description: 固定 `4`（`getconf` 为 `5`）
+    schema:
+      type: string
+      default: '4'
+  - name: user
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: width
+    in: query
+    required: true
+    description: 点选 320、滑块 400，须与画布一致
+    schema:
+      type: integer
+      enum: [320, 400]
+  - name: audio
+    in: query
+    required: false
+    schema:
+      type: string
+      default: 'false'
+  - name: sizeType
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '10'
+  - name: smsVersion
+    in: query
+    required: false
+    schema:
+      type: string
+      default: v3
+  - name: token
+    in: query
+    required: false
+    description: 取新题时为空；异常刷新时会带上旧 token
+    schema:
+      type: string
+      default: ''
+  - name: callback
+    in: query
+    required: true
+    description: JSONP 回调名
+    schema:
+      type: string
+responses:
+  '200':
+    description: 成功（JSONP 外壳）
+    content:
+      application/javascript:
+        schema:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                bg:
+                  type: array
+                  description: 背景图 URL 列表（主备两个域名）
+                  items:
+                    type: string
+                front:
+                  oneOf:
+                    - type: string
+                      description: 点选的提示文案，如「请点击红色小写x」
+                    - type: array
+                      description: 滑块的拼图 URL 列表
+                      items:
+                        type: string
+                token:
+                  type: string
+                  description: 本题令牌，`check` 必须回传
+                type:
+                  type: integer
+                  description: 2=滑块，11=点选
+                waitTime:
+                  type: integer
+                zoneId:
+                  type: string
+            error:
+              type: integer
+              description: 0=成功
+            msg:
+              type: string

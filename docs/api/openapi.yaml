@@ -6,7 +6,7 @@ info:
   version: 0.0.0
   summary: ZHS 使用的智慧树平台 HTTP 接口
   description: |
-    **更新时间**：2026-11-18
+    **更新时间**：2026-11-25
 
     本文档汇总 ZHS 用到的智慧树平台 HTTP 接口，内容来自实际抓包与代码实现。
 
@@ -30,6 +30,7 @@ info:
     | ai_analysis | `ai-course-assistant-api.zhihuishu.com` |
     | newbase | `newbase.zhihuishu.com` |
     | passport | `passport.zhihuishu.com` |
+    | yidun | `c.dun.163.com` |
 
     ### 加密
 
@@ -66,6 +67,8 @@ tags:
     description: 知识点、课程信息、考试与作业、AI 解析（SSE）
   - name: Hike
     description: hike 域的课程与资源接口（字段待补，先占位）
+  - name: 易盾验证码
+    description: 网易易盾点选 / 滑块验证码（c.dun.163.com），纯 HTTP 取题与提交
 
 paths:
   /login:
@@ -303,6 +306,22 @@ paths:
   /stuStudy/saveStuStudyRecord:
     get:
       $ref: './operations/hike/save-stu-study-record.yaml'
+
+  /gateway/t/v1/learning/validateSlideToken:
+    post:
+      $ref: './operations/zhidao-video/validate-slide-token.yaml'
+
+  /api/v2/getconf:
+    get:
+      $ref: './operations/yidun/getconf.yaml'
+
+  /api/v3/get:
+    get:
+      $ref: './operations/yidun/get-captcha.yaml'
+
+  /api/v3/check:
+    get:
+      $ref: './operations/yidun/check-captcha.yaml'
 
 components:
   securitySchemes:

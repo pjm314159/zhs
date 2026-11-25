@@ -1,0 +1,189 @@
+tags: [易盾验证码]
+summary: 提交验证（返回 validate）
+operationId: yidunCheckCaptcha
+description: |
+  提交答案，成功后返回一次性 `validate`。
+
+  ### `data` 字段结构
+
+  `data` 是 JSON 序列化后再 URL 编码的字符串，四个字段均为密文（空串除外）：
+
+  | 题型 | `data` 字段 | 密文内明文 |
+  | --- | --- | --- |
+  | 滑块 | `{d, m:"", p, f, ext}` | `d`=轨迹点串，`p`=位置百分比，`f`=时间戳串，`ext`=「按下次数,样例数」 |
+  | 点选 | `{d:"", m, p, ext}` | `m`=`00000000`，`p`=「x,y,t」，`ext`=「1,0」 |
+
+  ### 加密规则（滑块与点选不同）
+
+  两者都用同一套自定义 AES（IV 前置在密文前 4 字节、私有 base64 字母表），差异在**是否拼接校验**：
+
+  - 滑块：`aes(明文 + crc32(明文))`，`crc32` 结果为 8 位 hex；
+  - 点选：`aes(明文)`，**不拼 crc32**；`p` / `ext` 各自的明文由 `xor_encode(token, ...)` 生成后，再各自追加 `crc32(该编码结果)`。
+
+  点选用错这一层会直接返回 `error=100 param check error`。
+
+  ### 坐标
+
+  点选坐标是 **CSS 像素**（`width=320` 的画布，0~320 / 0~160），不是原图 480×240。
+
+  ### validate 二次组装
+
+  本接口返回的 `validate` 是**裸值**，业务侧提交前需组装：
+
+  ```
+  CN31_{aes(裸validate + "::" + fp)}_v_i_1
+  ```
+
+  直接提交裸值会被判 `-4 滑动验证码校验失败`。
+x-zhs-service: yidun
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-25
+parameters:
+  - name: referer
+    in: query
+    required: true
+    description: 当前页面地址（URL 编码）
+    schema:
+      type: string
+      example: https://wisdom-mooc.zhihuishu.com/study/index
+  - name: zoneId
+    in: query
+    required: true
+    description: 固定 `CN31`
+    schema:
+      type: string
+      default: CN31
+  - name: dt
+    in: query
+    required: true
+    description: 来自 `getconf`
+    schema:
+      type: string
+  - name: id
+    in: query
+    required: true
+    description: 验证码 captchaId
+    schema:
+      type: string
+      enum:
+        - 4da3050565514a35a50541b0e1f54538
+        - 75f9f716460a422f89a628f50fd8cc2b
+  - name: token
+    in: query
+    required: true
+    description: 由 `get` 返回的题目令牌
+    schema:
+      type: string
+      example: <captchaToken>
+  - name: data
+    in: query
+    required: true
+    description: JSON 序列化并 URL 编码后的答案载荷，结构见 description
+    schema:
+      type: string
+      example: <data>
+  - name: width
+    in: query
+    required: true
+    description: 与 `get` 一致：点选 320、滑块 400
+    schema:
+      type: integer
+      enum: [320, 400]
+  - name: type
+    in: query
+    required: true
+    description: 2=滑块，11=点选
+    schema:
+      type: integer
+      enum: [2, 11]
+  - name: version
+    in: query
+    required: false
+    schema:
+      type: string
+      default: 2.28.5
+  - name: cb
+    in: query
+    required: true
+    description: 客户端签名串，约 92 字符
+    schema:
+      type: string
+      example: <cb>
+  - name: user
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: extraData
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: bf
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '5001'
+  - name: runEnv
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '10'
+  - name: sdkVersion
+    in: query
+    required: false
+    schema:
+      type: string
+      default: ''
+  - name: loadVersion
+    in: query
+    required: false
+    schema:
+      type: string
+      default: '2.5.0'
+  - name: iv
+    in: query
+    required: false
+    description: 固定 `4`
+    schema:
+      type: string
+      default: '4'
+  - name: callback
+    in: query
+    required: true
+    description: JSONP 回调名
+    schema:
+      type: string
+responses:
+  '200':
+    description: 成功（JSONP 外壳）
+    content:
+      application/javascript:
+        schema:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                result:
+                  type: boolean
+                  description: true=通过；false=答案错误（`error` 仍为 0）
+                zoneId:
+                  type: string
+                token:
+                  type: string
+                  description: 回显本次题目令牌
+                validate:
+                  type: string
+                  description: 裸 validate（约 172 字符），需按 description 二次组装后提交业务侧
+            error:
+              type: integer
+              description: |
+                0=成功；100=参数校验失败（多为 `data` 加密方式或长度字段不匹配）
+            msg:
+              type: string

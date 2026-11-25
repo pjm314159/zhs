@@ -46,6 +46,7 @@ DOMAINS: dict[str, str] = {
     "hikeservice": "https://hikeservice.zhihuishu.com",
     "studyresources": "https://studyresources.zhihuishu.com",
     "hike_teaching": "https://hike-teaching.zhihuishu.com",
+    "yidun": "https://c.dun.163.com",
 }
 
 STATUS_TEXT: dict[str, str] = {
