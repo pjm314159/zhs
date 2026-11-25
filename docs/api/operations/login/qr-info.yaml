@@ -1,14 +1,51 @@
 tags: [登录]
 summary: 查询扫码状态
 operationId: getLoginQrInfo
-x-zhs-service: passport
-x-zhs-status: code-only
+x-zhs-service: user
+x-zhs-status: confirmed
 x-zhs-evidence:
-  capturedAt: 2026-11-18
+  capturedAt: 2026-11-25
+parameters:
+  - name: qrToken
+    in: query
+    required: true
+    description: "`getLoginQrImg` 返回的二维码令牌"
+    schema:
+      type: string
 x-zhs-notes: |
-  代码：`src/zhs/login.py:57`。轮询扫码状态并换取 Cookie。
+  代码：`src/zhs/login.py:57`。ZHS 每 0.5s 轮询一次，新版前端为 3s。
 
-  待补：状态码枚举（待扫 / 已扫 / 成功 / 过期）、成功时返回的 Cookie 字段。
+  实测未扫码返回 `{"status": -1}`；状态枚举来自前序抓包与前端分支：
+
+  | status | 含义 |
+  | --- | --- |
+  | `-1` | 未扫码（实测） |
+  | `0` | 已扫码，等待确认 |
+  | `1` | 成功，返回 `oncePassword` + `uuid` |
+  | `2` | 二维码已过期，需重新取码 |
+  | `3` | 用户取消 |
+
+  拿到 `oncePassword` 后跳转
+  `GET https://passport.zhihuishu.com/login?pwd=<oncePassword>&service=<service>`
+  完成 CAS 换票（`service` 旧代码用 `base/login/gologin`，新版前端用 Polymas SSO）。
 responses:
   '200':
-    description: 扫码状态（枚举待补）
+    description: 扫码状态
+    content:
+      application/json:
+        schema:
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: integer
+              enum: [-1, 0, 1, 2, 3]
+            oncePassword:
+              type: string
+              description: status=1 时返回，一次性密码，用于 passport 换票
+            uuid:
+              type: string
+              description: status=1 时返回的用户标识
+            msg:
+              type: string
+              description: 提示文案（如“二维码已过期”）
