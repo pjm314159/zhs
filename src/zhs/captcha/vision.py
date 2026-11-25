@@ -24,14 +24,6 @@ PROMPT = """这是网易易盾的点选验证码图片，尺寸 {width}x{height}
 只输出 JSON，不要解释：
 {{"x": <横坐标整数>, "y": <纵坐标整数>}}"""
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {"x": {"type": "number"}, "y": {"type": "number"}},
-    "required": ["x", "y"],
-    "additionalProperties": False,
-}
-
-
 @dataclass(frozen=True)
 class VisionOptions:
     """识图调用参数。"""
@@ -71,10 +63,6 @@ def click_point(options: VisionOptions, image: bytes, tips: str) -> tuple[float,
                     ],
                 }
             ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {"name": "click_point", "strict": True, "schema": _SCHEMA},
-            },
             temperature=0,
             max_tokens=options.max_tokens,
         )
