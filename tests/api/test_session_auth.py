@@ -45,7 +45,7 @@ class TestSessionVerifier:
 
     def test_ok_when_user_info_present(self, session: MagicMock) -> None:
         session.api_query.return_value = {
-            "result": {"uuid": "Xe6arnRO", "username": "abc", "realName": "tester"},
+            "result": {"uuid": "demoUuid", "username": "abc", "realName": "tester"},
             "code": 200,
         }
         assert SessionVerifier(session).verify() is SessionStatus.OK

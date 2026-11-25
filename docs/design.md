@@ -1904,7 +1904,7 @@ def get_log_dir() -> Path:
 **控制台格式**（紧凑、彩色）：
 
 ```
-INFO    | zhs.login - 登录成功: uuid=Xe6arnRO
+INFO    | zhs.login - 登录成功: uuid=demoUuid
 DEBUG   | zhs.session - API 请求: url=/login/gologin
 WARNING | zhs.video - 视频进度异常: played=0.8 end=1.0
 ERROR   | zhs.session - API 请求失败: code=-12
@@ -1915,7 +1915,7 @@ ERROR   | zhs.session - API 请求失败: code=-12
 **文件格式**（完整、结构化）：
 
 ```
-2026-06-13 14:23:01.123 | INFO     | MainThread | zhs.login:login_with_qr:89 | 登录成功: uuid=Xe6arnRO
+2026-06-13 14:23:01.123 | INFO     | MainThread | zhs.login:login_with_qr:89 | 登录成功: uuid=demoUuid
 2026-06-13 14:23:02.456 | DEBUG    | Thread-3   | zhs.zhidao.video:_watch_video:142 | API 请求: url=/login/gologin
 ```
 

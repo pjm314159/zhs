@@ -629,4 +629,13 @@ API 参考：`.temp/questions_bank.md`
 - 变更：`tests/cli/test_main.py::test_password_login_falls_back_to_config` 增加 `typer.prompt` 未被调用断言（与 `test_password_login_prompts_when_config_empty` 共同锁定两条分支）
 - Test：密码登录相关 6 passed；ruff / mypy 通过
 
+### 隐私数据审计与匿名化 ✅
+- 审计范围：全部已跟踪文件 + 全部 Git 提交历史
+- 结论：
+  - 真实账号/密码/易盾 `fp`/API Key/题库 token：**未出现在**任何已跟踪文件与提交历史中；`.zhs/`、`.temp/` 均被 `.gitignore` 忽略且从未被跟踪
+  - 发现历史遗留的真实个人标识：`uuid` 与 `userId`（出现在 `tests/api/test_http_client.py`、`tests/test_session.py`、`tests/api/test_session_auth.py`、`tests/test_logger.py`、`docs/design.md`、`docs/test.md`）
+- 处理：当前工作区全部替换为占位值（`demoUuid` / `100000001`），并全量复跑 CI
+- 遗留：上述占位前的真实值仍存在于历史提交中，如需彻底清除需重写历史（破坏性操作，待确认）
+- CI：pytest 1327 passed；ruff check / format、mypy（171 files）通过
+
 

@@ -1660,10 +1660,10 @@ class TestSensitiveFilter:
 
     def test_normal_text_unchanged(self) -> None:
         """普通文本不被脱敏"""
-        text = "登录成功: uuid=Xe6arnRO"
+        text = "登录成功: uuid=demoUuid"
         for pattern in _SENSITIVE_PATTERNS:
             text = pattern.sub(r"\1***", text)
-        assert text == "登录成功: uuid=Xe6arnRO"
+        assert text == "登录成功: uuid=demoUuid"
 ```
 
 ---
