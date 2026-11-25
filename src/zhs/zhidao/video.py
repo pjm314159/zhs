@@ -173,6 +173,11 @@ class ZhidaoVideoPlayer:
         ``-12`` 来自心跳时，``exc.payload['sdsew']`` 就是服务端要求回传的 ev。
         """
         ev = str((exc.payload or {}).get("sdsew", ""))
+        logger.debug(
+            f"验证码上下文: ev_len={len(ev)} ev_head={ev[:12]!r} "
+            f"payload_keys={list((exc.payload or {}).keys())} "
+            f"response={str(exc.response)[:160]}"
+        )
         if not ev:
             logger.debug("验证码上下文缺少 ev，跳过自动求解")
             return False
