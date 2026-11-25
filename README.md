@@ -6,7 +6,7 @@
 
 **[中文文档](README_zh.md)**
 
-ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types of courses: Zhidao shared courses, Hike vocational education courses, and AI smart courses. Core capabilities include: QR code login, account/password login, video progress simulation, popup quiz answering, AI auto homework and exams.
+ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types of courses: Zhidao shared courses, Hike vocational education courses, and AI smart courses. Core capabilities include: QR code login, account/password login, automatic captcha solving (pure HTTP, no browser environment), video progress simulation, popup quiz answering, AI auto homework and exams.
 
 > If this project helps you, please consider giving it a star ⭐
 
@@ -16,6 +16,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Command-line Interface**: Clear subcommand separation with `zhs init / login / play / homework / exam / fetch / cache`, plus `zhs --version` (`-v`) to print the version
 - **QR Code Login**: Auto-saves cookies to avoid repeated logins
 - **Account/Password Login**: `zhs login --method password` with optional auto re-login when cookies expire
+- **Automatic Captcha Solving (officially supported)**: built-in Yidun slider/click solving (OpenCV gap detection + vision model), **pure HTTP — no Playwright / Selenium or any browser environment**; Zhidao videos automatically pass the risk-control captcha and retry, so playback is no longer interrupted
 - **Auto Video Watching**: Simulates human viewing behavior (random pauses, random delays, progress bar display)
 - **Popup Quiz Answering**: Automatically selects correct answers for popup questions during video playback
 - **Auto Homework**: Zhidao homework + AI course homework, supports LLM answering and answer caching
@@ -24,6 +25,8 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Multiple LLM Backends**: Default uses Zhihuishu built-in AI, also supports OpenAI-compatible interfaces (DeepSeek, MoonShot, etc.). **Custom AI is recommended as the default AI has low performance**
 - **PPT to Text**: Uses python-pptx to extract PPT text locally as answer reference
 - **Proxy Support**: HTTP / HTTPS / SOCKS5
+
+> **About captcha**: automatic captcha solving is disabled by default and requires a manually collected `fp` (see [tutorial 2.4](docs/tutorial.md#24-验证码配置与-fp-采集)). It targets Yidun's current algorithm; captcha algorithms are time-sensitive, so the feature may stop working after server-side upgrades and **may not be supported long-term**. If it breaks, set `[captcha] enabled = false` to fall back to the old behavior (stop the course and request manual verification).
 
 ## Tech Stack
 
@@ -41,6 +44,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 | QR Code | qrcode + Pillow |
 | PPT Parsing | python-pptx |
 | HTML Text Extraction | beautifulsoup4 |
+| Captcha Solving | OpenCV (slider) + OpenAI-compatible vision model (click), pure HTTP, no browser |
 | Testing | pytest + respx + freezegun |
 | Lint / Format | ruff |
 | Type Checking | mypy strict |
@@ -155,6 +159,8 @@ zhs play -c 1000008156 --type zhidao -s 1.5 -l 30
 > - AI learning page (`learnPage/{courseId}/{nodeUid}/{classId}`) → Direct mode, watch only that knowledge point
 > - AI course page (`knowledgeStudy/{courseId}/{classId}`) → Scan mode, watch all
 
+> **Captcha no longer interrupts playback**: with `[captcha]` enabled, a Zhidao video that hits risk-control verification solves it automatically and retries the current video instead of aborting the whole course; only a failed solve stops playback. Without it, behavior is unchanged.
+
 ### 5. Complete Chapter Tests
 
 ```bash
@@ -192,6 +198,8 @@ zhs exam --url "https://ai-smart-course-student-pro.zhihuishu.com/testDetail/cou
 # Auto-traverse all unfinished exams in AI courses
 zhs exam --type ai
 ```
+
+> **Want a high score?** Run `zhs homework` first to finish all regular homework for the course: correct answers are written to the local answer cache (`~/.zhs/cache/questions_bank.db`), so identical questions in the exam can be answered directly from cache. The highest-coverage option is an external question bank: set `[question_bank] enabled = true` with a `token` from [tk.enncy.cn](https://tk.enncy.cn), and include `zhidao_exam` / `ai_exam` in `scopes` to query it during exams — its hit rate is much higher than homework cache alone.
 
 ## CLI Commands Overview
 
@@ -257,6 +265,16 @@ max_token = 27900
 stream_timeout = 120.0      # Total stream duration (seconds); must be >= stream_idle_timeout
 stream_idle_timeout = 30.0  # Max idle wait between chunks (seconds); caps first-token wait
 
+[captcha]                # Automatic captcha solving (optional, disabled by default)
+enabled = false          # Account/password login requires it when enabled
+fp = ''                  # Yidun IRisk fingerprint; required when enabled (see tutorial 2.4)
+api_key = ""             # Vision API key for click captcha (OpenAI-compatible; required when enabled)
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"         # Must support image input
+timeout = 120.0          # Vision request timeout (seconds)
+max_retry = 3            # Max re-fetches per trigger
+save_challenge_dir = ""  # Non-empty: save captcha material for debugging
+
 [crypto]                 # Encryption keys (generally no modification needed)
 [urls]                   # API URLs (generally no modification needed)
 ```
@@ -266,6 +284,8 @@ stream_idle_timeout = 30.0  # Max idle wait between chunks (seconds); caps first
 > **Stream timeouts**: `stream_timeout` bounds the whole stream, while `stream_idle_timeout` bounds the wait between chunks (and therefore the first token). `stream_timeout` must not be smaller than `stream_idle_timeout`; an invalid pair fails at config load. Both apply only to OpenAI-compatible providers — the built-in Zhihuishu AI uses a separate SSE endpoint.
 >
 > **Login state**: cookies are restored locally from `~/.zhs/cookies.json`. At startup the CLI exchanges the CAS ticket for an `onlineservice-api` session and then calls `getLoginUserInfo`; only a response containing user info counts as logged in. An expired session and an unreachable endpoint produce different messages.
+
+> **Captcha**: `[captcha]` is optional and **disabled by default**. When enabled, account/password login requires it, and Zhidao videos/homework automatically solve risk-control captchas and report `validate`, retrying once on success. It is pure HTTP (OpenCV + vision model) and **does not use Playwright or any browser environment**. Because captcha algorithms are time-sensitive, this capability may break after Yidun upgrades and is **not promised long-term**; set `enabled = false` to fall back to stopping and requesting manual verification.
 
 ## Data Directory
 
