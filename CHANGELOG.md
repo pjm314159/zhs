@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-11-25
+
+### Features
+
+- **captcha**: 添加易盾加密原语 codec
+- **captcha**: 实现易盾协议层 getconf/get/check
+- **captcha**: 添加验证码数据模型
+- **captcha**: 添加 fp 格式校验
+- **captcha**: 实现滑块缺口识别与 data 编码
+- **captcha**: 添加点选识图客户端
+- **captcha**: 实现点选 data 编码与坐标换算
+- **captcha**: 添加 captcha 配置项与可选依赖
+- **captcha**: 实现求解编排 CaptchaService
+- **captcha**: 异常携带请求上下文
+- **captcha**: 视频遇到 -12 时自动过码并重试
+- **captcha**: 启动时校验 fp 与识图配置
+- **config**: 增加账户密码登录配置段与登录密钥
+- **login**: 新增账户密码登录 API 封装
+- **login**: 支持账户密码登录并抽取共用换票逻辑
+- **cli**: Login 支持 --method password 与 -u/-p
+- **login**: Cookie 失效时支持按配置自动登录
+
+### Bug Fixes
+
+- **captcha**: 移除网关不支持的 json_schema 输出约束
+- **config**: 支持 fp 直接粘贴并自动处理反斜杠
+- **zhidao**: 验证码 ev 改为 5 个 ID 重编码
+- **homework**: 识别 code=-12 验证码并按课程级中止
+- **login**: 登录页滑块按 452px 宽度提交验证码
+
+### Documentation
+
+- **api**: 补充易盾验证码与 validateSlideToken 接口
+- **api**: 修正验证码 ev 与 referer 说明
+- **api**: 补充知到作业验证码接口与 -12 响应说明
+- **api**: 补充扫码迁移与账户密码登录接口
+- 补充账号密码登录与自动登录说明
+- **api**: 补充易盾滑块宽度 452 的说明
+- **spec**: 补充验证码求解功能规格
+- **design**: 补充 captcha 模块设计
+- **tutorial**: 补充验证码 fp 采集教程并更新 Q11
+- **readme**: 补充验证码自动求解与考试高分说明
+
+### Refactor
+
+- **login**: 扫码登录接口迁移至 user.zhihuishu.com/zhsuser
+
+### Testing
+
+- **captcha**: 添加验证码模块单测
+- **cli**: 锁定密码登录凭据来源规则
+
+### Miscellaneous
+
+- **deps**: 同步 captcha 可选依赖
+- **captcha**: 输出验证码上下文的诊断日志
+- **privacy**: 匿名化测试与文档中的真实个人标识
+
 ## [0.1.6] - 2026-11-22
 
 ### Features

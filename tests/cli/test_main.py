@@ -8,6 +8,8 @@ import pytest
 from typer.testing import CliRunner
 
 from zhs.__main__ import _detect_course_type, _get_version, _validate_course_type, app
+from zhs.exceptions import LoginFailed
+from zhs.login import SecretPassword
 
 runner = CliRunner()
 
@@ -202,6 +204,173 @@ class TestLoginSubcommand:
         runner.invoke(app, ["login"])
         mock_do_login.assert_called_once()
 
+    @patch("zhs.__main__._save_login_cookies")
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_password_login_with_flags(
+        self,
+        mock_config_mgr: MagicMock,
+        mock_session_cls: MagicMock,
+        mock_login_mgr_cls: MagicMock,
+        mock_save: MagicMock,
+    ) -> None:
+        """--method password + -u/-p 同时提供 → 直接使用参数登录"""
+        mock_config = _make_mock_config()
+        mock_config.login.account = ""
+        mock_config.login.password = ""
+        mock_config_mgr.return_value.load.return_value = mock_config
+        mock_session_cls.return_value = MagicMock()
+        mgr = mock_login_mgr_cls.return_value
+        mgr.login_with_password.return_value = MagicMock(cookies=None)
+
+        result = runner.invoke(
+            app,
+            ["login", "--method", "password", "-u", "demo-account", "-p", "demo-password"],
+        )
+
+        assert result.exit_code == 0
+        account, password = mgr.login_with_password.call_args.args
+        assert account == "demo-account"
+        assert isinstance(password, SecretPassword)
+        assert password == "demo-password"
+        mgr.login_with_qr.assert_not_called()
+        mock_save.assert_called_once()
+        assert "demo-password" not in result.output
+
+    @pytest.mark.parametrize("args", [["-u", "demo-account"], ["-p", "demo-password"]])
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_password_login_requires_both_flags(
+        self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock, mock_login_mgr_cls: MagicMock, args: list[str]
+    ) -> None:
+        """只提供 -u 或只提供 -p → 报错且不发起登录"""
+        mock_config = _make_mock_config()
+        mock_config.login.account = ""
+        mock_config.login.password = ""
+        mock_config_mgr.return_value.load.return_value = mock_config
+        mock_session_cls.return_value = MagicMock()
+
+        result = runner.invoke(app, ["login", "--method", "password", *args])
+
+        assert result.exit_code == 2
+        assert "同时" in result.output
+        mock_login_mgr_cls.return_value.login_with_password.assert_not_called()
+
+    @patch("zhs.__main__._save_login_cookies")
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_password_login_falls_back_to_config(
+        self,
+        mock_config_mgr: MagicMock,
+        mock_session_cls: MagicMock,
+        mock_login_mgr_cls: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """都不提供 -u/-p 且配置非空 → 直接使用 [login] 配置，不进入交互"""
+        mock_config = _make_mock_config()
+        mock_config.login.account = "config-account"
+        mock_config.login.password = "config-password"
+        mock_config_mgr.return_value.load.return_value = mock_config
+        mock_session_cls.return_value = MagicMock()
+        mock_login_mgr_cls.return_value.login_with_password.return_value = MagicMock(cookies=None)
+
+        prompt = MagicMock()
+        monkeypatch.setattr("zhs.__main__.typer.prompt", prompt)
+
+        result = runner.invoke(app, ["login", "--method", "password"])
+
+        assert result.exit_code == 0
+        account, password = mock_login_mgr_cls.return_value.login_with_password.call_args.args
+        assert account == "config-account"
+        assert password == "config-password"
+        prompt.assert_not_called()
+
+    @patch("zhs.__main__._save_login_cookies")
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_password_login_prompts_when_config_empty(
+        self,
+        mock_config_mgr: MagicMock,
+        mock_session_cls: MagicMock,
+        mock_login_mgr_cls: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """配置为空 → 交互补齐账号与密码（密码隐藏输入）"""
+        mock_config = _make_mock_config()
+        mock_config.login.account = ""
+        mock_config.login.password = ""
+        mock_config_mgr.return_value.load.return_value = mock_config
+        mock_session_cls.return_value = MagicMock()
+        mock_login_mgr_cls.return_value.login_with_password.return_value = MagicMock(cookies=None)
+
+        prompt = MagicMock(side_effect=["prompt-account", "prompt-password"])
+        monkeypatch.setattr("zhs.__main__.typer.prompt", prompt)
+
+        result = runner.invoke(app, ["login", "--method", "password"])
+
+        assert result.exit_code == 0
+        account, password = mock_login_mgr_cls.return_value.login_with_password.call_args.args
+        assert account == "prompt-account"
+        assert password == "prompt-password"
+        assert prompt.call_args_list[1].kwargs["hide_input"] is True
+
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_password_login_failure_exits_with_error(
+        self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock, mock_login_mgr_cls: MagicMock
+    ) -> None:
+        """登录失败 → 打印错误并退出码 1"""
+        mock_config = _make_mock_config()
+        mock_config.login.account = "demo-account"
+        mock_config.login.password = "demo-password"
+        mock_config_mgr.return_value.load.return_value = mock_config
+        mock_session_cls.return_value = MagicMock()
+        mock_login_mgr_cls.return_value.login_with_password.side_effect = LoginFailed("账号或密码错误")
+
+        result = runner.invoke(app, ["login", "--method", "password"])
+
+        assert result.exit_code == 1
+        assert "账号或密码错误" in result.output
+        assert "demo-password" not in result.output
+
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_invalid_method_rejected(
+        self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock, mock_login_mgr_cls: MagicMock
+    ) -> None:
+        """未知 --method → 退出码 2"""
+        mock_config_mgr.return_value.load.return_value = _make_mock_config()
+        mock_session_cls.return_value = MagicMock()
+
+        result = runner.invoke(app, ["login", "--method", "sms"])
+
+        assert result.exit_code == 2
+        assert "qr" in result.output and "password" in result.output
+        mock_login_mgr_cls.assert_not_called()
+
+    @patch("zhs.__main__.LoginManager")
+    @patch("zhs.__main__.ZhsSession")
+    @patch("zhs.__main__.ConfigManager")
+    def test_qr_rejects_password_flags(
+        self, mock_config_mgr: MagicMock, mock_session_cls: MagicMock, mock_login_mgr_cls: MagicMock
+    ) -> None:
+        """--method qr 不接受 -u/-p"""
+        mock_config_mgr.return_value.load.return_value = _make_mock_config()
+        mock_session_cls.return_value = MagicMock()
+
+        result = runner.invoke(app, ["login", "-u", "demo-account", "-p", "demo-password"])
+
+        assert result.exit_code == 2
+        assert mock_login_mgr_cls.return_value.login_with_qr.called is False
+
 
 class TestPlayCommand:
     """play 命令路由"""
@@ -238,9 +407,9 @@ class TestPlayCommand:
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
-        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc")
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc")
 
-        runner.invoke(app, ["play", "-c", "1000008156"])
+        runner.invoke(app, ["play", "-c", "123456"])
         mock_run_zhidao.assert_called_once()
         assert mock_run_zhidao.call_args.args[2] == "rac_abc"
 
@@ -349,16 +518,14 @@ class TestHomeworkCommand:
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
-        mock_resolve.return_value = ResolvedCourse(
-            type="zhidao", course_id=1000008156, rac_id="rac_abc", recruit_id=789
-        )
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc", recruit_id=789)
 
-        runner.invoke(app, ["homework", "-c", "1000008156"])
+        runner.invoke(app, ["homework", "-c", "123456"])
 
         mock_session.exam_sso_login.assert_called_once()
         mock_run_zhidao_homework.assert_called_once()
         assert mock_run_zhidao_homework.call_args.args[2] == "789"
-        assert mock_run_zhidao_homework.call_args.args[3] == 1000008156
+        assert mock_run_zhidao_homework.call_args.args[3] == 123456
 
     @patch("zhs.__main__._run_zhidao_homework")
     @patch("zhs.__main__._resolve_course_id")
@@ -375,9 +542,9 @@ class TestHomeworkCommand:
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
-        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc")
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc")
 
-        result = runner.invoke(app, ["homework", "-c", "1000008156"])
+        result = runner.invoke(app, ["homework", "-c", "123456"])
 
         assert "缺少 recruitId" in result.output
         mock_run_zhidao_homework.assert_not_called()

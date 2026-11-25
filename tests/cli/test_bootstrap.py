@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from zhs.api.session_auth import SessionStatus
 from zhs.cli.bootstrap import (
@@ -21,7 +22,9 @@ from zhs.cli.bootstrap import (
     setup_logger,
     try_restore_cookies,
 )
-from zhs.config import AppConfig
+from zhs.config import AppConfig, LoginConfig
+from zhs.exceptions import LoginFailed
+from zhs.login import SecretPassword
 
 
 def _make_config() -> AppConfig:
@@ -607,6 +610,138 @@ class TestLoadConfigAndSession:
             load_config_and_session(debug=False, console_log=False, proxy=None)
 
         mock_check.assert_called_once_with(mock_config)
+
+    def _auto_login_config(self) -> AppConfig:
+        config = _make_config()
+        config.login.account = "demo-account"
+        config.login.password = "demo-password"
+        config.login.auto_login = True
+        return config
+
+    def test_auto_login_when_no_cookies(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """无 cookies + auto_login=true → 自动登录、保存 cookies 并返回会话"""
+        mock_session = MagicMock()
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession", return_value=mock_session),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.OK),
+            patch("zhs.cli.bootstrap.save_login_cookies") as mock_save,
+            patch("zhs.login.LoginManager") as mock_login_cls,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = self._auto_login_config()
+            mock_login_cls.return_value.login_with_password.return_value = MagicMock(cookies=MagicMock())
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is not None
+        account, password = mock_login_cls.return_value.login_with_password.call_args.args
+        assert account == "demo-account"
+        assert isinstance(password, SecretPassword)
+        mock_save.assert_called_once()
+        assert "demo-password" not in capsys.readouterr().out
+
+    def test_auto_login_when_session_expired(self, tmp_path: Path) -> None:
+        """verify_session=EXPIRED + auto_login=true → 重登后继续"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch(
+                "zhs.cli.bootstrap.verify_session",
+                side_effect=[SessionStatus.EXPIRED, SessionStatus.OK],
+            ) as mock_verify,
+            patch("zhs.cli.bootstrap.save_login_cookies"),
+            patch("zhs.login.LoginManager") as mock_login_cls,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = self._auto_login_config()
+            mock_login_cls.return_value.login_with_password.return_value = MagicMock(cookies=None)
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is not None
+        assert mock_login_cls.return_value.login_with_password.call_count == 1
+        assert mock_verify.call_count == 2
+
+    def test_auto_login_disabled_keeps_relogin_hint(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """auto_login=false → 保持原提示，不调用登录"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=True),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.EXPIRED),
+            patch("zhs.login.LoginManager") as mock_login_cls,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = _make_config()
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is None
+        mock_login_cls.assert_not_called()
+        assert "zhs login" in capsys.readouterr().out
+
+    def test_auto_login_config_error_does_not_leak_password(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """auto_login=true 但账号为空 → 启动报配置错误，且不打印密码"""
+        with pytest.raises(ValidationError) as exc_info:
+            LoginConfig(account="", password="secret-value", auto_login=True)
+
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.side_effect = exc_info.value
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is None
+        output = capsys.readouterr().out
+        assert "配置错误" in output
+        assert "secret-value" not in output
+
+    def test_auto_login_failure_attempts_once(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """自动登录失败只尝试一次并退出"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False),
+            patch("zhs.login.LoginManager") as mock_login_cls,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = self._auto_login_config()
+            mock_login_cls.return_value.login_with_password.side_effect = LoginFailed("账号或密码错误")
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is None
+        assert mock_login_cls.return_value.login_with_password.call_count == 1
+        assert "自动登录失败" in capsys.readouterr().out
+
+    def test_auto_login_then_verify_still_expired_fails(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """自动登录后校验仍失效 → 报错退出，不循环"""
+        with (
+            patch("zhs.cli.bootstrap.ConfigManager") as mock_mgr_cls,
+            patch("zhs.cli.bootstrap.ZhsSession"),
+            patch("zhs.cli.bootstrap.try_restore_cookies", return_value=False),
+            patch("zhs.cli.bootstrap.verify_session", return_value=SessionStatus.EXPIRED),
+            patch("zhs.cli.bootstrap.save_login_cookies"),
+            patch("zhs.login.LoginManager") as mock_login_cls,
+            patch("zhs.cli.bootstrap.setup_logger"),
+            patch("zhs.utils.path.get_data_dir", return_value=tmp_path),
+        ):
+            mock_mgr_cls.return_value.load.return_value = self._auto_login_config()
+            mock_login_cls.return_value.login_with_password.return_value = MagicMock(cookies=None)
+            result = load_config_and_session(debug=False, console_log=False, proxy=None)
+
+        assert result is None
+        assert mock_login_cls.return_value.login_with_password.call_count == 1
+        assert "自动登录" in capsys.readouterr().out
 
 
 class TestInitLlmTimeouts:

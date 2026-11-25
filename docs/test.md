@@ -893,6 +893,80 @@ class TestLoginManager:
 
     def test_cookie_restore(self, session: ZhsSession, tmp_path: Path) -> None:
         """Cookie 恢复登录"""
+
+
+class TestSecretPassword:
+    def test_repr_and_str_are_masked(self) -> None:
+        """repr/str/f-string 均为 ***，避免日志泄露"""
+
+    def test_real_value_survives_json_serialization(self) -> None:
+        """json.dumps 仍输出真实密码（加密与提交必须用原文）"""
+
+
+class TestPasswordLogin:
+    def test_success_solves_captcha_and_saves_cookies(self) -> None:
+        """滑块求解 → 提交 → oncePassword 换票，cookies 落会话"""
+
+    def test_school_unverified_uses_cache_id(self) -> None:
+        """status=2 用 cacheId 续登，属正常路径不报错"""
+
+    def test_ok_without_pwd_falls_back_to_uuid(self) -> None:
+        """status=1 且无 rt.pwd → skipSet(uuid)"""
+
+    def test_failure_status_raises_with_hint(self) -> None:
+        """-5 / ACCOUNT_DISABLED 等按 STATUS_HINTS 提示"""
+
+    def test_captcha_disabled_rejects_without_request(self) -> None:
+        """captcha 未启用直接 LoginFailed，零 HTTP 请求"""
+
+    def test_captcha_solve_failed_raises_without_request(self) -> None:
+        """验证码求解失败 → LoginFailed，不提交账号密码"""
+
+    def test_status2_without_cache_id_fails_before_passport(self) -> None:
+        """status=2 缺 cacheId 直接失败，不换票"""
+
+    def test_password_not_logged(self) -> None:
+        """DEBUG 级日志中不出现密码原文"""
+
+
+class TestPassportLoginApi:
+    def test_body_is_quoted_encrypted_json_string(self) -> None:
+        """body 为带双引号的密文串，可解回 {account,password,validate}，无 secretStr/dateFormate"""
+
+    def test_sends_login_headers(self) -> None:
+        """Content-Type / Origin / Referer 固定为登录页"""
+
+    def test_status_normalized(self) -> None:
+        """int/str/未知 status 归一化为 AccountLoginStatus"""
+
+    def test_maps_rt_fields(self) -> None:
+        """rt.pwd / uuid / cacheId 映射到结果"""
+
+    def test_http_error_wrapped(self) -> None:
+        """HTTP 错误包装为 LoginFailed"""
+
+    def test_posts_json_null(self) -> None:
+        """skipSet 路径支持 uuid 与 cacheId，body 为 null"""
+
+
+class TestAutoLogin:
+    def test_auto_login_when_no_cookies(self) -> None:
+        """无 cookies + auto_login=true → 登录一次并保存 cookies"""
+
+    def test_auto_login_when_session_expired(self) -> None:
+        """verify_session=EXPIRED → 重登后继续"""
+
+    def test_auto_login_disabled_keeps_relogin_hint(self) -> None:
+        """auto_login=false 保持原提示，不调用登录"""
+
+    def test_auto_login_config_error_does_not_leak_password(self) -> None:
+        """配置错误只输出校验消息，不含 pydantic input_value"""
+
+    def test_auto_login_failure_attempts_once(self) -> None:
+        """自动登录失败只尝试一次"""
+
+    def test_auto_login_then_verify_still_expired_fails(self) -> None:
+        """重登后仍失效 → 报错退出，不循环"""
 ```
 
 ### 4.6 zhidao/video.py
@@ -975,6 +1049,9 @@ class TestHomeworkItem:
     def test_optional_fields_default_none(self) -> None:
         """可选字段默认 None"""
 
+    def test_api_null_fields_fall_back_to_defaults(self) -> None:
+        """cpOrderNumber/chapterId/chapterRank 显式 null 回落默认值，不整条丢弃"""
+
 
 class TestHomeworkQuestion:
     def test_question_type_mapping(self) -> None:
@@ -1019,6 +1096,37 @@ class TestHomeworkWorker:
     def test_max_submit_limit(self) -> None:
         """达到 max_submit 次数后停止"""
 ```
+
+验证码自动处理（`TestHomeworkWorkerCaptcha`，mock `session.captcha.solve` 与
+`session.homework_validate_slide_token`）：
+
+```python
+class TestHomeworkWorkerCaptcha:
+    def test_do_homework_captcha_solved_and_retried(self) -> None:
+        """doHomework 抛 -12 → 求解上报 → 重试一次成功"""
+
+    def test_captcha_disabled_raises_without_solve(self) -> None:
+        """未启用验证码：无提示、不求解、不重试，直接抛 CaptchaRequired"""
+
+    def test_do_homework_captcha_unsolved_raises(self) -> None:
+        """solve 返回 None → 抛出 CaptchaRequired，不重复请求"""
+
+    def test_do_homework_captcha_validate_not_pass_raises(self) -> None:
+        """validateSlideToken 返回 pass=false → 抛出 CaptchaRequired"""
+
+    def test_do_homework_captcha_retries_only_once(self) -> None:
+        """重试后仍 -12 → 直接抛出，solve 只调用一次"""
+
+    def test_save_answer_captcha_solved_and_retried(self) -> None:
+        """saveStudentAnswer 抛 -12 → 求解上报 → 重试保存成功"""
+
+    def test_save_answer_captcha_unsolved_raises(self) -> None:
+        """保存阶段求解失败 → CaptchaRequired 不被包装为滑块异常"""
+```
+
+`tests/api/test_zhidao_homework_api.py::TestHomeworkValidateSlideToken` 解密
+`secretStr` 校验载荷固定为 `{recruitId, token, checkType=1, chapterId=examId}`
+且不含 `dateFormate`。
 
 #### 4.8.4 homework/test_analyzer.py
 
@@ -1552,10 +1660,10 @@ class TestSensitiveFilter:
 
     def test_normal_text_unchanged(self) -> None:
         """普通文本不被脱敏"""
-        text = "登录成功: uuid=Xe6arnRO"
+        text = "登录成功: uuid=demoUuid"
         for pattern in _SENSITIVE_PATTERNS:
             text = pattern.sub(r"\1***", text)
-        assert text == "登录成功: uuid=Xe6arnRO"
+        assert text == "登录成功: uuid=demoUuid"
 ```
 
 ---

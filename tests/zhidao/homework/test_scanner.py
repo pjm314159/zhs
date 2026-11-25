@@ -118,7 +118,7 @@ class TestHomeworkScanner:
         submitted_resp = _make_homework_response([SUBMITTED_FULL_SCORE])
         session.homework_query.side_effect = [unsubmitted_resp, submitted_resp]
 
-        items = scanner.scan_homework("414804", 100)
+        items = scanner.scan_homework("10001", 100)
         assert len(items) == 2
         assert items[0].state == 1
         assert items[1].state == 4
@@ -131,7 +131,7 @@ class TestHomeworkScanner:
 
         session.homework_query.side_effect = Exception("API error")
 
-        items = scanner.scan_homework("414804", 100)
+        items = scanner.scan_homework("10001", 100)
         assert items == []
 
     def test_scan_homework_empty(self) -> None:
@@ -143,7 +143,7 @@ class TestHomeworkScanner:
         empty_resp = _make_homework_response([])
         session.homework_query.side_effect = [empty_resp, empty_resp]
 
-        items = scanner.scan_homework("414804", 100)
+        items = scanner.scan_homework("10001", 100)
         assert items == []
 
     def test_filter_pending_unsubmitted(self) -> None:

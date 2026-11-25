@@ -8,7 +8,7 @@ ZHS 是一个智慧树（zhihuishu.com）自动学习工具，支持三类课程
 - **Hike 职教云课**：视频进度模拟、资源树遍历
 - **AI 智慧课程**：视频进度模拟、作业自动作答、考试自动作答、AI 解析
 
-核心能力：扫码登录、视频进度模拟、弹窗答题、AI 自动作业与考试、PPT 转文本、多 LLM 后端、代理支持。全部基于同步 httpx + threading 实现，无 asyncio。
+核心能力：扫码登录、账号密码登录、视频进度模拟、弹窗答题、AI 自动作业与考试、PPT 转文本、多 LLM 后端、代理支持。全部基于同步 httpx + threading 实现，无 asyncio。
 
 ## 2. 模块架构
 
@@ -19,7 +19,7 @@ src/zhs/
 ├── config.py            # 配置管理（TOML，AppConfig + ConfigManager）
 ├── crypto.py            # AES-128-CBC / ev 编码 / Hike 签名 / WatchPoint
 ├── session.py           # HTTP 会话管理（同步 httpx，多种加密查询方法）
-├── login.py             # 扫码登录
+├── login.py             # 扫码登录 / 账号密码登录
 ├── exceptions.py        # 全局异常定义（含 ApiUnavailableError / RateLimitError）
 ├── logger.py            # loguru 日志配置（filter 脱敏）
 ├── reporter.py          # 进度报告器（ConsoleReporter / ProgressReporter）
@@ -85,14 +85,14 @@ src/zhs/
 ### 3.1 配置管理
 
 - **配置文件**：`~/.zhs/config.toml`（TOML 格式，支持注释）
-- **配置结构**：`AppConfig` 顶层 + 多个嵌套子配置（`VideoConfig` / `HomeworkConfig` / `ExamConfig` / `DisplayConfig` / `ProxyConfig` / `QRConfig` / `AIConfig` / `CryptoConfig` / `UrlConfig`）
+- **配置结构**：`AppConfig` 顶层 + 多个嵌套子配置（`VideoConfig` / `HomeworkConfig` / `ExamConfig` / `DisplayConfig` / `ProxyConfig` / `QRConfig` / `AIConfig` / `CryptoConfig` / `UrlConfig` / `LoginConfig` / `CaptchaConfig`）
 - **配置迁移**：`ConfigManager.migrate(json_path)` 支持从旧版 JSON 配置迁移到 TOML
 - **CLI 参数覆盖**：CLI 参数优先级高于配置文件（如 `--speed` 覆盖 `video.*_speed`，`--homework-threshold` 覆盖 `homework.threshold`）
 - **默认配置**：见 [config.toml.example](../config.toml.example)
 
 ### 3.2 登录系统
 
-#### 3.2.1 扫码登录（唯一登录方式）
+#### 3.2.1 扫码登录（默认方式）
 
 - 从 `qrCodeLogin/getLoginQrImg` 获取二维码图片和 `qrToken`
 - 支持两种二维码显示方式：
@@ -106,7 +106,18 @@ src/zhs/
   - `2`：二维码过期，自动重新获取（递归，带 `_max_retries` 防止无限递归）
   - `3`：用户取消登录
 
-#### 3.2.2 Cookie 持久化
+#### 3.2.2 账号密码登录
+
+- 入口：`zhs login --method password`（默认方式仍为 `qr`）
+- 参数：`-u/--account` 与 `-p/--password` 必须同时提供或都不提供；都不提供时回落 `[login] account/password`，仍为空则交互输入（密码隐藏输入）
+- 协议：`POST user.zhihuishu.com/zhsuser/login/account`，body 为**带双引号的 JSON 字符串**（裸密文，不套 `secretStr`、不发 `dateFormate`），明文 `{account, password, validate}` 用 `login_key` / `login_iv`（AES-128-CBC / PKCS#7 + Base64）加密
+- 验证码：**硬性前置**，要求 `[captcha] enabled = true` 且 `fp` 有效；登录页为易盾滑块（captchaId `75f9f716460a422f89a628f50fd8cc2b`，`type=2`），`referer` 为 `https://login.zhihuishu.com/`。登录页 `initNECaptchaWithFallback` 的宽度为 `452px`，`fetch`/`check` 的 `width` 必须为 452（默认 400 会让易盾判定位置错误）。不满足直接报错，不静默跳过
+- 响应：`status` 为整数，`1` 成功（`rt.pwd` 为 oncePassword）；`2` 仅表示**未完成学校认证**，用 `rt.cacheId` 调 `skipSet/{cacheId}` 续登后与成功等价（全部功能可用，不提示）；`-12` 二次验证码 / `-5` 密码过简 / `-13` 异常登录 / `ACCOUNT_DISABLED` 禁用均为失败
+- 成功后续：`passport/login?pwd=<oncePassword>` 换票落 cookies，与扫码登录同一出口
+- 风控：一次命令只提交一次，不重试
+- 日志：密码不得出现在任何日志与异常输出中（`SecretPassword` 的 `repr`/`str` 均为 `***`）
+
+#### 3.2.3 Cookie 持久化与自动登录
 
 - 将 cookies 序列化为 JSON 列表保存到 `~/.zhs/cookies.json`
 - 启动时先尝试从 `cookies.json` 本地恢复会话（只读取文件，不发请求）
@@ -114,6 +125,7 @@ src/zhs/
 - 判据仍是「能取到用户信息（`result.uuid` / `result.username`）即视为有效，其余情况默认会话失效」；不解析 `code`，不以课程列表等业务数据是否为空作为判据
 - 校验结果分三类：有效 / 会话失效（提示重新登录）/ 接口不可用（提示检查网络）
 - 设置 cookies 时自动解析 `uuid`（从 `CASLOGC` cookie 的 JSON 中提取），并设置 `exitRecod_{uuid}=2`
+- **自动登录**：`[login] auto_login = true` 且配置了 `account` / `password` 时，无 cookies 或会话失效会自动用账号密码登录一次（同样要求 `[captcha]` 启用且 `fp` 有效）；失败或重登后仍失效则直接退出，不循环重试。`auto_login = true` 但账号或密码为空视为配置错误，启动即报错
 
 ### 3.3 知到（Zhidao）共享课程
 
@@ -145,6 +157,7 @@ src/zhs/
 - 已观看视频自动跳过（`watchState == 1` 且 `end_thre <= 1.0`）
 - 调用 `watchVideo` 初始化视频播放（在新线程中请求视频流）
 - 调用 `threeDimensionalCourseWare` 模拟课件访问
+- 触发验证码（响应 `code == -12` → `CaptchaRequired`）时自动过易盾点选：求解成功后上报 `learning/validateSlideToken`（`{token, ev, checkType=1}`，`ev` 必须用当前视频的 5 个 ID 重新编码），`data.pass` 为真则重试当前视频一次；求解或上报失败按原逻辑停止课程（见 3.14）
 
 #### 3.3.4 弹窗答题
 
@@ -172,6 +185,7 @@ src/zhs/
 - `submit` 提交作业，获取得分
 - `lookHomework` + `getStuAnswerInfo` 查看已提交作业的对错详情
 - 未达标且可重做时调用 `saveCourseTran` 重置后重做（受 `homework.max_submit` 限制）
+- 风控验证码：`doHomework` / `saveStudentAnswer` 返回 `code == "-12"` 时抛 `CaptchaRequired`，由 `_with_captcha` 自动过易盾点选并上报 `answer/validateSlideToken`（`{recruitId, token, checkType=1, chapterId=examId}`，判据 `pass`），通过后重试一次；失败则按课程级中止（见 3.14）
 
 **答案分析（HomeworkAnalyzer）**：
 - 解析 `getStuAnswerInfo` 返回的答题详情
@@ -210,6 +224,7 @@ src/zhs/
   - 上报时使用签名（`sign_hike`，MD5 哈希）
 - 已完成文件自动跳过（`studyTime >= totalTime * end_thre`）
 - `saveStuStudyRecord` 返回值覆盖 `played_time`（与服务器同步）
+- 遇到 `CaptchaRequired` 仅记录日志并停止本课程，不自动求解（Hike 未接入 validate 上报）
 
 #### 3.4.4 文件类型处理
 
@@ -446,10 +461,13 @@ zhs init
 
 #### 3.11.2 zhs login
 
-扫码登录智慧树。
+登录智慧树（默认扫码，可用账户密码）。
 
 | 参数 | 说明 |
 |------|------|
+| `--method qr\|password` | 登录方式，默认 `qr`（扫码） |
+| `-u, --account` | 账号（需与 `-p` 同时提供，仅 `password`） |
+| `-p, --password` | 密码（需与 `-u` 同时提供，仅 `password`） |
 | `--show-in-terminal` | 终端显示二维码 |
 | `--image-path PATH` | 二维码保存路径 |
 | `--proxy URL` | 代理 |
@@ -592,6 +610,67 @@ zhs cache import PATH [PATH ...]
 - 多余空白合并为单个空格
 - 用于：作业输出打印、缓存 `content` 字段、桥接匹配
 
+### 3.14 验证码求解（易盾）
+
+#### 3.14.1 触发与接入范围
+
+- 统一信号：加密查询策略 `QueryStrategy.check_captcha=True` 时，响应 `code` 为 `-12`（兼容 int `-12` 与 str `"-12"`）即抛 `CaptchaRequired`，与检查字段 `code` / `status` 无关（作业/考试此时 `status` 仍为 `"200"`）
+- 开启该判定的策略：`zhidao`（视频）、`homework`（知到作业）、`zhidao_exam`（知到考试）；`hike` / `ai_exam` / `ai_task` 未开启，`-12` 按普通 `ApiError` 处理
+- 已接入自动求解：
+  - 知到视频：求解成功后上报 `learning/validateSlideToken`，`data.pass` 为真则重试当前视频一次
+  - 知到作业：`_with_captcha` 包裹 `doHomework` 与 `saveStudentAnswer`，上报 `answer/validateSlideToken`，通过后重试一次
+  - 账号密码登录：**硬性前置**，未启用或 fp 无效直接报错（见 3.2.2）
+- 未接入自动求解：Hike 视频（捕获后记录并停止本课程）、知到考试（抛出后由 CLI 提示并跳过/中止）
+- 失败策略：`CaptchaService.solve` 任何失败（未启用、fp 缺失、依赖缺失、网络/解析异常、`max_retry` 次仍未通过）都返回 `None`，不抛出二次异常；由调用方按原有逻辑停止，不进入无限重试
+
+#### 3.14.2 题型、captchaId 与宽度
+
+| 题型 | captchaId | `type` | 默认 `width` | 典型来源页 |
+|------|-----------|--------|--------------|------------|
+| 滑块（slide） | `75f9f716460a422f89a628f50fd8cc2b` | 2 | 400 | 其他滑块页面 |
+| 滑块（slide，登录页） | 同上 | 2 | **452**（`width_override`） | `login.zhihuishu.com` |
+| 点选（click） | `4da3050565514a35a50541b0e1f54538` | 11 | 320 | 知到作业、视频风控 |
+
+- captchaId 决定题型，调用方只能用 `CaptchaTrigger(kind, referer, width_override)` 选择
+- `referer` 必须是承载验证码的页面地址
+- `width` 必须等于页面**实际渲染宽度**：宽度不符时 `check` 仍返回 `error=0 msg=ok`，但 `data.result=false`（坐标被判错）
+
+#### 3.14.3 协议与 validate 组装
+
+- 独立 `httpx.Client` 访问 `https://c.dun.163.com`：不带智慧树 Cookie，仅沿用 `[proxy]` 配置
+- 三段式，响应均为 JSONP（剥掉 `__JSONP_xxx({...});` 外壳）：
+  1. `GET /api/v2/getconf` 取 `data.dt`
+  2. `GET /api/v3/get` 取题（`token` / `bg` / `front` / `type`）
+  3. `GET /api/v3/check` 提交答案，成功判据为 `error == 0` 且 `data.result is True`
+- 固定参数：`ZONE_ID=CN31`、`SDK_VERSION=2.28.5`、`LOAD_VERSION=2.5.0`、`RUN_ENV=10`
+- validate 二次组装：`{zoneId}_{aes(raw_validate + "::" + fp)}_v_i_1`，其中 `aes` 为易盾自定义加密（非标准 AES）
+- fp 为 IRisk 设备指纹（约 190 字符，尾段 `:13 位毫秒时间戳`），只能手动采集后整串填入 `[captcha] fp`，不支持续期或改写；采集方式为浏览器 cookie `gdxidpyhxdE`（需 `decodeURIComponent`）
+- 读取配置时会把 `[captcha]` 段的 `fp = "..."` 自动改写为单引号字面量，避免 fp 中的反斜杠触发 TOML 转义错误
+
+#### 3.14.4 配置与启动校验
+
+`[captcha]`（`CaptchaConfig`，默认关闭）：
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | `false` | 是否启用验证码自动求解 |
+| `fp` | `""` | IRisk 设备指纹；`enabled=true` 时必填 |
+| `api_key` | `""` | 点选识图模型 API Key；`enabled=true` 时必填 |
+| `base_url` | `https://api.openai.com/v1` | OpenAI 兼容 Base URL |
+| `model` | `gpt-4o` | 必须支持图片输入 |
+| `timeout` | `120.0` | 单次识图超时（秒） |
+| `max_retry` | `3` | 单次触发最多重取题次数（1~10） |
+| `save_challenge_dir` | `""` | 验证码素材落盘目录（排查用，默认关闭） |
+
+启动时由 `check_captcha_config` 自检（`enabled=false` 直接跳过）：fp 需非空、长度 150~260、尾段为 13 位毫秒时间戳、且不含 `%`；点选还需 `api_key` 与 `model` 非空。不通过即报配置错误，并打印 fp 采集脚本。
+
+#### 3.14.5 求解算法
+
+- 滑块：OpenCV Canny 边缘 + `matchTemplate(TM_CCOEFF_NORMED)` 定位缺口左边缘，`distance = gap * width / bg_width`；轨迹分「加速 → 快速接近 → 减速 → 对齐」四段，采样 50 点；`check` 的 `data` 为 `d/m/p/f/ext` 五个密文字段（滑块明文尾部拼 crc32）
+- 点选：整图 + 提示文案交给视觉模型（`temperature=0`、`max_tokens=8000`，只输出 JSON 坐标），按 `css_width / image_width` 等比换算；`data` 只有 `m/p/ext` 三个字符段，`d` 恒为空（点选加密不拼 crc32，`p`/`ext` 各自尾部补 crc32）
+- 素材：`save_challenge_dir` 非空时落盘 `{token}_{index}.img`，仅供排查
+- 日志约束：只记录 `error`/`msg`、validate 长度、点选坐标；fp 与 validate 明文不写入日志
+
 ## 4. API 端点汇总
 
 > **注意**：所有基础 URL 均可通过 `config.toml` 的 `[urls]` 段覆盖。以下为默认域名。
@@ -609,6 +688,7 @@ zhs cache import PATH [PATH ...]
 | `/gateway/t/v1/popupAnswer/lessonPopupExam` | POST | 获取题目详情 | video_key |
 | `/gateway/t/v1/popupAnswer/saveLessonPopupExamSaveAnswer` | POST | 保存弹窗答案 | video_key |
 | `/gateway/t/v1/learning/saveDatabaseIntervalTimeV2` | POST | 上报视频进度 V2 | video_key |
+| `/gateway/t/v1/learning/validateSlideToken` | POST | 上报验证码 validate（解锁风控） | video_key |
 | `/gateway/t/v1/course/threeDimensionalCourseWare` | GET | 课件访问 | — |
 
 ### 知到课程列表（onlineservice-api.zhihuishu.com）
@@ -631,6 +711,7 @@ zhs cache import PATH [PATH ...]
 | `/studentExam/gateway/t/v1/answer/saveStudentAnswer` | POST | 保存单题答案 |
 | `/studentExam/gateway/t/v1/answer/submit` | POST | 提交作业 |
 | `/studentExam/gateway/t/v1/answer/getStuAnswerInfo` | POST | 获取答题详情 |
+| `/studentExam/gateway/t/v1/answer/validateSlideToken` | POST | 上报验证码 validate（解锁风控） |
 
 ### Hike（hike.zhihuishu.com）
 
@@ -692,6 +773,16 @@ zhs cache import PATH [PATH ...]
 | `/qrCodeLogin/getLoginQrInfo` | GET | 查询扫码状态 |
 | `/cas/login?service=xxx` | GET | CAS SSO 认证 |
 
+### 易盾验证码（c.dun.163.com）
+
+> **注意**：独立 `httpx.Client`，不带智慧树 Cookie，仅沿用代理；响应为 JSONP，需剥壳。
+
+| 端点 | 方法 | 用途 |
+|------|------|------|
+| `/api/v2/getconf` | GET | 取 `dt` |
+| `/api/v3/get` | GET | 取题（`token` / `bg` / `front`） |
+| `/api/v3/check` | GET | 提交答案（`data` 为易盾自定义加密密文） |
+
 ### 其他
 
 | 端点 | 方法 | 用途 |
@@ -717,6 +808,35 @@ zhs cache import PATH [PATH ...]
 ```
 SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatchTime + startWatchTime + uuid
 ```
+
+### 验证码数据结构（captcha/）
+
+```python
+CaptchaKind = Literal["slide", "click"]
+
+@dataclass(frozen=True)
+class CaptchaTrigger:
+    kind: CaptchaKind                    # 题型，决定 captchaId / type / 默认宽度
+    referer: str                         # 承载验证码的页面地址
+    width_override: int | None = None    # 页面渲染宽度覆盖（登录页 452）
+
+@dataclass(frozen=True)
+class CaptchaChallenge:
+    captcha_id: str
+    kind: CaptchaKind
+    token: str
+    bg_url: str
+    front: str | list[str]               # 点选为提示文案，滑块为拼图 URL 列表
+    raw: dict[str, Any]
+
+@dataclass(frozen=True)
+class CaptchaSolution:
+    validate: str                        # 上报业务接口的组装串
+    raw_validate: str                    # 易盾 check 返回的裸 validate
+```
+
+- `validate` 组装：`{zoneId}_{aes(raw_validate + "::" + fp)}_v_i_1`
+- 加密查询策略 `QueryStrategy.check_captcha`：`zhidao` / `homework` / `zhidao_exam` 为 `true`，统一按 `code == "-12"` 判定
 
 ### 答案缓存格式
 
@@ -763,7 +883,7 @@ SALT + uuid + courseId + fileId + studyTotalTime + startDate + endDate + endWatc
 | `ApiError` | API 返回错误（携带 `code` 和 `message`） |
 | `ApiUnavailableError` | API 不可用（HTTP 5xx / 网络异常 / 服务端错误），可重试 |
 | `RateLimitError` | API 限流（请求过快被服务端拒绝），需退避重试 |
-| `CaptchaRequired` | 服务端要求验证码（API 返回 code -12） |
+| `CaptchaRequired` | 服务端要求验证码（加密查询响应 `code` 为 `-12`，兼容 int / str） |
 | `SliderVerificationRequired` | 作业答题需要滑块验证 |
 | `LoginFailed` | 登录失败 |
 | `TimeLimitExceeded` | 刷课时间超过设定限制 |

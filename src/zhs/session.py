@@ -31,12 +31,23 @@ class ZhsSession:
     """
 
     def __init__(self, config: AppConfig, max_retries: int = 5) -> None:
+        self._config = config
         self._http = HttpClient(config, max_retries=max_retries)
         self._query = EncryptedQuery(self._http)
         self._homework_api = ZhidaoHomeworkApi(self._query)
         self._exam_api = ZhidaoExamApi(self._query)
         self._ai_analysis_api = AiAnalysisApi(self._http)
         self._sso = SsoAuthenticator(self._http)
+        self._captcha: Any = None
+
+    @property
+    def captcha(self) -> Any:
+        """验证码求解服务（懒加载，未启用时不做任何事）。"""
+        if self._captcha is None:
+            from zhs.captcha.service import CaptchaService
+
+            self._captcha = CaptchaService(self._config)
+        return self._captcha
 
     # --- 配置与状态（委托给 HttpClient）---
 
@@ -171,7 +182,7 @@ class ZhsSession:
         result = self.api_query(url, data=form_data, method=method, content_type=content_type)
         code = result.get("code", 0)
         if code == -12:
-            raise CaptchaRequired("服务端要求验证码")
+            raise CaptchaRequired("服务端要求验证码", response=result, payload=data, url=url)
         if code != ok_code:
             raise ApiError(code=code, message=result.get("message", ""))
         return result
@@ -309,6 +320,15 @@ class ZhsSession:
             recruit_id, stu_exam_id, exam_id, school_id, course_id, question_ids
         )
 
+    def homework_validate_slide_token(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        token: str,
+    ) -> dict[str, Any]:
+        """上报验证码 validate（validateSlideToken）"""
+        return self._homework_api.homework_validate_slide_token(recruit_id, exam_id, token)
+
     # --- 知到考试业务 API（委托给 ZhidaoExamApi）---
 
     def exam_list(
@@ -346,7 +366,7 @@ class ZhsSession:
         部分用户未绑定学校，此时返回空字符串。
 
         Returns:
-            学校 ID 字符串（如 "625"），未绑定时返回 ""
+            学校 ID 字符串（如 "1000"），未绑定时返回 ""
         """
         return self._exam_api.get_login_school_info()
 

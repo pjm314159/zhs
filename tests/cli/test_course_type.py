@@ -20,9 +20,9 @@ from zhs.cli.course_type import (
 
 @pytest.fixture
 def mock_zhidao_session() -> Iterator[MagicMock]:
-    """session 中 zhidao 课程列表能匹配到 courseId=1000008156"""
+    """session 中 zhidao 课程列表能匹配到 courseId=123456"""
     mock_course = MagicMock()
-    mock_course.course_id = 1000008156
+    mock_course.course_id = 123456
     mock_mgr = MagicMock()
     mock_mgr.find_course.return_value = mock_course
     with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
@@ -88,7 +88,7 @@ class TestDetectCourseType:
 
     def test_pure_digits_with_session_zhidao_match(self, mock_zhidao_session: MagicMock) -> None:
         """纯数字 + session 且匹配 zhidao 列表 → zhidao"""
-        assert detect_course_type("1000008156", session=mock_zhidao_session) == "zhidao"
+        assert detect_course_type("123456", session=mock_zhidao_session) == "zhidao"
 
     def test_pure_digits_with_session_no_match(self, mock_zhidao_session_empty: MagicMock) -> None:
         """纯数字 + session 但不匹配 zhidao 列表 → hike"""
@@ -105,9 +105,9 @@ class TestDetectCourseType:
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            assert detect_course_type("1000008156", session=session) == "zhidao"
+            assert detect_course_type("123456", session=session) == "zhidao"
 
-        mock_mgr.find_course.assert_called_once_with(1000008156)
+        mock_mgr.find_course.assert_called_once_with(123456)
 
     def test_zero_course_id_raises(self) -> None:
         """courseId=0 → ValueError（0 不是有效课程 ID）"""
@@ -124,7 +124,7 @@ class TestDetectCourseType:
             patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr),
             pytest.raises(ValueError, match="请用 --type 显式指定"),
         ):
-            detect_course_type("1000008156", session=session)
+            detect_course_type("123456", session=session)
 
 
 class TestDetectCourse:
@@ -138,11 +138,11 @@ class TestDetectCourse:
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            detected, course = detect_course("1000008156", session=session)
+            detected, course = detect_course("123456", session=session)
 
         assert detected == "zhidao"
         assert course is mock_course
-        mock_mgr.find_course.assert_called_once_with(1000008156)
+        mock_mgr.find_course.assert_called_once_with(123456)
 
     def test_hike_returns_none_course(self) -> None:
         """无 session → hike，且不带课程对象"""
@@ -164,9 +164,9 @@ class TestDetectCourse:
 
         with (
             patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr),
-            pytest.raises(ValueError, match="未找到 courseId=1000008156 的知到课程"),
+            pytest.raises(ValueError, match="未找到 courseId=123456 的知到课程"),
         ):
-            detect_course("1000008156", "zhidao", session)
+            detect_course("123456", "zhidao", session)
 
 
 class TestValidateCourseType:

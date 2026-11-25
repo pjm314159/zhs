@@ -154,7 +154,7 @@ class TestHomeworkAnalyzerCheckResult:
         session.homework_look.return_value = look_resp
         session.homework_get_answer.return_value = answer_resp
 
-        questions, answers = analyzer.check_result(item, "414804", "625")
+        questions, answers = analyzer.check_result(item, "10001", "1000")
 
         assert len(questions) == 2
         assert len(answers) == 2
@@ -172,7 +172,7 @@ class TestHomeworkAnalyzerCheckResult:
         look_resp = _make_look_response([])
         session.homework_look.return_value = look_resp
 
-        questions, answers = analyzer.check_result(item, "414804", "625")
+        questions, answers = analyzer.check_result(item, "10001", "1000")
         assert questions == []
         assert answers == {}
 
@@ -212,7 +212,7 @@ class TestHomeworkAnalyzerCheckResult:
         session.homework_look.return_value = look_resp
         session.homework_get_answer.return_value = answer_resp
 
-        questions, answers = analyzer.check_result(item, "414804", "625")
+        questions, answers = analyzer.check_result(item, "10001", "1000")
         assert answers["1001"].is_unanswered
 
 

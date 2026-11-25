@@ -7,7 +7,7 @@ from loguru import logger
 
 from zhs.cli.course_type import parse_ai_course_str, parse_homework_url
 from zhs.config import AppConfig
-from zhs.exceptions import SliderVerificationRequired
+from zhs.exceptions import CaptchaRequired, SliderVerificationRequired
 from zhs.session import ZhsSession
 
 
@@ -146,10 +146,17 @@ def run_zhidao_homework(
     cache = ZhidaoHomeworkCache()
     worker = HomeworkWorker(session, config, cache, llm=llm, question_bank=bank)
 
+    # schoolId 取自当前登录用户（未绑定学校时为空字符串）
+    school_id = session.exam_get_login_school_info()
+    if school_id:
+        logger.info(f"学校 ID: {school_id}")
+    else:
+        logger.info("未绑定学校，schoolId 留空")
+
     for item in pending:
         try:
             logger.info(f"开始做作业: {item.exam_name} (state={item.state}, score={item.score})")
-            score_rate = worker.run_homework(item, recruit_id, "625")
+            score_rate = worker.run_homework(item, recruit_id, school_id)
             if score_rate >= config.homework.threshold:
                 tree_print(
                     msg_done(f"完成: {item.exam_name} {score_rate:.1f}%"),
@@ -162,9 +169,15 @@ def run_zhidao_homework(
                     depth=depth + 2,
                     enabled=True,
                 )
-        except SliderVerificationRequired:
-            # 滑块验证：服务端状态，后续作业也会失败，立即停止
-            raise
+        except (SliderVerificationRequired, CaptchaRequired) as e:
+            # 验证码是课程级风控：跳过本课程剩余作业，继续其它课程
+            logger.warning(f"课程 {recruit_id} 触发验证码，跳过剩余作业: {e}")
+            tree_print(
+                msg_warn("需要验证码，跳过本课程剩余作业"),
+                depth=depth + 2,
+                enabled=True,
+            )
+            return
         except Exception as e:
             logger.error(f"作业 {item.exam_name} 处理失败: {e}")
             tree_print(msg_error(f"失败: {item.exam_name} {e}"), depth=depth + 2, enabled=True)
@@ -172,7 +185,7 @@ def run_zhidao_homework(
 
 def run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
     """全刷模式：扫描所有知到课程的作业"""
-    from zhs.utils.display import course_tag, msg_error, msg_skip, tree_print
+    from zhs.utils.display import course_tag, msg_error, msg_skip, msg_warn, tree_print
     from zhs.zhidao.course import ZhidaoCourseManager
     from zhs.zhidao.models import extract_course_id
 
@@ -194,9 +207,11 @@ def run_all_zhidao_homework(session: ZhsSession, config: AppConfig) -> None:
                 tree_print(msg_skip(f"跳过(无课程ID): {c.course_name}"), depth=1, enabled=True)
                 continue
             run_zhidao_homework(session, config, recruit_id, course_id, depth=1)
-        except SliderVerificationRequired:
-            # 滑块验证：服务端状态，后续课程也会失败，立即停止
-            raise
+        except (SliderVerificationRequired, CaptchaRequired) as e:
+            # 验证码是课程级风控：跳过该课程，继续下一门课程
+            logger.warning(f"知到课程 {c.course_name} 触发验证码，跳过该课程: {e}")
+            tree_print(msg_warn(f"验证码拦截，跳过课程: {c.course_name}"), depth=1, enabled=True)
+            continue
         except Exception as e:
             logger.error(f"知到课程 {c.course_name} 作业处理失败: {e}")
             tree_print(msg_error(f"课程失败: {c.course_name} {e}"), depth=1, enabled=True)
@@ -249,9 +264,6 @@ def run_all_homework(session: ZhsSession, config: AppConfig, course_type: str | 
     if course_type in (None, "auto", "zhidao"):
         try:
             run_all_zhidao_homework(session, config)
-        except SliderVerificationRequired:
-            # 滑块验证：立即停止，不继续 AI 课程作业
-            raise
         except Exception as e:
             logger.error(f"知到课程作业处理失败: {e}")
             print(f"知到课程作业处理失败: {e}")

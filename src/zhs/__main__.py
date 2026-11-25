@@ -22,6 +22,7 @@ from loguru import logger
 from zhs.cli.bootstrap import do_login as _do_login
 from zhs.cli.bootstrap import load_config_and_session as _load_config_and_session
 from zhs.cli.bootstrap import parse_proxy as _parse_proxy
+from zhs.cli.bootstrap import save_login_cookies as _save_login_cookies
 from zhs.cli.bootstrap import setup_logger as _setup_logger
 from zhs.cli.bootstrap import try_restore_cookies as _try_restore_cookies  # noqa: F401
 from zhs.cli.course_resolver import resolve_course_id as _resolve_course_id
@@ -45,8 +46,8 @@ from zhs.cli.services.play_service import run_all as _run_all
 from zhs.cli.services.play_service import run_hike as _run_hike
 from zhs.cli.services.play_service import run_zhidao as _run_zhidao
 from zhs.config import AppConfig, ConfigManager
-from zhs.exceptions import SliderVerificationRequired
-from zhs.login import LoginManager
+from zhs.exceptions import CaptchaRequired, LoginFailed, SliderVerificationRequired
+from zhs.login import LoginManager, SecretPassword
 from zhs.session import ZhsSession
 
 # 显式导出供 tests/cli/test_main.py 导入的别名
@@ -124,21 +125,32 @@ def init() -> None:
 
 @app.command()
 def login(
+    method: str = typer.Option("qr", "--method", help="登录方式: qr（扫码）/ password（账号密码）"),  # noqa: B008
+    account: str | None = typer.Option(None, "-u", "--account", help="账号（需与 -p 同时提供）"),  # noqa: B008
+    password: str | None = typer.Option(None, "-p", "--password", help="密码（需与 -u 同时提供）"),  # noqa: B008
     show_in_terminal: bool = typer.Option(False, "--show-in-terminal", help="终端显示二维码"),  # noqa: B008
     image_path: str | None = typer.Option(None, "--image-path", help="二维码保存路径"),  # noqa: B008
     proxy: str | None = typer.Option(None, "--proxy", help="代理"),  # noqa: B008
     debug: bool = typer.Option(False, "-d", "--debug", help="调试模式"),  # noqa: B008
     console_log: bool = typer.Option(False, "--console-log", help="日志输出到控制台"),  # noqa: B008
 ) -> None:
-    """扫码登录智慧树"""
-    from zhs.utils.display import msg_done, msg_info, msg_warn
+    """登录智慧树（默认扫码；--method password 使用账号密码）"""
+    from zhs.utils.display import msg_done, msg_error, msg_info, msg_warn
+
+    if method not in ("qr", "password"):
+        print(msg_error(f"不支持的登录方式: {method}（可选 qr / password）"))
+        raise typer.Exit(2)
+
+    if method == "qr" and (account is not None or password is not None):
+        print(msg_error("-u/--account 与 -p/--password 仅用于 --method password"))
+        raise typer.Exit(2)
 
     config_mgr = ConfigManager()
     config = config_mgr.load()
 
     if image_path:
         config.qr.image_path = image_path
-    if not config.qr.image_path:
+    if method == "qr" and not config.qr.image_path:
         from zhs.utils.path import get_data_dir
 
         config.qr.image_path = str(get_data_dir() / "qrcode.png")
@@ -150,10 +162,52 @@ def login(
     session = ZhsSession(config)
     login_mgr = LoginManager(session, config)
 
-    print(msg_info("请使用智慧树 APP 扫描二维码登录"))
-    print(msg_warn(f"二维码已保存到: {config.qr.image_path}"))
-    _do_login(login_mgr, config, show_in_terminal)
+    if method == "qr":
+        print(msg_info("请使用智慧树 APP 扫描二维码登录"))
+        print(msg_warn(f"二维码已保存到: {config.qr.image_path}"))
+        _do_login(login_mgr, config, show_in_terminal)
+        print(msg_done("登录成功！Cookie 已保存，现在可以运行 zhs play 刷课了"))
+        return
+
+    try:
+        resolved_account, resolved_password = _resolve_login_credentials(account, password, config)
+    except ValueError as exc:
+        print(msg_error(str(exc)))
+        raise typer.Exit(2) from exc
+
+    print(msg_info("正在使用账号密码登录（需要验证码自动求解）"))
+    try:
+        result = login_mgr.login_with_password(resolved_account, resolved_password)
+    except LoginFailed as exc:
+        print(msg_error(f"登录失败: {exc}"))
+        raise typer.Exit(1) from exc
+
+    _save_login_cookies(config, result.cookies)
     print(msg_done("登录成功！Cookie 已保存，现在可以运行 zhs play 刷课了"))
+
+
+def _resolve_login_credentials(
+    account: str | None,
+    password: str | None,
+    config: AppConfig,
+) -> tuple[str, SecretPassword]:
+    """解析密码登录凭据
+
+    ``-u`` 与 ``-p`` 必须同时提供或都不提供；都不提供时回落 ``[login]`` 配置，
+    配置中缺失的项通过交互输入补齐。
+    """
+    if (account is None) != (password is None):
+        raise ValueError("请同时提供 -u/--account 与 -p/--password")
+    if account is not None and password is not None:
+        return account, SecretPassword(password)
+
+    resolved_account = config.login.account
+    if not resolved_account:
+        resolved_account = str(typer.prompt("账号"))
+    resolved_password = config.login.password
+    if not resolved_password:
+        resolved_password = str(typer.prompt("密码", hide_input=True))
+    return resolved_account, SecretPassword(resolved_password)
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +375,11 @@ def homework(
                 else:
                     logger.warning(f"暂不支持 {resolved.type} 课程的作业功能")
                     print(f"暂不支持 {resolved.type} 课程的作业功能")
-            except SliderVerificationRequired:
-                # 滑块验证：服务端状态，后续课程也会失败，立即停止
-                raise
+            except (SliderVerificationRequired, CaptchaRequired):
+                # 验证码是课程级风控：跳过该课程，继续下一门
+                logger.warning(f"课程 {c} 触发验证码，跳过该课程")
+                print(f"课程 {c} 需要验证码，已跳过")
+                continue
             except Exception as e:
                 logger.error(f"课程 {c} 作业处理失败: {e}")
                 print(f"课程 {c} 作业处理失败: {e}")

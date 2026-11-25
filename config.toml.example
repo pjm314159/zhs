@@ -175,6 +175,23 @@ info_url = "https://tk.enncy.cn/info"
 scopes = ["zhidao_exam", "ai_exam"]
 
 # ============================================================
+# 登录配置（账户密码登录 / 自动登录）
+# ============================================================
+
+[login]
+# 登录账号（如手机号），留空则使用 zhs login --method password -u/-p 或交互输入
+account = ""
+
+# 登录密码（仅用于登录请求，不会写入日志）
+# 注意：明文保存在本地配置文件中，请自行评估风险
+password = ""
+
+# Cookie 缺失或失效时，自动用上面的账号密码登录一次（默认关闭）
+# 开启时必须同时填写 account 与 password，否则启动即报错
+# 同时要求 [captcha] enabled = true 且 fp 有效
+auto_login = false
+
+# ============================================================
 # 加密密钥（一般无需修改）
 # ============================================================
 
@@ -188,6 +205,8 @@ exam_key = "onbfhdyvz8x7otrp"
 hike_salt = "o6xpt3b#Qy$Z"
 ev_key = "zzpttjd"
 ai_sign_prefix = "8ZflKEagfL"
+login_key = "bdas85990328dfpl"
+login_iv = "563216db1e1744c7"
 
 # ============================================================
 # API URL（一般无需修改）
@@ -196,6 +215,7 @@ ai_sign_prefix = "8ZflKEagfL"
 [urls]
 base = "https://onlineservice-api.zhihuishu.com"
 passport = "https://passport.zhihuishu.com"
+user = "https://user.zhihuishu.com"
 study = "https://studyservice-api.zhihuishu.com"
 hike = "https://hike.zhihuishu.com"
 ai = "https://kg-ai-run.zhihuishu.com"
@@ -205,3 +225,23 @@ homework = "https://studentexam-api.zhihuishu.com"
 taurusexam = "https://taurusexam-api.zhihuishu.com"
 ai_analysis = "https://ai-course-assistant-api.zhihuishu.com"
 newbase = "https://newbase.zhihuishu.com"
+
+# ============================================================
+# 验证码求解（可选，默认关闭）
+# ============================================================
+
+[captcha]
+# 关闭时 -12 走原有链路，不发起任何易盾请求
+enabled = false
+# IRisk 设备指纹，约 190 字符，尾段为 :13位毫秒时间戳；enabled=true 时必填
+fp = ""
+# 点选识图模型（需要支持图片输入），enabled=true 时必填
+api_key = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+# 单次识图超时（秒）
+timeout = 120.0
+# 单次触发最多重取题次数
+max_retry = 3
+# 非空则把题目图片落盘，排查用
+save_challenge_dir = ""

@@ -8,10 +8,12 @@ from typing import Any
 import httpx
 import pytest
 import respx
+from loguru import logger
 
-from zhs.config import AppConfig
+from zhs.captcha.models import CaptchaSolution
+from zhs.config import AppConfig, CaptchaConfig
 from zhs.exceptions import LoginFailed
-from zhs.login import LoginManager, LoginResult
+from zhs.login import LoginManager, LoginResult, SecretPassword
 from zhs.session import ZhsSession
 
 
@@ -63,7 +65,7 @@ class TestQrLoginFullFlow:
 
         # Mock getLoginQrImg
         fake_qr_img = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(
             return_value=httpx.Response(200, json={"qrToken": "test-token-123", "img": fake_qr_img})
         )
 
@@ -80,7 +82,7 @@ class TestQrLoginFullFlow:
             else:
                 return httpx.Response(200, json={"status": 1, "msg": "已确认", "oncePassword": "otp-abc"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
 
         # 收集 callback 调用
         received_images: list[bytes] = []
@@ -122,7 +124,7 @@ class TestQrExpiredRetry:
             qr_call_count += 1
             return httpx.Response(200, json={"qrToken": f"token-{qr_call_count}", "img": "aW1n"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(side_effect=qr_img_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(side_effect=qr_img_side_effect)
 
         # Mock getLoginQrInfo: 第一次过期 → 第二次成功
         info_call_count = 0
@@ -134,7 +136,7 @@ class TestQrExpiredRetry:
                 return httpx.Response(200, json={"status": 2, "msg": "二维码已过期"})
             return httpx.Response(200, json={"status": 1, "msg": "已确认", "oncePassword": "otp-retry"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
 
         callback_count = 0
 
@@ -163,11 +165,11 @@ class TestQrCancelled:
             params={"service": "https://onlineservice-api.zhihuishu.com/login/gologin"},
         ).mock(return_value=httpx.Response(200, text="<html>ok</html>"))
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(
             return_value=httpx.Response(200, json={"qrToken": "cancel-token", "img": "aW1n"})
         )
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(
             return_value=httpx.Response(200, json={"status": 3, "msg": "用户取消登录"})
         )
 
@@ -192,7 +194,7 @@ class TestQrScannedDedup:
             )
         )
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(
             return_value=httpx.Response(200, json={"qrToken": "dedup-token", "img": "aW1n"})
         )
 
@@ -209,7 +211,7 @@ class TestQrScannedDedup:
             else:
                 return httpx.Response(200, json={"status": 1, "msg": "已确认", "oncePassword": "otp-dedup"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
 
         scanned_count = 0
 
@@ -309,3 +311,174 @@ class TestCookieExpired:
         result = new_manager.try_restore_cookies(cookies_file)
         assert result is True
         assert new_session.uuid == "roundtrip-uuid"
+
+
+# ---------------------------------------------------------------------------
+# 7. 账户密码登录
+# ---------------------------------------------------------------------------
+
+DEMO_ACCOUNT = "demo-account"
+DEMO_PASSWORD = "demo-password"
+DEMO_VALIDATE = "demo-validate"
+VALID_FP = "demo-fp-" + "a" * 150 + ":1700000000000"
+
+LOGIN_URL = "https://user.zhihuishu.com/zhsuser/login/account"
+PASSPORT_URL = "https://passport.zhihuishu.com/login"
+SKIP_SET_URL = "https://user.zhihuishu.com/zhsuser/login/code/skipSet"
+
+
+class _FakeCaptcha:
+    """假验证码服务：记录 trigger，按 works 返回预设成功或失败"""
+
+    def __init__(self, *, works: bool = True) -> None:
+        self._solution = CaptchaSolution(validate=DEMO_VALIDATE, raw_validate="{}") if works else None
+        self.trigger: Any = None
+
+    def solve(self, trigger: Any) -> CaptchaSolution | None:
+        self.trigger = trigger
+        return self._solution
+
+
+def _password_config(captcha_enabled: bool = True) -> AppConfig:
+    return AppConfig(captcha=CaptchaConfig(enabled=captcha_enabled, fp=VALID_FP if captcha_enabled else ""))
+
+
+def _password_manager(config: AppConfig, captcha: _FakeCaptcha | None = None) -> tuple[LoginManager, _FakeCaptcha]:
+    session = ZhsSession(config)
+    fake = captcha if captcha is not None else _FakeCaptcha()
+    session._captcha = fake
+    return LoginManager(session, config), fake
+
+
+def _mock_passport_login() -> Any:
+    return respx.get(PASSPORT_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text="<html>ok</html>",
+            headers={"Set-Cookie": 'CASLOGC={"uuid":"uuid-demo"}; Domain=zhihuishu.com'},
+        )
+    )
+
+
+class TestSecretPassword:
+    def test_repr_and_str_are_masked(self) -> None:
+        secret = SecretPassword(DEMO_PASSWORD)
+        assert repr(secret) == "***"
+        assert str(secret) == "***"
+        assert f"{secret}" == "***"
+        assert secret == DEMO_PASSWORD
+
+    def test_real_value_survives_json_serialization(self) -> None:
+        payload = json.dumps({"password": SecretPassword(DEMO_PASSWORD)})
+        assert json.loads(payload)["password"] == DEMO_PASSWORD
+
+
+class TestPasswordLogin:
+    def test_success_solves_captcha_and_saves_cookies(self) -> None:
+        manager, fake = _password_manager(_password_config())
+        with respx.mock:
+            respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": 1, "rt": {"pwd": "otp-1"}}))
+            passport = _mock_passport_login()
+
+            result = manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+            assert result.success is True
+            assert result.uuid == "uuid-demo"
+            assert passport.calls[0].request.url.params["pwd"] == "otp-1"
+            assert fake.trigger.kind == "slide"
+            assert fake.trigger.referer == "https://login.zhihuishu.com/"
+            # 登录页 initNECaptcha 使用 width:"452px"，必须按 452 宽度提交，否则易盾判定位置错误
+            assert fake.trigger.width == 452
+
+    def test_school_unverified_uses_cache_id(self) -> None:
+        """status=2 仅未完成学校认证：用 cacheId 续登，不当作错误"""
+        manager, _ = _password_manager(_password_config())
+        with respx.mock:
+            respx.post(LOGIN_URL).mock(
+                return_value=httpx.Response(200, json={"status": 2, "rt": {"cacheId": "cache-1"}})
+            )
+            skip = respx.post(f"{SKIP_SET_URL}/cache-1").mock(
+                return_value=httpx.Response(200, json={"status": 1, "rt": {"pwd": "otp-2"}})
+            )
+            passport = _mock_passport_login()
+
+            result = manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+            assert result.success is True
+            assert skip.called
+            assert passport.calls[0].request.url.params["pwd"] == "otp-2"
+
+    def test_ok_without_pwd_falls_back_to_uuid(self) -> None:
+        manager, _ = _password_manager(_password_config())
+        with respx.mock:
+            respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": 1, "rt": {"uuid": "u-1"}}))
+            skip = respx.post(f"{SKIP_SET_URL}/u-1").mock(
+                return_value=httpx.Response(200, json={"status": 1, "rt": {"pwd": "otp-3"}})
+            )
+            _mock_passport_login()
+
+            result = manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+            assert result.success is True
+            assert skip.called
+
+    @pytest.mark.parametrize(
+        ("status", "keyword"),
+        [
+            (-5, "密码"),
+            ("ACCOUNT_DISABLED", "禁用"),
+        ],
+    )
+    def test_failure_status_raises_with_hint(self, status: int | str, keyword: str) -> None:
+        manager, _ = _password_manager(_password_config())
+        with respx.mock:
+            respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": status, "msg": "x"}))
+            with pytest.raises(LoginFailed, match=keyword):
+                manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+    def test_captcha_disabled_rejects_without_request(self) -> None:
+        manager, fake = _password_manager(_password_config(captcha_enabled=False))
+        with respx.mock:
+            route = respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": 1}))
+            with pytest.raises(LoginFailed, match="captcha"):
+                manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+            assert not route.called
+            assert fake.trigger is None
+
+    def test_captcha_solve_failed_raises_without_request(self) -> None:
+        manager, _ = _password_manager(_password_config(), _FakeCaptcha(works=False))
+        with respx.mock:
+            route = respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": 1}))
+            with pytest.raises(LoginFailed, match="验证码"):
+                manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+            assert not route.called
+
+    def test_password_not_logged(self) -> None:
+        manager, _ = _password_manager(_password_config())
+        records: list[str] = []
+        sink_id = logger.add(lambda message: records.append(str(message)), level="DEBUG")
+        try:
+            with respx.mock:
+                respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": 1, "rt": {"pwd": "otp-1"}}))
+                _mock_passport_login()
+                manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+        finally:
+            logger.remove(sink_id)
+
+        assert all(DEMO_PASSWORD not in record for record in records)
+
+
+class TestPasswordLoginInternals:
+    def test_status2_without_cache_id_fails_before_passport(self) -> None:
+        """status=2 且缺 cacheId 时直接失败，不再请求换票"""
+        manager, _ = _password_manager(_password_config())
+        with respx.mock:
+            respx.post(LOGIN_URL).mock(return_value=httpx.Response(200, json={"status": 2, "rt": {}}))
+            passport = _mock_passport_login()
+
+            with pytest.raises(LoginFailed):
+                manager.login_with_password(DEMO_ACCOUNT, SecretPassword(DEMO_PASSWORD))
+
+            assert not passport.called

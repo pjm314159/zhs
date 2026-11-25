@@ -1,14 +1,30 @@
 tags: [登录]
 summary: 获取登录二维码
 operationId: getLoginQrImg
-x-zhs-service: passport
-x-zhs-status: code-only
+x-zhs-service: user
+x-zhs-status: confirmed
 x-zhs-evidence:
-  capturedAt: 2026-11-18
+  capturedAt: 2026-11-25
 x-zhs-notes: |
-  代码：`src/zhs/login.py:56`。
+  代码：`src/zhs/login.py:56`。2026-11-25 由旧地址 `passport.zhihuishu.com/qrCodeLogin/getLoginQrImg`
+  迁移而来；旧接口仍可用，两者响应结构一致。
 
-  待补：返回体是图片二进制、base64 还是跳转地址；二维码有效期。
+  - `img`：base64 PNG（约 2KB，无 `data:` 前缀），直接解码即可展示
+  - `qrToken`：32 位十六进制，用于 `getLoginQrInfo` 轮询
+
+  请求无需登录态、无业务参数；`Referer: https://login.zhihuishu.com/`。
 responses:
   '200':
-    description: 二维码图片（形式待补）
+    description: 二维码
+    content:
+      application/json:
+        schema:
+          type: object
+          required: [img, qrToken]
+          properties:
+            img:
+              type: string
+              description: base64 编码的 PNG 图片
+            qrToken:
+              type: string
+              description: 轮询令牌

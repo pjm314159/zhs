@@ -456,3 +456,186 @@ API 参考：`.temp/questions_bank.md`
   - `docs/linter.md`：UP046/§6.2 的 PEP 695 示例类由 `BaseQuestionCache[T]` 换为中性 `Repository[T]`；"项目应用"注改为"当前源码中暂无泛型类"（base.py 是 src 中唯一的 PEP 695 泛型类，删除后原注释失实）
 - Test: 删除测试本身；`tests/cache/` 72 passed，全量 1158 passed（较此前 1170 少 12 = test_base 用例数，符合预期）
 - Refactor: ruff check / format --check / mypy（156 文件）全部通过；分支 `refactor/cache-remove-base`
+
+### Task 40 — 修复智慧课程 validateSlideToken 上报 ev 错误（-1 参数解码发生错误）✅
+- 背景：智慧课程触发 `-12` 后过码成功，但上报 `learning/validateSlideToken` 返回 `-1 参数解码发生错误`。两份抓包解码证明普通课程与智慧课程的上报字段、易盾参数完全一致，`ev` 都是 `encode_ev([recruitId, lessonId, lessonVideoId, videoId, chapterId])`；而旧实现直接回传失败心跳的 `sdsew`（10 段分号连接），服务端按 5 段解析失败
+- Red：`tests/zhidao/test_video.py::TestSolveCaptchaEv::test_ev_is_reencoded_from_five_ids`（断言上报 `ev` 为 5 个 ID 的重编码，且不等于 `sdsew`）→ 失败：`TypeError: _try_solve_captcha() takes 2 positional arguments but 4 were given`
+- Green：`src/zhs/zhidao/video.py`
+  - `_try_solve_captcha(exc)` → `_try_solve_captcha(exc, ctx, video)`，调用点同步传入 `ctx` 与当前 `video`
+  - `ev` 改为 `encode_ev([ctx.course.recruit_id or 0, video.lesson_id, video.id, video.video_id, video.chapter_id], self._session.crypto.ev_key)`；不再读取 `exc.payload['sdsew']`，也不按课程类型分支
+- Test: `tests/zhidao/test_video.py` 57 passed
+- 实测（2026-11-25 16:33，智慧课程《大学生心理健康》）：`-12` 触发后 `ev_len=96`（5 个 ID）→ 易盾 `check` error=0 → `validateSlideToken` 返回 `pass=true` → 日志 `验证码已通过，重试当前视频`，重试心跳不再被拦；修复前同一路径因回传 132 字符 `sdsew` 返回 `-1 参数解码发生错误`
+- 文档：`docs/api/operations/zhidao-video/validate-slide-token.yaml` 删除错误的“普通课程沿用失败心跳 ev”表格，改为统一 5 段规则并注明 `sdsew` 不可直接回传；`ev` 长度随 ID 位数变化（抓包样本 78 字符）。同批修正 `docs/api/operations/yidun/{getconf,get-captcha,check-captcha}.yaml`：`referer` 实测可省略（`getconf`/`get` 缺失时仍 `error=0`），`required` 改为 `false`
+- Refactor: ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 41 — 作业/考试接口 code="-12" 验证码漏检修复 ✅
+- 背景（2026-11-25 真机抓包）：知到作业 `doHomework` 风控响应为 `{"msg": "弹出滑块验证", "rt": {...}, "code": "-12", "status": "200"}`。`STRATEGIES["homework"]` / `["zhidao_exam"]` 只检查 `status == "200"` 且 `check_captcha=False`，会把 `-12` 误判为成功继续答题；旧实现的验证码判断绑定 `check_field`（视频 `check_field=code` 恰好命中，作业为 `status` 永远命不中）
+- Red：`tests/api/test_encrypted_query.py` 新增 6 用例（homework / zhidao_exam 策略 `check_captcha=True`、`code="-12"` 字符串与 int `-12` 均抛 `CaptchaRequired`、`ai_exam` 等未开启检查的策略仍抛 `ApiError`）→ 5 失败（`DID NOT RAISE CaptchaRequired` / `check_captcha is False`）
+- Green：`src/zhs/api/encrypted_query.py`
+  - `_check_result` 验证码判断改为固定看 `code` 字段：`str(result.get("code")) == "-12"`（兼容 int -12 与 str "-12"），不再依赖 `check_field`
+  - `STRATEGIES["homework"]` / `["zhidao_exam"]` 打开 `check_captcha=True`
+  - 模块 docstring / `QueryStrategy.check_captcha` / `query()` Raises 说明同步
+- Test：`tests/api/test_encrypted_query.py` 34 passed；pytest 全量 1269 passed
+- 文档（提交 12c6260）：新增 `docs/api/operations/zhidao-homework/validate-slide-token.yaml`（作业验证码上报接口，载荷 `{recruitId, token, checkType, chapterId}`，`chapterId` 实为 examId，判据 `pass`）；`do-homework.yaml` 响应补 `code` / `msg` 与 `-12` 说明；覆盖率 63 → 64；`docs/design.md` 异常说明补作业/考试形态
+- 说明：作业验证码 token 来自易盾点选验证码，无法由 ID 生成。本次仅保证 `-12` 可被识别抛出；`saveStudentAnswer` 阶段的 `CaptchaRequired`（消息含"验证"）会被 `worker._save_answer` 现有逻辑映射为 `SliderVerificationRequired` 并提示人工验证，`doHomework` 阶段则由上层记录失败后继续下一份作业
+- Refactor：ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 42 — 作业验证码按课程级中止（不再只跳过当前章节/单题）✅
+- 背景：验证码（`code="-12"`）实测为**课程级**风控。原实现 `run_zhidao_homework` 把 `SliderVerificationRequired` 向上抛（整个知到作业队列全停），而 `CaptchaRequired` 落入通用 `except Exception` 只记"处理失败"后**继续做下一份作业**（章节级继续），两者语义都不符合"退出当前课程"
+- Red：`tests/cli/services/test_homework_service.py` 新增 3 用例（验证码/滑块触发后本课程剩余作业不再执行且不抛异常；某课程触发后继续下一门课程）→ 2 失败（`assert 3 == 1`、`SliderVerificationRequired` 冒泡）
+- Green
+  - `src/zhs/cli/services/homework_service.py`：`run_zhidao_homework` 捕获 `(SliderVerificationRequired, CaptchaRequired)` → warning 日志 + 输出"需要验证码，跳过本课程剩余作业" + `return`（退出当前课程）；`run_all_zhidao_homework` 捕获两者 → 输出"验证码拦截，跳过课程: X" 并 `continue`（继续下一门课程）；`run_all_homework` 删除"验证码立即终止全部作业"的分支
+  - `src/zhs/__main__.py`（`zhs homework -c` 多课程模式）：同样由 `raise` 改为 `continue`，输出"课程 X 需要验证码，已跳过"
+- Test：`tests/cli/services/test_homework_service.py` + `tests/cli/test_main.py` 66 passed；pytest 全量 1272 passed
+- 说明：`-c` 单课程 / `--url` 单作业模式同样只影响该课程；AI 课程作业不受知到验证码影响（原逻辑已隔离）。分支 `feat/captcha`
+- Refactor：本轮改动文件的 ruff check / format --check / mypy 通过（`src/zhs/captcha/*` 的既有 format/mypy 问题不在本次范围）
+
+### Task 43 — 作业验证码自动求解（doHomework/saveStudentAnswer -12 → 易盾点选 → validateSlideToken → 重试）✅
+- 背景：Task 41/42 只做到"识别 `-12` 并按课程级中止"，仍需人工过码。抓包（`docs/api/operations/zhidao-homework/validate-slide-token.yaml`）显示作业侧可复用视频的易盾点选求解能力：`doHomework` 返回 `code="-12"` 后，前端过易盾点选，再把组装好的 `validate` 上报 `/studentExam/gateway/t/v1/answer/validateSlideToken` 换取 `pass=true`
+- Red：7 用例失败
+  - `tests/api/test_zhidao_homework_api.py::TestHomeworkValidateSlideToken::test_encrypts_expected_payload`（解密 `secretStr` 断言载荷 `{recruitId, token, checkType=1, chapterId=examId}` 且无 `dateFormate`）→ `AttributeError: homework_validate_slide_token`
+  - `tests/zhidao/homework/test_worker.py::TestHomeworkWorkerCaptcha` 6 用例：doHomework 求解后重试成功 / solve=None 抛出 / `pass=false` 抛出 / 重试仍 -12 只求解一次 / 保存阶段求解后重试成功 / 保存阶段失败抛 `CaptchaRequired` 而非 `SliderVerificationRequired` → 多数 `Mock object has no attribute 'homework_validate_slide_token'`，最后一条实际抛出了 `SliderVerificationRequired`（验证了现有误包装缺陷）
+- Green
+  - `src/zhs/api/zhidao_homework_api.py`：新增 `homework_validate_slide_token(recruit_id, exam_id, token)`，`homework` 策略（exam_key、无 dateFormate），字段 `chapterId` 填 examId
+  - `src/zhs/session.py`：门面新增同名方法
+  - `src/zhs/zhidao/homework/worker.py`
+    - 新增 `_with_captcha(action, item, recruit_id)`：捕获 `CaptchaRequired` → `_try_solve_captcha` → 通过则重试一次，否则 `raise`
+    - 新增 `_try_solve_captcha(exc, item, recruit_id)`：`CaptchaService.solve(CaptchaTrigger(kind="click", referer=https://onlineexamh5new.zhihuishu.com/stuExamWeb.html))` → `homework_validate_slide_token(token=solution.validate)` → 返回 `bool(result["pass"])`；任何异常/未通过均返回 False
+    - `doHomework`（`_fetch_homework_detail`）与 `saveStudentAnswer`（逐题保存）均经 `_with_captcha` 包裹；重试后仍 -12 向上抛，由 CLI 课程级中止（Task 42 已实现）
+    - `_save_answer` 显式 `except CaptchaRequired: raise`，避免消息含"验证"被误映射为 `SliderVerificationRequired`
+- Test：API + worker 46 passed；pytest 全量 1279 passed
+- 文档：`docs/design.md` worker 设计要点补验证码路径与异常映射；`docs/test.md` §4.8.3 补 `TestHomeworkWorkerCaptcha` 与 validateSlideToken 载荷校验说明
+- 未实测：真机触发作业验证码后的自动过码成功率（需风控命中，留待后续实测）
+- Refactor：改动文件 ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 44 — 修复 getStudentHomework 显式 null 字段导致整条作业被丢弃 ✅
+- 现象：真机日志大量 `scanner._get_student_homework:146 解析作业项失败: 3 validation errors for HomeworkItem`（`cpOrderNumber` / `chapterId` / `chapterRank`，`input_value=None`），对应作业被静默跳过（如「形势与政策」第一/三/四章单元测试）
+- 原因：`getStudentHomework` 对无章节绑定的作业显式返回 `null`；pydantic v2 的字段默认值只在**字段缺失**时生效，显式 `null` 仍触发 `string_type` / `int_type` 校验失败，`model_validate` 整条抛错被 `except` 捕获后丢弃
+- Red：`tests/zhidao/homework/test_models.py::TestHomeworkItem::test_api_null_fields_fall_back_to_defaults`（按真机样例构造三个字段为 null 的数据，断言解析成功且回落 `""`/`0`）→ 失败（3 validation errors）
+- Green：`src/zhs/zhidao/homework/models.py` 为 `HomeworkItem` 增加 `field_validator(mode="before")`，`cp_order_number` 的 null → `""`，`chapter_id` / `chapter_rank` 的 null → `0`（按 `info.field_name` 区分）
+- Test：`tests/zhidao/homework` 101 passed；pytest 全量 1280 passed
+- 文档：`docs/test.md` §4.8.1 补该用例
+- Refactor：ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 45 — 清除代码/测试中的真实账号数据，schoolId 改取当前登录用户 ✅
+- 背景：测试样例直接沿用了真机抓包数据，含真实 recruitId / courseId / examId / schoolId / 课程名 / 加密 eid；`run_zhidao_homework` 还在生产代码里硬编码了学校 ID
+- 替换映射（全部改为明显虚构的占位值）：
+  - recruitId `414804`/`394787`/`469646` → `10001`/`10002`/`10003`
+  - courseId `1000008156` → `123456`，`1000083416` → `654321`
+  - schoolId `625` → `1000`（含 docstring 示例）
+  - examId `wMqNNxQp`/`5kNKk0qe`/`wDOkk9dz`/`y0mBgPpw`/`eAqdKONe`/`edJddjZE`/`y7VmgR3D`/`e9XlgxDw` → `hw001`/`exam001`/`hw002`/`exam002`/`exam0001`/`exam0002`/`exam0003`
+  - 课程/考试名 `思想道德与法治*`、`形势与政策` → `测试课程`/`测试考试`/`测试试卷`/`示例课程`
+  - 加密 eid `JaPd4nAC...` → `eid-demo-001==`
+- 行为修复（Red → Green）：`src/zhs/cli/services/homework_service.py::run_zhidao_homework` 不再写死 `"625"`，改为 `session.exam_get_login_school_info()`（未绑定时空串），与 exam_service 一致
+  - Red：`test_pending_runs_worker` 增加断言 `run_homework(item, "12345", "1000")` → 实际仍传 `"625"` 失败
+  - Green：取登录学校 ID 后传入 worker
+- Test：pytest 全量 1280 passed；ruff check src/ tests/ 通过；改动文件 ruff format --check / mypy 通过（`src/zhs/captcha/*` 与 `tests/captcha` 的既有 format 问题不在本次范围）
+- Refactor：`tests/cli/test_main.py` 因字符串变短重新格式化；分支 `feat/captcha`
+
+### Task 46 — 验证码未启用时静默直接抛异常（零请求、零重试）✅
+- 需求：`captcha.enabled=false`（或缺少 `fp`）时不打印"检测到验证码，尝试自动过码..."，不调用 `solve`，不重试，直接抛 `CaptchaRequired`
+- Red：`tests/zhidao/homework/test_worker.py::TestHomeworkWorkerCaptcha::test_captcha_disabled_raises_without_solve` → 实际 `homework_do` 被调用 2 次（旧代码未检查启用状态，mock 被当成求解成功并重试）
+- Green：`_try_solve_captcha` 入口先判断 `self._session.captcha.enabled()`（enabled + fp），不可用则 `logger.debug` 后返回 False；`_with_captcha` 随即 `raise`，不执行第二次 action
+- 行为确认：`enabled=false` 时 `solve()` 也不会被调用；`doHomework` 仅请求 1 次；`validateSlideToken` 不发送；控制台无验证码提示
+- Test：worker 40 passed；pytest 全量 1281 passed；ruff/mypy 通过；分支 `feat/captcha`
+
+### Task 47 — OpenCV/NumPy 由可选 extra 改为必选依赖 ✅
+- 背景：`pip install zhs` 后滑块验证码因缺少 `opencv-python-headless`/`numpy` 不可用，需额外 `zhs[captcha]`
+- 变更：`pyproject.toml` 将两者并入 `dependencies`，删除 `[project.optional-dependencies] captcha`；`uv.lock` 同步
+- 文案：`captcha/__init__.py` docstring、`service.py`（"OpenCV 不可用"）、`slider.py`（RuntimeError）去掉 extra 说法
+- 校验：`uv sync --dev` 安装 cv2 5.1.0 / numpy 2.5.5，`slider.available() == True`；干净 venv 安装 wheel 后 `import cv2, numpy` 成功、`zhs --version` 正常
+- Test：ruff check/format、mypy（169 files）、pytest 全量 1281 passed；分支 `feat/captcha`
+
+### 扫码登录接口迁移到新版端点（`user.zhihuishu.com/zhsuser`）✅
+- 背景：登录中心改版，扫码接口由 `passport.zhihuishu.com/qrCodeLogin/*` 迁移为 `user.zhihuishu.com/zhsuser/qrCodeLogin/*`；实测旧接口仍在、响应结构（`img`/`qrToken`/`status`/`oncePassword`/`uuid`）与未扫码状态 `-1` 完全一致
+- Red：`tests/test_login.py` 4 个用例改 mock 新域名后报 `RESPX ... not mocked`；`tests/test_config.py::test_default_values` 因 `UrlConfig` 无 `user` 字段失败
+- Green：`UrlConfig` 新增 `user`；`LoginManager.login_with_qr` 改用 `{urls.user}/zhsuser/qrCodeLogin/*`；`config.toml.example` 增加 `user`
+- 未改动：轮询间隔 0.5s、`status` 分支（-1/0/1/2/3）、`passport/login?pwd=` 换票链路
+- Test：pytest 全量 1281 passed；ruff check/format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P1 — 配置层 ✅
+- Red：`tests/test_config.py` 新增 `TestLoginConfig`（默认值 / 自定义值 / `auto_login=true` 缺账号或密码抛 `ValidationError`）、`TestCryptoConfig.test_default_values` 增加 `login_key`/`login_iv` 断言、`test_load_login_section`、`test_save_preserves_login` → 导入 `LoginConfig` 失败（ImportError）
+- Green：
+  - `src/zhs/config.py` 新增 `LoginConfig`（`account` / `password` / `auto_login`，`auto_login=true` 时账号或密码为空直接校验失败）
+  - `CryptoConfig` 增加 `login_key = "bdas85990328dfpl"`、`login_iv = "563216db1e1744c7"`（登录接口 AES-128-CBC 专用）
+  - `AppConfig` 增加 `login` 段；`ConfigManager._flatten_toml` / `_unflatten_config` 支持 `[login]` 读写
+  - `config.toml.example` 增加 `[login]` 段与两项登录密钥（占位为空，不含真实账号密码）
+- Test：`tests/test_config.py` 61 passed
+- Refactor：改动文件 ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P2 — PassportLoginApi ✅
+- Red：`tests/api/test_passport_login_api.py` 15 用例（body 为带引号密文串且解回 `{account,password,validate}`、登录 headers、`status` 归一化含 int/str/未知值、`rt` 字段映射、HTTP 500 包装、`skipSet` 两种路径、日志不含密码）→ `ModuleNotFoundError: zhs.api.passport_login_api`
+- Green：新增 `src/zhs/api/passport_login_api.py`
+  - `AccountLoginStatus`（`1`/`2`/`-12`/`-5`/`-13`/`ACCOUNT_DISABLED`/`UNKNOWN`，`_missing_` 兜底未知值）
+  - `AccountLoginResult`（`status`/`msg`/`pwd`/`uuid`/`cache_id`）
+  - `login_by_password`：`_encrypt_body` 用 `login_key`+`login_iv` 加密并二次 `json.dumps`，body 为裸字符串；Header `Content-Type`/`Origin`/`Referer` 固定登录页
+  - `skip_set(identifier)`：`rt.uuid` 与 `rt.cacheId` 共用，body 固定 `null`，identifier 先做格式校验
+  - HTTP/解析异常统一 `raise LoginFailed(...) from e`；不重试、不判成功、不落盘、不输出密码
+- Test：`tests/api/test_passport_login_api.py` 15 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P3 — LoginManager 编排 ✅
+- Red：`tests/test_login.py` 新增 `TestSecretPassword`（repr/str 脱敏、json 序列化仍为原文）与 `TestPasswordLogin`（成功换票、`status=2` 用 cacheId 续登、`status=1` 缺 pwd 回落 uuid、`-5`/`ACCOUNT_DISABLED` 提示、验证码未启用直接拒绝且零请求、验证码求解失败零请求、日志不含密码、`status=2` 缺 cacheId 不换票）→ `ImportError: SecretPassword`
+- Green：`src/zhs/login.py`
+  - `SecretPassword(str)`：`__repr__`/`__str__` 均返回 `***`，加密与 JSON 序列化仍使用原文
+  - `ensure_password_login_ready`：`[captcha] enabled` 必须为 true 且 `fp` 格式合法，否则 `LoginFailed`，不静默跳过
+  - `login_with_password`：前置校验 → 求解一次登录滑块（`referer=https://login.zhihuishu.com/`）→ 提交 → `status=2` 用 `cacheId` 续登（正常分支，不提示）→ 非 OK 按 `STATUS_HINTS` 报错 → 换票
+  - 抽取 `_complete_login_with_once_password`，扫码与密码登录共用换票落 cookies
+  - 不重试：一次命令只提交一次
+- Test：`tests/test_login.py` 21 passed；pytest 全量 1312 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P5 — CLI `zhs login --method password` ✅
+- Red：`tests/cli/test_main.py::TestLoginSubcommand` 新增 6 组用例（`-u`/`-p` 同时提供、仅提供其一报错、回落 `[login]` 配置、配置为空交互补齐且密码隐藏输入、失败退出码 1、未知 `--method` 退出码 2、qr 拒绝 `-u/-p`、输出不含密码）→ 命令无 `--method/-u/-p` 选项，`AttributeError: _save_login_cookies`
+- Green：
+  - `src/zhs/__main__.py::login` 增加 `--method qr|password`、`-u/--account`、`-p/--password`；默认仍为扫码
+  - `_resolve_login_credentials`：`-u`/`-p` 必须同时提供或都不提供；都不提供时回落 `[login]`，缺失项用 `typer.prompt` 补齐（密码 `hide_input=True`）
+  - 密码统一包装为 `SecretPassword`，`LoginFailed` 打印错误并以退出码 1 退出，不打印密码
+  - `src/zhs/cli/bootstrap.py` 抽取 `save_login_cookies`，`do_login` 与密码登录共用
+- Test：`tests/cli` 235 passed（含原有登录/扫码用例）
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P6 — Cookie 失效自动登录 ✅
+- Red：`tests/cli/test_bootstrap.py::TestLoadConfigAndSession` 新增 6 用例（无 cookies 自动登录并保存、EXPIRED 重登后继续、`auto_login=false` 保持原提示、配置错误不泄露密码、失败只尝试一次、重登后校验仍失效报错）→ 自动登录未被调用（`call_count == 0`）
+- Green：`src/zhs/cli/bootstrap.py`
+  - `load_config_and_session` 捕获 `ValidationError`，仅输出校验消息（`_config_validation_message`），不带 pydantic 的 `input_value`（避免密码进终端）
+  - 无 cookies / `verify_session=EXPIRED` 且 `login.auto_login=true` → `_auto_login` 用 `[login]` 账号密码（`SecretPassword` 包装）登录一次 → 保存 cookies → 再校验；失败或仍失效直接退出，不循环
+  - `auto_login=false` 保持原“请运行 zhs login”提示；`UNAVAILABLE` 仍提示检查网络
+- Test：`tests/cli/test_bootstrap.py` 55 passed；pytest 全量 1326 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P7 — 文档同步与全量校验 ✅
+- 文档：
+  - `docs/spec.md`：登录系统拆为「扫码 / 账号密码 / Cookie 与自动登录」，补充登录协议、`status=2` 正常分支、验证码硬性前置与风控约束；`zhs login` 参数表增加 `--method` / `-u` / `-p`
+  - `docs/design.md`：`LoginManager` 增加 `SecretPassword` / `login_with_password` / `_solve_login_captcha` / `_complete_login_with_once_password`，新增密码登录流程图与 `PassportLoginApi` 设计
+  - `docs/test.md`：补充 `TestSecretPassword` / `TestPasswordLogin` / `TestPassportLoginApi` / `TestAutoLogin` 用例清单
+  - `README.md` / `README_zh.md` / `docs/tutorial.md`：补充账号密码登录、`[login]` 配置与 `auto_login` 说明
+  - `tests/integration/test_login_integration.py`：新增密码登录集成用例（凭据仅从 `ZHS_LOGIN_ACCOUNT` / `ZHS_LOGIN_PASSWORD` 环境变量读取，不写入代码）
+- Test：pytest 全量 1326 passed（integration 默认 deselected）
+- Refactor：`ruff check src/ tests/`、`ruff format --check src/ tests/`、`mypy src/ tests/`（171 files）全部通过；分支 `feat/password-login`
+
+### 修复：登录页滑块验证码始终未通过 ✅
+- 现象：日志 `验证码未通过（第 1~3/3 次）: error=0 msg=ok`，`/api/v3/check` 返回 `data.result=False`
+- 根因：登录页 JS `initNECaptchaWithFallback({captchaId:"75f9…", width:"452px"})` 以 452px 渲染滑块，而 `CaptchaTrigger` 固定按 `SLIDE_WIDTH=400` 提交 `fetch`/`check`；缺口坐标按 400 缩放后与 452 不一致，易盾判定位置错误
+- 修复：
+  - `CaptchaTrigger` 新增 `width_override`，`width` 优先取页面自定义宽度
+  - `LoginManager` 使用 `LOGIN_CAPTCHA_WIDTH = 452` 构造登录滑块 trigger
+- 验证：真实登录页独立复跑 4/4 `result=True`；`LoginManager._solve_login_captcha()` 返回 validate 长度 531
+- Test：新增 `test_trigger_width_override`，`test_success_solves_captcha_and_saves_cookies` 断言 `trigger.width == 452`
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 测试加固：密码登录凭据来源规则 ✅
+- 规则：`zhs login --method password` 不传 `-u/-p` 时，`[login] account/password` **都非空**则直接使用、不进入交互；配置项为空才交互补齐
+- 变更：`tests/cli/test_main.py::test_password_login_falls_back_to_config` 增加 `typer.prompt` 未被调用断言（与 `test_password_login_prompts_when_config_empty` 共同锁定两条分支）
+- Test：密码登录相关 6 passed；ruff / mypy 通过
+
+### 隐私数据审计与匿名化 ✅
+- 审计范围：全部已跟踪文件 + 全部 Git 提交历史
+- 结论：
+  - 真实账号/密码/易盾 `fp`/API Key/题库 token：**未出现在**任何已跟踪文件与提交历史中；`.zhs/`、`.temp/` 均被 `.gitignore` 忽略且从未被跟踪
+  - 发现历史遗留的真实个人标识：`uuid` 与 `userId`（出现在 `tests/api/test_http_client.py`、`tests/test_session.py`、`tests/api/test_session_auth.py`、`tests/test_logger.py`、`docs/design.md`、`docs/test.md`）
+- 处理：当前工作区全部替换为占位值（`demoUuid` / `100000001`），并全量复跑 CI
+- 遗留：上述占位前的真实值仍存在于历史提交中，如需彻底清除需重写历史（破坏性操作，待确认）
+- CI：pytest 1327 passed；ruff check / format、mypy（171 files）通过
+
+
