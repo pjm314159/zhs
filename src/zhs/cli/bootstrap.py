@@ -13,6 +13,7 @@ import json
 import sys
 from typing import Any
 
+import httpx
 import typer
 from loguru import logger
 
@@ -184,15 +185,21 @@ def do_login(
 
     logger.info("登录成功")
 
-    # 保存 cookies
-    if config.save_cookies and result.cookies:
-        from zhs.utils.cookie import cookies_to_list
-        from zhs.utils.path import get_data_dir
+    save_login_cookies(config, result.cookies)
 
-        cookies_path = get_data_dir() / "cookies.json"
-        with open(cookies_path, "w", encoding="utf-8") as f:
-            json.dump(cookies_to_list(result.cookies), f, indent=2, ensure_ascii=False)
-        logger.info(f"Cookie 已保存到 {cookies_path}")
+
+def save_login_cookies(config: AppConfig, cookies: httpx.Cookies | None) -> None:
+    """保存登录后 cookies 到数据目录（save_cookies=false 或 cookies 为空时跳过）"""
+    if not config.save_cookies or not cookies:
+        return
+
+    from zhs.utils.cookie import cookies_to_list
+    from zhs.utils.path import get_data_dir
+
+    cookies_path = get_data_dir() / "cookies.json"
+    with open(cookies_path, "w", encoding="utf-8") as f:
+        json.dump(cookies_to_list(cookies), f, indent=2, ensure_ascii=False)
+    logger.info(f"Cookie 已保存到 {cookies_path}")
 
 
 def init_llm(config: AppConfig) -> Any:
@@ -268,6 +275,7 @@ __all__ = [
     "load_config_and_session",
     "check_captcha_config",
     "parse_proxy",
+    "save_login_cookies",
     "setup_logger",
     "try_restore_cookies",
 ]

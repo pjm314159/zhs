@@ -585,4 +585,14 @@ API 参考：`.temp/questions_bank.md`
 - Test：`tests/test_login.py` 21 passed；pytest 全量 1312 passed
 - Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
 
+### 账户密码登录 P5 — CLI `zhs login --method password` ✅
+- Red：`tests/cli/test_main.py::TestLoginSubcommand` 新增 6 组用例（`-u`/`-p` 同时提供、仅提供其一报错、回落 `[login]` 配置、配置为空交互补齐且密码隐藏输入、失败退出码 1、未知 `--method` 退出码 2、qr 拒绝 `-u/-p`、输出不含密码）→ 命令无 `--method/-u/-p` 选项，`AttributeError: _save_login_cookies`
+- Green：
+  - `src/zhs/__main__.py::login` 增加 `--method qr|password`、`-u/--account`、`-p/--password`；默认仍为扫码
+  - `_resolve_login_credentials`：`-u`/`-p` 必须同时提供或都不提供；都不提供时回落 `[login]`，缺失项用 `typer.prompt` 补齐（密码 `hide_input=True`）
+  - 密码统一包装为 `SecretPassword`，`LoginFailed` 打印错误并以退出码 1 退出，不打印密码
+  - `src/zhs/cli/bootstrap.py` 抽取 `save_login_cookies`，`do_login` 与密码登录共用
+- Test：`tests/cli` 235 passed（含原有登录/扫码用例）
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
 
