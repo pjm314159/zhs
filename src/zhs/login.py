@@ -23,6 +23,9 @@ from zhs.session import ZhsSession
 from zhs.utils.cookie import cookies_to_list, list_to_cookies, read_cookies_file
 
 LOGIN_REFERER = "https://login.zhihuishu.com/"
+# 登录页 initNECaptchaWithFallback 使用 width:"452px"，fetch/check 必须按该宽度提交，
+# 否则易盾会因坐标缩放不符判定滑块位置错误（result=False）
+LOGIN_CAPTCHA_WIDTH = 452
 
 STATUS_HINTS: dict[AccountLoginStatus, str] = {
     AccountLoginStatus.SCHOOL_UNVERIFIED: "学校认证未完成，续登失败，请先在网页端完成学校认证",
@@ -199,7 +202,7 @@ class LoginManager:
         """求解登录页滑块验证码（与视频滑块同协议），失败直接终止"""
         logger.info("正在求解登录验证码")
         solution: CaptchaSolution | None = self._session.captcha.solve(
-            CaptchaTrigger(kind="slide", referer=LOGIN_REFERER)
+            CaptchaTrigger(kind="slide", referer=LOGIN_REFERER, width_override=LOGIN_CAPTCHA_WIDTH)
         )
         if solution is None:
             raise LoginFailed("登录验证码求解失败，请重试或改用 zhs login --method qr 扫码登录")

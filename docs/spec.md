@@ -111,7 +111,7 @@ src/zhs/
 - 入口：`zhs login --method password`（默认方式仍为 `qr`）
 - 参数：`-u/--account` 与 `-p/--password` 必须同时提供或都不提供；都不提供时回落 `[login] account/password`，仍为空则交互输入（密码隐藏输入）
 - 协议：`POST user.zhihuishu.com/zhsuser/login/account`，body 为**带双引号的 JSON 字符串**（裸密文，不套 `secretStr`、不发 `dateFormate`），明文 `{account, password, validate}` 用 `login_key` / `login_iv`（AES-128-CBC / PKCS#7 + Base64）加密
-- 验证码：**硬性前置**，要求 `[captcha] enabled = true` 且 `fp` 有效；登录页滑块与视频滑块同协议，`referer` 为 `https://login.zhihuishu.com/`。不满足直接报错，不静默跳过
+- 验证码：**硬性前置**，要求 `[captcha] enabled = true` 且 `fp` 有效；登录页滑块与视频滑块同协议（同一 captchaId），`referer` 为 `https://login.zhihuishu.com/`。登录页 `initNECaptchaWithFallback` 的宽度为 `452px`，`fetch`/`check` 的 `width` 必须为 452（默认 400 会让易盾判定位置错误）。不满足直接报错，不静默跳过
 - 响应：`status` 为整数，`1` 成功（`rt.pwd` 为 oncePassword）；`2` 仅表示**未完成学校认证**，用 `rt.cacheId` 调 `skipSet/{cacheId}` 续登后与成功等价（全部功能可用，不提示）；`-12` 二次验证码 / `-5` 密码过简 / `-13` 异常登录 / `ACCOUNT_DISABLED` 禁用均为失败
 - 成功后续：`passport/login?pwd=<oncePassword>` 换票落 cookies，与扫码登录同一出口
 - 风控：一次命令只提交一次，不重试

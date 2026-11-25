@@ -28,6 +28,8 @@ class CaptchaTrigger:
 
     kind: CaptchaKind
     referer: str
+    # 页面自定义的滑块/点选渲染宽度（如登录页 452px）；None 时用默认宽度
+    width_override: int | None = None
 
     @property
     def captcha_id(self) -> str:
@@ -35,6 +37,8 @@ class CaptchaTrigger:
 
     @property
     def width(self) -> int:
+        if self.width_override:
+            return self.width_override
         return CLICK_WIDTH if self.kind == "click" else SLIDE_WIDTH
 
     @property

@@ -387,6 +387,8 @@ class TestPasswordLogin:
             assert passport.calls[0].request.url.params["pwd"] == "otp-1"
             assert fake.trigger.kind == "slide"
             assert fake.trigger.referer == "https://login.zhihuishu.com/"
+            # 登录页 initNECaptcha 使用 width:"452px"，必须按 452 宽度提交，否则易盾判定位置错误
+            assert fake.trigger.width == 452
 
     def test_school_unverified_uses_cache_id(self) -> None:
         """status=2 仅未完成学校认证：用 cacheId 续登，不当作错误"""

@@ -646,6 +646,7 @@ flowchart TD
 - `status=2` 仅表示未完成学校认证：用 `rt.cacheId` 调 `skipSet` 续登，属正常登录路径（不提示、不当作失败），登录后全部功能可用
 - `status=1` 但缺 `rt.pwd` 时回落 `skipSet(rt.uuid)`；失败状态集中由 `STATUS_HINTS` 转成用户提示
 - 密码登录**不重试**：一次命令只提交一次，避免风控；密码不进入任何日志（`SecretPassword`）
+- 登录页滑块渲染宽度为 452px（登录页 `initNECaptchaWithFallback({width:"452px"})`），通过 `CaptchaTrigger(width_override=452)` 提交；沿用默认 400 会导致易盾 `check` 返回 `result=False`
 - 换票逻辑抽取为 `_complete_login_with_once_password`，扫码与密码共用
 - `gologin` 返回 HTML 不解析 JSON
 - Cookie 恢复由 CLI 的 `try_restore_cookies()` 负责（纯本地读取）；登录态由 `verify_session()` 校验：先用 `CASTGC` 经 CAS 换票建立 `onlineservice-api` 域的 `SESSION`，再用 `getLoginUserInfo` 能否取到用户信息判定，不再依赖课程列表

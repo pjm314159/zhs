@@ -614,4 +614,14 @@ API 参考：`.temp/questions_bank.md`
 - Test：pytest 全量 1326 passed（integration 默认 deselected）
 - Refactor：`ruff check src/ tests/`、`ruff format --check src/ tests/`、`mypy src/ tests/`（171 files）全部通过；分支 `feat/password-login`
 
+### 修复：登录页滑块验证码始终未通过 ✅
+- 现象：日志 `验证码未通过（第 1~3/3 次）: error=0 msg=ok`，`/api/v3/check` 返回 `data.result=False`
+- 根因：登录页 JS `initNECaptchaWithFallback({captchaId:"75f9…", width:"452px"})` 以 452px 渲染滑块，而 `CaptchaTrigger` 固定按 `SLIDE_WIDTH=400` 提交 `fetch`/`check`；缺口坐标按 400 缩放后与 452 不一致，易盾判定位置错误
+- 修复：
+  - `CaptchaTrigger` 新增 `width_override`，`width` 优先取页面自定义宽度
+  - `LoginManager` 使用 `LOGIN_CAPTCHA_WIDTH = 452` 构造登录滑块 trigger
+- 验证：真实登录页独立复跑 4/4 `result=True`；`LoginManager._solve_login_captcha()` 返回 validate 长度 531
+- Test：新增 `test_trigger_width_override`，`test_success_solves_captcha_and_saves_cookies` 断言 `trigger.width == 452`
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
 
