@@ -624,4 +624,9 @@ API 参考：`.temp/questions_bank.md`
 - Test：新增 `test_trigger_width_override`，`test_success_solves_captcha_and_saves_cookies` 断言 `trigger.width == 452`
 - Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
 
+### 测试加固：密码登录凭据来源规则 ✅
+- 规则：`zhs login --method password` 不传 `-u/-p` 时，`[login] account/password` **都非空**则直接使用、不进入交互；配置项为空才交互补齐
+- 变更：`tests/cli/test_main.py::test_password_login_falls_back_to_config` 增加 `typer.prompt` 未被调用断言（与 `test_password_login_prompts_when_config_empty` 共同锁定两条分支）
+- Test：密码登录相关 6 passed；ruff / mypy 通过
+
 

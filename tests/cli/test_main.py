@@ -268,8 +268,9 @@ class TestLoginSubcommand:
         mock_session_cls: MagicMock,
         mock_login_mgr_cls: MagicMock,
         mock_save: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """都不提供 -u/-p → 使用 [login] 配置"""
+        """都不提供 -u/-p 且配置非空 → 直接使用 [login] 配置，不进入交互"""
         mock_config = _make_mock_config()
         mock_config.login.account = "config-account"
         mock_config.login.password = "config-password"
@@ -277,12 +278,16 @@ class TestLoginSubcommand:
         mock_session_cls.return_value = MagicMock()
         mock_login_mgr_cls.return_value.login_with_password.return_value = MagicMock(cookies=None)
 
+        prompt = MagicMock()
+        monkeypatch.setattr("zhs.__main__.typer.prompt", prompt)
+
         result = runner.invoke(app, ["login", "--method", "password"])
 
         assert result.exit_code == 0
         account, password = mock_login_mgr_cls.return_value.login_with_password.call_args.args
         assert account == "config-account"
         assert password == "config-password"
+        prompt.assert_not_called()
 
     @patch("zhs.__main__._save_login_cookies")
     @patch("zhs.__main__.LoginManager")
