@@ -531,3 +531,10 @@ API 参考：`.temp/questions_bank.md`
   - Green：取登录学校 ID 后传入 worker
 - Test：pytest 全量 1280 passed；ruff check src/ tests/ 通过；改动文件 ruff format --check / mypy 通过（`src/zhs/captcha/*` 与 `tests/captcha` 的既有 format 问题不在本次范围）
 - Refactor：`tests/cli/test_main.py` 因字符串变短重新格式化；分支 `feat/captcha`
+
+### Task 46 — 验证码未启用时静默直接抛异常（零请求、零重试）✅
+- 需求：`captcha.enabled=false`（或缺少 `fp`）时不打印"检测到验证码，尝试自动过码..."，不调用 `solve`，不重试，直接抛 `CaptchaRequired`
+- Red：`tests/zhidao/homework/test_worker.py::TestHomeworkWorkerCaptcha::test_captcha_disabled_raises_without_solve` → 实际 `homework_do` 被调用 2 次（旧代码未检查启用状态，mock 被当成求解成功并重试）
+- Green：`_try_solve_captcha` 入口先判断 `self._session.captcha.enabled()`（enabled + fp），不可用则 `logger.debug` 后返回 False；`_with_captcha` 随即 `raise`，不执行第二次 action
+- 行为确认：`enabled=false` 时 `solve()` 也不会被调用；`doHomework` 仅请求 1 次；`validateSlideToken` 不发送；控制台无验证码提示
+- Test：worker 40 passed；pytest 全量 1281 passed；ruff/mypy 通过；分支 `feat/captcha`

@@ -1031,6 +1031,9 @@ class TestHomeworkWorkerCaptcha:
     def test_do_homework_captcha_solved_and_retried(self) -> None:
         """doHomework 抛 -12 → 求解上报 → 重试一次成功"""
 
+    def test_captcha_disabled_raises_without_solve(self) -> None:
+        """未启用验证码：无提示、不求解、不重试，直接抛 CaptchaRequired"""
+
     def test_do_homework_captcha_unsolved_raises(self) -> None:
         """solve 返回 None → 抛出 CaptchaRequired，不重复请求"""
 

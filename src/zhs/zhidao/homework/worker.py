@@ -323,6 +323,11 @@ class HomeworkWorker:
         """尝试自动过码并上报 validateSlideToken；任何失败都返回 False。"""
         from zhs.captcha.service import CaptchaTrigger
 
+        # 未启用（或缺少 fp）时不做任何提示与请求，直接按验证码异常处理
+        if not self._session.captcha.enabled():
+            logger.debug("验证码自动处理未启用，跳过求解")
+            return False
+
         self._reporter.print(f"  {msg_info('检测到验证码，尝试自动过码...')}")
         logger.info(
             f"作业验证码: exam={item.exam_name}, "

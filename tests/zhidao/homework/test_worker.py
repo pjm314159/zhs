@@ -873,6 +873,29 @@ class TestHomeworkWorkerCaptcha:
         assert "stuExamWeb" in trigger.referer
 
     @patch("zhs.zhidao.homework.worker.time.sleep")
+    def test_captcha_disabled_raises_without_solve(
+        self,
+        mock_sleep: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """未启用验证码：不打印提示、不求解、不重试，直接抛 CaptchaRequired"""
+        session = _make_mock_session()
+        session.captcha.enabled.return_value = False
+        config = _make_config()
+        cache = _make_cache()
+        session.homework_do.side_effect = CaptchaRequired("服务端要求验证码", response={"code": "-12"})
+
+        worker = HomeworkWorker(session, config, cache)
+        with pytest.raises(CaptchaRequired):
+            worker.do_homework(_make_item(), "10001", "1000")
+
+        assert session.homework_do.call_count == 1
+        session.captcha.solve.assert_not_called()
+        session.homework_validate_slide_token.assert_not_called()
+        captured = capsys.readouterr()
+        assert "验证码" not in captured.out
+
+    @patch("zhs.zhidao.homework.worker.time.sleep")
     def test_do_homework_captcha_unsolved_raises(self, mock_sleep: MagicMock) -> None:
         """求解失败 → 抛出 CaptchaRequired（由上层按课程级中止）"""
         session = _make_mock_session()
