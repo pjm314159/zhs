@@ -25,7 +25,7 @@ from zhs.utils.display import course_tag, msg_done, msg_error, msg_skip, msg_war
 
 if TYPE_CHECKING:
     from zhs.session import ZhsSession
-    from zhs.zhidao.models import PopupQuestion, QuestionPoint, ZhidaoContext
+    from zhs.zhidao.models import PopupQuestion, QuestionPoint, VideoSmallLesson, ZhidaoContext
 
 
 CLASSIC_CACHE_INTERVAL = 180
@@ -119,47 +119,111 @@ class ZhidaoVideoPlayer:
                             msg_skip(f"时间配额已用完（{self._time_limit}s），停止本课程"), depth=1, enabled=tv
                         )
                         return
-                    try:
-                        self.play_video(rac_id, video.video_id, ctx)
-                    except CaptchaRequired:
-                        self._clear_progress()
-                        logger.warning(
-                            "Course stopped: captcha required (racId={}, course={}, videoId={})",
-                            rac_id,
-                            course_name,
-                            video.video_id,
-                        )
-                        tree_print(msg_warn("!! 需要验证码，停止课程"), depth=3, enabled=tv)
-                        return
-                    except TimeLimitExceeded:
-                        self._clear_progress()
-                        logger.warning(
-                            "Course stopped: study time limit reached (racId={}, course={}, videoId={})",
-                            rac_id,
-                            course_name,
-                            video.video_id,
-                        )
-                        tree_print(msg_warn("!! 学习时间已达上限，停止课程"), depth=3, enabled=tv)
-                        return
-                    except KeyboardInterrupt:
-                        raise
-                    except Exception as exc:
-                        self._clear_progress()
-                        logger.error(
-                            "Video failed: {} (racId={}, videoId={}) - {}",
-                            video.name,
-                            rac_id,
-                            video.video_id,
-                            exc,
-                        )
-                        tree_print(msg_error(f"!! 视频失败: {video.name} - {exc}"), depth=3, enabled=tv)
-                        continue
+                    captcha_solved = False
+                    while True:
+                        try:
+                            self.play_video(rac_id, video.video_id, ctx)
+                            break
+                        except CaptchaRequired as exc:
+                            if not captcha_solved and self._try_solve_captcha(exc, ctx, video):
+                                captcha_solved = True
+                                continue
+                            self._clear_progress()
+                            logger.warning(
+                                "Course stopped: captcha required (racId={}, course={}, videoId={})",
+                                rac_id,
+                                course_name,
+                                video.video_id,
+                            )
+                            tree_print(msg_warn("!! 需要验证码，停止课程"), depth=3, enabled=tv)
+                            return
+                        except TimeLimitExceeded:
+                            self._clear_progress()
+                            logger.warning(
+                                "Course stopped: study time limit reached (racId={}, course={}, videoId={})",
+                                rac_id,
+                                course_name,
+                                video.video_id,
+                            )
+                            tree_print(msg_warn("!! 学习时间已达上限，停止课程"), depth=3, enabled=tv)
+                            return
+                        except KeyboardInterrupt:
+                            raise
+                        except Exception as exc:
+                            self._clear_progress()
+                            logger.error(
+                                "Video failed: {} (racId={}, videoId={}) - {}",
+                                video.name,
+                                rac_id,
+                                video.video_id,
+                                exc,
+                            )
+                            tree_print(msg_error(f"!! 视频失败: {video.name} - {exc}"), depth=3, enabled=tv)
+                            break
 
         cost = time.time() - begin_time
         self._clear_progress()
 
         logger.info("play_course done: {} ({:.1f}s)", course_name, cost)
         tree_print(msg_done(f"完成课程: {course_name} ({cost:.1f}s)"), depth=1, enabled=tv)
+
+    def _try_solve_captcha(
+        self,
+        exc: CaptchaRequired,
+        ctx: "ZhidaoContext",
+        video: "VideoSmallLesson",
+    ) -> bool:
+        """尝试自动过码并上报 validateSlideToken；任何失败都返回 False。
+
+        ``ev`` 必须用视频的 5 个 ID 重新编码；失败心跳的 ``sdsew`` 是 10 段
+        分号连接的 ev，直接回传会被服务端以 ``-1 参数解码发生错误`` 拒绝。
+        普通课程与智慧课程规则一致，不依赖课程类型。
+        """
+        ev = encode_ev(
+            [
+                ctx.course.recruit_id or 0,
+                video.lesson_id,
+                video.id,
+                video.video_id,
+                video.chapter_id,
+            ],
+            self._session.crypto.ev_key,
+        )
+        logger.debug(
+            f"验证码上下文: ev_len={len(ev)} ev_head={ev[:12]!r} "
+            f"payload_keys={list((exc.payload or {}).keys())} "
+            f"response={str(exc.response)[:160]}"
+        )
+
+        from zhs.captcha.service import CaptchaTrigger
+
+        try:
+            solution = self._session.captcha.solve(
+                CaptchaTrigger(kind="click", referer="https://studyvideoh5.zhihuishu.com/stuStudy")
+            )
+        except Exception as err:
+            logger.warning(f"验证码求解异常: {err}")
+            return False
+
+        if solution is None:
+            logger.info("验证码未能自动求解，按原逻辑停止")
+            return False
+
+        try:
+            result = self._session.zhidao_query(
+                f"{self._session.urls.study}/gateway/t/v1/learning/validateSlideToken",
+                {"token": solution.validate, "ev": ev, "checkType": 1},
+            )
+        except Exception as err:
+            logger.warning(f"validateSlideToken 上报失败: {err}")
+            return False
+
+        passed = bool((result.get("data") or {}).get("pass"))
+        if passed:
+            logger.info("验证码已通过，重试当前视频")
+        else:
+            logger.warning("validateSlideToken 未通过，按原逻辑停止")
+        return passed
 
     def play_video(self, rac_id: str, video_id: int, ctx: "ZhidaoContext") -> None:
         """播放单个视频

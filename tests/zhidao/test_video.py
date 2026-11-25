@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import respx
 
+from zhs.captcha.models import CaptchaSolution
 from zhs.config import AppConfig
 from zhs.crypto import WatchPoint, encode_ev
 from zhs.exceptions import ApiError, CaptchaRequired, TimeLimitExceeded
@@ -981,3 +982,37 @@ class TestStartPrecheck:
         ):
             player.play_course("ABC123", ctx)
             mock_play.assert_called_once()
+
+
+class TestSolveCaptchaEv:
+    """-12 上报 validateSlideToken 时的 ev 生成规则"""
+
+    def test_ev_is_reencoded_from_five_ids(self, mock_session: ZhsSession) -> None:
+        """ev 必须是 5 个 ID 的重编码（78 字符），不能复用心跳的 10 段 sdsew"""
+        ctx = _make_context()
+        video = ctx.videos[100]
+        player = ZhidaoVideoPlayer(mock_session)
+        exc = CaptchaRequired(
+            "服务端要求验证码",
+            response={"code": -12, "message": "需要弹出滑块验证", "data": None},
+            payload={"ewssw": "0,1", "sdsew": "4e4d47" + "00" * 63, "zwsds": "x", "courseId": 456},
+        )
+        solution = CaptchaSolution(validate="CN31_xxx_v_i_1", raw_validate="raw")
+        sent: list[dict[str, Any]] = []
+
+        def query(_url: str, data: dict[str, Any]) -> dict[str, Any]:
+            sent.append(data)
+            return {"data": {"pass": True}}
+
+        with (
+            patch.object(player._session.captcha, "solve", return_value=solution),
+            patch.object(player._session, "zhidao_query", side_effect=query),
+        ):
+            assert player._try_solve_captcha(exc, ctx, video) is True
+
+        expected_ev = encode_ev(
+            [789, video.lesson_id, video.id, video.video_id, video.chapter_id],
+            mock_session.crypto.ev_key,
+        )
+        assert sent == [{"token": "CN31_xxx_v_i_1", "ev": expected_ev, "checkType": 1}]
+        assert expected_ev != exc.payload["sdsew"]

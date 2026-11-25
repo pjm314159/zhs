@@ -159,3 +159,28 @@ class ZhidaoHomeworkApi:
             "questionIds": ",".join(str(qid) for qid in question_ids),
         }
         return self._query.query("homework", url, data)
+
+    def homework_validate_slide_token(
+        self,
+        recruit_id: str,
+        exam_id: str,
+        token: str,
+    ) -> dict[str, Any]:
+        """上报验证码 validate（validateSlideToken，作业风控解锁）
+
+        doHomework 返回 code=-12 后，先过易盾点选验证码，再把组装好的
+        validate 上报此处换取 ``pass=true``。
+
+        Args:
+            recruit_id: 招募 ID
+            exam_id: 考试 ID；接口字段名为 chapterId，实际填 examId
+            token: 易盾二次组装后的 validate（``CN31_..._v_i_1``）
+        """
+        url = f"{self._base}/studentExam/gateway/t/v1/answer/validateSlideToken"
+        data = {
+            "recruitId": recruit_id,
+            "token": token,
+            "checkType": 1,
+            "chapterId": exam_id,
+        }
+        return self._query.query("homework", url, data)

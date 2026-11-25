@@ -80,12 +80,22 @@ class TestStrategies:
         assert s.content_type == "json"
 
     def test_homework_strategy(self) -> None:
-        """homework 策略：exam_key, 无 dateFormate, status='200'"""
+        """homework 策略：exam_key, 无 dateFormate, status='200', 检查 -12"""
         s = STRATEGIES["homework"]
         assert s.key_name == "exam_key"
         assert s.with_dateformate is False
         assert s.check_field == "status"
         assert s.ok_value == "200"
+        assert s.check_captcha is True
+
+    def test_zhidao_exam_strategy(self) -> None:
+        """zhidao_exam 策略：exam_key, 无 dateFormate, status='200', 检查 -12"""
+        s = STRATEGIES["zhidao_exam"]
+        assert s.key_name == "exam_key"
+        assert s.with_dateformate is False
+        assert s.check_field == "status"
+        assert s.ok_value == "200"
+        assert s.check_captcha is True
 
     def test_ai_exam_submit_strategy(self) -> None:
         """ai_exam_submit 策略：exam_key, dateFormate, 无返回体"""
@@ -311,6 +321,76 @@ class TestHomeworkQuery:
                 query.query("homework", "https://homework.example.com/api", data={})
             assert exc_info.value.code == -1
 
+    def test_code_minus_12_string_raises_captcha(self, query: EncryptedQuery) -> None:
+        """status='200' 但 code='-12'（字符串）抛 CaptchaRequired
+
+        真机实测 doHomework 风控响应：
+        {"msg": "弹出滑块验证", "rt": {...}, "code": "-12", "status": "200"}
+        """
+        with respx.mock:
+            respx.post("https://homework.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "code": "-12", "msg": "弹出滑块验证", "rt": {}})
+            )
+            with pytest.raises(CaptchaRequired) as exc_info:
+                query.query("homework", "https://homework.example.com/api", data={"recruitId": "10003"})
+            assert exc_info.value.response["code"] == "-12"
+            assert exc_info.value.payload == {"recruitId": "10003"}
+
+    def test_code_minus_12_int_raises_captcha(self, query: EncryptedQuery) -> None:
+        """status='200' 但 code=-12（数字）同样抛 CaptchaRequired"""
+        with respx.mock:
+            respx.post("https://homework.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "code": -12, "rt": {}})
+            )
+            with pytest.raises(CaptchaRequired):
+                query.query("homework", "https://homework.example.com/api", data={})
+
+
+# ---------------------------------------------------------------------------
+# zhidao_exam 查询
+# ---------------------------------------------------------------------------
+
+
+class TestZhidaoExamQuery:
+    """zhidao_exam 策略查询（与 homework 同策略，仅域名不同）"""
+
+    def test_default_ok_status_200(self, query: EncryptedQuery) -> None:
+        """正常返回 status='200'"""
+        with respx.mock:
+            respx.post("https://exam.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "rt": {}})
+            )
+            result = query.query("zhidao_exam", "https://exam.example.com/api", data={})
+            assert result["status"] == "200"
+
+    def test_code_minus_12_raises_captcha(self, query: EncryptedQuery) -> None:
+        """status='200' 但 code='-12' 抛 CaptchaRequired"""
+        with respx.mock:
+            respx.post("https://exam.example.com/api").mock(
+                return_value=httpx.Response(200, json={"status": "200", "code": "-12", "msg": "弹出滑块验证"})
+            )
+            with pytest.raises(CaptchaRequired):
+                query.query("zhidao_exam", "https://exam.example.com/api", data={})
+
+
+# ---------------------------------------------------------------------------
+# 不检查验证码的策略不受 code=-12 影响
+# ---------------------------------------------------------------------------
+
+
+class TestCaptchaNotChecked:
+    """check_captcha=False 的策略遇到 code=-12 仍按普通错误处理"""
+
+    def test_ai_exam_code_minus_12_raises_api_error(self, query: EncryptedQuery) -> None:
+        """ai_exam 不检查验证码，code=-12 抛 ApiError 而非 CaptchaRequired"""
+        with respx.mock:
+            respx.post("https://ai.example.com/api").mock(
+                return_value=httpx.Response(200, json={"code": -12, "message": "error"})
+            )
+            with pytest.raises(ApiError) as exc_info:
+                query.query("ai_exam", "https://ai.example.com/api", data={})
+            assert not isinstance(exc_info.value, CaptchaRequired)
+
 
 # ---------------------------------------------------------------------------
 # ai_exam_submit 查询
@@ -399,7 +479,7 @@ class TestExtraFields:
             query.query(
                 "homework",
                 "https://homework.example.com/api",
-                data={"recruitId": "394787"},
+                data={"recruitId": "10002"},
                 extra_fields={"source": "1"},
             )
             assert route.called
@@ -414,5 +494,5 @@ class TestExtraFields:
             iv = query._http.crypto.key_bytes("iv")
             cipher = Cipher(key, iv)
             decrypted = _json.loads(cipher.decrypt(parsed["secretStr"][0]))
-            assert decrypted == {"recruitId": "394787"}
+            assert decrypted == {"recruitId": "10002"}
             assert "source" not in decrypted

@@ -15,7 +15,7 @@
 from enum import IntEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 # 错误选项类型：选择题为 list[int]（一次完整选择），填空题为 list[str]（每空一个元素）
 WrongOption = list[int] | list[str]
@@ -55,6 +55,18 @@ class HomeworkItem(BaseModel):
     end_date: str = Field(default="", alias="endDate", description="截止时间")
 
     model_config = {"populate_by_name": True}
+
+    @field_validator("cp_order_number", "chapter_id", "chapter_rank", mode="before")
+    @classmethod
+    def _coerce_null_chapter_fields(cls, v: Any, info: ValidationInfo) -> Any:
+        """getStudentHomework 对无章节的作业会显式返回 null，回落为默认值
+
+        pydantic 的字段默认值只在字段缺失时生效，显式 null 会触发类型校验失败，
+        导致整条作业被丢弃（日志"解析作业项失败"）。
+        """
+        if v is None:
+            return "" if info.field_name == "cp_order_number" else 0
+        return v
 
     @property
     def remaining_redo(self) -> int:

@@ -40,11 +40,11 @@ class TestRunCourses:
         with (
             patch(
                 "zhs.cli.course_resolver.resolve_course_id",
-                return_value=ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc"),
+                return_value=ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc"),
             ),
             patch("zhs.cli.services.play_service.run_zhidao") as mock_run,
         ):
-            run_courses(session, config, ["1000008156"], None)
+            run_courses(session, config, ["123456"], None)
         mock_run.assert_called_once_with(session, config, "rac_abc")
 
     def test_hike_course_routed(self) -> None:
@@ -83,14 +83,14 @@ class TestRunCourses:
             patch(
                 "zhs.cli.course_resolver.resolve_course_id",
                 side_effect=[
-                    ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc"),
+                    ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc"),
                     ResolvedCourse(type="hike", course_id=12345),
                 ],
             ),
             patch("zhs.cli.services.play_service.run_zhidao") as mock_zhidao,
             patch("zhs.cli.services.play_service.run_hike") as mock_hike,
         ):
-            run_courses(session, config, ["1000008156", "12345"], None)
+            run_courses(session, config, ["123456", "12345"], None)
         mock_zhidao.assert_called_once_with(session, config, "rac_abc")
         mock_hike.assert_called_once_with(session, config, "12345")
 
@@ -102,14 +102,14 @@ class TestRunCourses:
             patch(
                 "zhs.cli.course_resolver.resolve_course_id",
                 side_effect=[
-                    ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc"),
+                    ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc"),
                     ResolvedCourse(type="hike", course_id=12345),
                 ],
             ),
             patch("zhs.cli.services.play_service.run_zhidao", side_effect=Exception("err")),
             patch("zhs.cli.services.play_service.run_hike") as mock_hike,
         ):
-            run_courses(session, config, ["1000008156", "12345"], None)
+            run_courses(session, config, ["123456", "12345"], None)
         # 第二个课程仍应被处理
         mock_hike.assert_called_once()
         captured = capsys.readouterr()

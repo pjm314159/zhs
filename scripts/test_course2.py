@@ -28,7 +28,7 @@ def main() -> None:
     courses = course_mgr.get_course_list()
 
     # 使用第二门课程
-    course = courses[1]  # 思想道德与法治
+    course = courses[1]  # 示例课程
     rac_id = course.secret
     print(f"课程: {course.course_name}")
 

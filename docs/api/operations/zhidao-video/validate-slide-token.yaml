@@ -1,0 +1,70 @@
+tags: [知到-视频]
+summary: 上报验证码 validate（风控解锁）
+operationId: validateSlideToken
+description: |
+  心跳返回 `-12` 后，先过易盾点选，再把结果上报给业务侧换取 `pass`。
+
+  - `ev` 固定为 5 个 ID 的 `crypto.encode_ev` 结果：
+    `[recruitId, lessonId, lessonVideoId, videoId, chapterId]`；
+    `encode_ev` 为分号连接后逐字符 XOR 再转 hex，长度随 ID 位数变化（抓包样本 78 字符）；
+    普通课程与智慧课程规则一致，与学习页无关；
+  - **不能**直接回传失败心跳的 `sdsew`：那是 10 段的分号连接 ev（样本 132 字符），
+    服务端按 5 段解析会返回 `-1 参数解码发生错误`；
+  - `token` 字段**名为 token，内容实际是组装后的 validate**：`CN31_` 前缀 + `_v_i_1` 后缀，531 字符；
+    易盾原始题目 token（31 字符）不是这个字段；
+  - `checkType` 固定 `1`。
+
+  上报成功后用原心跳 payload 重发一次即可恢复播放。
+x-zhs-service: study
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-25
+x-zhs-crypto:
+  key: video_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [token, ev, checkType]
+    properties:
+      token:
+        type: string
+        description: 组装后的 validate（`CN31_{aes(裸validate+"::"+fp)}_v_i_1`，531 字符）
+      ev:
+        type: string
+        description: crypto.encode_ev([recruitId, lessonId, lessonVideoId, videoId, chapterId])，两类课程一致，长度随 ID 位数变化
+      checkType:
+        type: integer
+        description: 固定 1
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>",
+      "dateFormate": 1781740820451
+    }
+responses:
+  '200':
+    description: 成功
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              description: 0=成功
+            message:
+              type: string
+            data:
+              type: object
+              properties:
+                currentTime:
+                  type: integer
+                  format: int64
+                msg:
+                  type: string
+                pass:
+                  type: boolean
+                  description: true=验证码已被接受
+                status:
+                  type: string

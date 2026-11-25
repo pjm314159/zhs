@@ -46,13 +46,24 @@ x-zhs-crypto:
     }
 responses:
   '200':
-    description: 成功（`status == "200"`），题目在 `rt.examBase.workExamParts[].questionDtos[]`
+    description: |
+      成功（`status == "200"`），题目在 `rt.examBase.workExamParts[].questionDtos[]`。
+
+      > **验证码**：风控触发时仍返回 `status: "200"`，但会额外返回 `code: "-12"`
+      > （`msg` 为"弹出滑块验证"），此时需先完成易盾点选验证码，再调用
+      > `/studentExam/gateway/t/v1/answer/validateSlideToken` 换取 `pass: true`。
+      > 只判断 `status` 会把 `-12` 误判为成功。
     content:
       application/json:
         schema:
           type: object
           properties:
             status:
+              type: string
+            code:
+              type: string
+              description: '"-12"=需要验证码（字符串）；无该字段表示未触发风控'
+            msg:
               type: string
             rt:
               type: object

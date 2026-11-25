@@ -35,8 +35,8 @@ def _make_exam_dict(
         "achieveCount": 0,
         "achieve": 0,
         "faStudentExamRemainCount": remain,
-        "courseId": 1000083416,
-        "courseName": "思想道德与法治",
+        "courseId": 654321,
+        "courseName": "测试课程",
         "examId": exam_id,
         "examName": "期末考试",
         "problemNum": 80,
@@ -67,7 +67,7 @@ class TestScanExams:
         session.exam_list.side_effect = exam_list_side_effect
 
         scanner = ExamScanner(session, _make_config())
-        result = scanner.scan_exams(recruit_id="394787", course_id=1000083416)
+        result = scanner.scan_exams(recruit_id="10002", course_id=654321)
 
         assert len(result.uncompleted) == 1
         assert result.uncompleted[0].id == "e1"
@@ -81,7 +81,7 @@ class TestScanExams:
         session.exam_list.side_effect = lambda cid, rid, flag: [_make_exam_dict("e1")] if flag == 1 else []
 
         scanner = ExamScanner(session, _make_config())
-        result = scanner.scan_exams(recruit_id="394787", course_id=1000083416)
+        result = scanner.scan_exams(recruit_id="10002", course_id=654321)
 
         assert isinstance(result.uncompleted[0], ExamInfo)
         assert result.uncompleted[0].exam_id == "e1"
@@ -93,7 +93,7 @@ class TestScanExams:
         session.exam_list.return_value = []
 
         scanner = ExamScanner(session, _make_config())
-        result = scanner.scan_exams(recruit_id="394787", course_id=1000083416)
+        result = scanner.scan_exams(recruit_id="10002", course_id=654321)
 
         assert result.uncompleted == []
         assert result.completed == []
@@ -105,15 +105,15 @@ class TestScanExams:
         session.exam_list.return_value = []
 
         scanner = ExamScanner(session, _make_config())
-        scanner.scan_exams(recruit_id="394787", course_id=1000083416)
+        scanner.scan_exams(recruit_id="10002", course_id=654321)
 
         assert session.exam_list.call_count == 2
         # 第一次 flag=1（未完成），第二次 flag=0（已完成）
         first_call = session.exam_list.call_args_list[0]
         second_call = session.exam_list.call_args_list[1]
         # scanner 调用: exam_list(course_id, recruit_id, flag=flag)
-        assert first_call.args[0] == 1000083416  # course_id
-        assert first_call.args[1] == "394787"  # recruit_id
+        assert first_call.args[0] == 654321  # course_id
+        assert first_call.args[1] == "10002"  # recruit_id
         assert first_call.kwargs["flag"] == 1
         assert second_call.kwargs["flag"] == 0
 
@@ -123,7 +123,7 @@ class TestScanExams:
         session.exam_list.side_effect = Exception("网络错误")
 
         scanner = ExamScanner(session, _make_config())
-        result = scanner.scan_exams(recruit_id="394787", course_id=1000083416)
+        result = scanner.scan_exams(recruit_id="10002", course_id=654321)
 
         assert result.uncompleted == []
         assert result.completed == []

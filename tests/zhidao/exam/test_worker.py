@@ -49,16 +49,16 @@ def _make_cache(tmp_path: Path | None = None) -> ZhidaoHomeworkCache:
 def _make_exam(**overrides: object) -> ExamInfo:
     """创建测试考试项"""
     data: dict[str, object] = {
-        "id": "edJddjZE",
+        "id": "exam0001",
         "state": 1,
         "score": None,
         "achieveCount": 0,
         "achieve": 0,
         "faStudentExamRemainCount": 1,
-        "courseId": 1000083416,
-        "courseName": "思想道德与法治",
-        "examId": "eAqdKONe",
-        "examName": "思想道德与法治教程考试",
+        "courseId": 654321,
+        "courseName": "测试课程",
+        "examId": "exam0001",
+        "examName": "测试考试",
         "problemNum": 2,
         "totalScore": "100",
         "limitTime": 90,
@@ -114,9 +114,9 @@ def _make_do_exam_response(questions: list[HomeworkQuestion]) -> dict[str, objec
 
     return {
         "examBase": {
-            "id": "eAqdKONe",
-            "name": "思想道德与法治教程试卷",
-            "courseName": "思想道德与法治",
+            "id": "exam0001",
+            "name": "测试试卷",
+            "courseName": "测试课程",
             "toChapter": None,
             "problemNum": len(questions),
             "totalScore": "100",
@@ -151,7 +151,7 @@ class TestExamWorkerSaveAnswer:
         exam = _make_exam()
         question = _make_question()
 
-        worker._save_answer(question, 103, exam, "394787", "625")
+        worker._save_answer(question, 103, exam, "10002", "1000")
 
         session.exam_save_answer.assert_called_once()
         session.homework_save_answer.assert_not_called()
@@ -166,7 +166,7 @@ class TestExamWorkerSaveAnswer:
         exam = _make_exam()
         question = _make_question()
 
-        worker._save_answer(question, 103, exam, "394787", "625")
+        worker._save_answer(question, 103, exam, "10002", "1000")
 
         call_args = session.exam_save_answer.call_args
         answer_item = call_args[0][0]
@@ -182,15 +182,15 @@ class TestExamWorkerSaveAnswer:
         exam = _make_exam()
         question = _make_question()
 
-        worker._save_answer(question, 103, exam, "394787", "625")
+        worker._save_answer(question, 103, exam, "10002", "1000")
 
         call_args = session.exam_save_answer.call_args
         answer_item = call_args[0][0]
-        assert answer_item["examId"] == "eAqdKONe"
-        assert answer_item["stuExamId"] == "edJddjZE"
+        assert answer_item["examId"] == "exam0001"
+        assert answer_item["stuExamId"] == "exam0001"
         assert answer_item["eid"] == "abc123=="
-        assert answer_item["schoolId"] == "625"
-        assert answer_item["recruitId"] == "394787"
+        assert answer_item["schoolId"] == "1000"
+        assert answer_item["recruitId"] == "10002"
         assert answer_item["answer"] == 103
         assert answer_item["questionType"] == 1
         assert answer_item["fromType"] == 3
@@ -208,7 +208,7 @@ class TestExamWorkerSaveAnswer:
         question = _make_question(eid=None, qid=123)
 
         with pytest.raises(ZhsError):
-            worker._save_answer(question, 103, exam, "394787", "625")
+            worker._save_answer(question, 103, exam, "10002", "1000")
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ class TestRunExam:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         session.exam_do.assert_called_once()
         session.exam_save_answer.assert_called_once()
@@ -250,7 +250,7 @@ class TestRunExam:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         session.exam_save_answer.assert_not_called()
 
@@ -268,7 +268,7 @@ class TestRunExam:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         assert session.exam_save_answer.call_count == 2
 
@@ -286,7 +286,7 @@ class TestRunExam:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         # 两题都尝试保存（第一题失败，第二题成功）
         assert session.exam_save_answer.call_count == 2
@@ -304,7 +304,7 @@ class TestRunExam:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         session.homework_submit.assert_not_called()
 
@@ -316,14 +316,14 @@ class TestRunExam:
         cache = _make_cache()
 
         question = _make_question()
-        cache.mark_correct(1000083416, "eAqdKONe", "abc123==", [103])
+        cache.mark_correct(654321, "exam0001", "abc123==", [103])
 
         session.exam_do.return_value = _make_do_exam_response([question])
         session.exam_save_answer.return_value = {"statu": "1"}
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         # 验证使用了缓存答案 103
         call_args = session.exam_save_answer.call_args
@@ -347,14 +347,14 @@ class TestSourceAwareSleep:
         cache = _make_cache()
 
         question = _make_question()
-        cache.mark_correct(1000083416, "eAqdKONe", "abc123==", [103])
+        cache.mark_correct(654321, "exam0001", "abc123==", [103])
 
         session.exam_do.return_value = _make_do_exam_response([question])
         session.exam_save_answer.return_value = {"statu": "1"}
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         # 缓存答案应该触发 sleep
         assert mock_sleep.called
@@ -376,7 +376,7 @@ class TestSourceAwareSleep:
         worker = ExamWorker(session, config, cache, llm=mock_llm)
 
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         # LLM 答案不应该触发 sleep
         mock_sleep.assert_not_called()
@@ -395,7 +395,7 @@ class TestSourceAwareSleep:
         # 不传 LLM，使用随机答题
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")
+        worker.run_exam(exam, "10002", "1000")
 
         # 随机答案应该触发 sleep
         assert mock_sleep.called
@@ -418,13 +418,13 @@ class TestExamWorkerSubmit:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625", submit=True)
+        worker.run_exam(exam, "10002", "1000", submit=True)
 
         session.exam_submit.assert_called_once()
         call_kwargs = session.exam_submit.call_args.kwargs
-        assert call_kwargs["recruit_id"] == "394787"
-        assert call_kwargs["exam_id"] == "eAqdKONe"
-        assert call_kwargs["stu_exam_id"] == "edJddjZE"
+        assert call_kwargs["recruit_id"] == "10002"
+        assert call_kwargs["exam_id"] == "exam0001"
+        assert call_kwargs["stu_exam_id"] == "exam0001"
         assert call_kwargs["achieve_count"] == "1"  # 1 题已答
 
     @patch("zhs.zhidao.exam.worker.time.sleep")
@@ -441,7 +441,7 @@ class TestExamWorkerSubmit:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625")  # 默认 submit=False
+        worker.run_exam(exam, "10002", "1000")  # 默认 submit=False
 
         session.exam_submit.assert_not_called()
 
@@ -457,7 +457,7 @@ class TestExamWorkerSubmit:
 
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
-        worker.run_exam(exam, "394787", "625", submit=True)
+        worker.run_exam(exam, "10002", "1000", submit=True)
 
         session.exam_submit.assert_not_called()
 
@@ -476,7 +476,7 @@ class TestExamWorkerSubmit:
         worker = ExamWorker(session, config, cache)
         exam = _make_exam()
         # 不应抛出异常
-        result = worker.run_exam(exam, "394787", "625", submit=True)
+        result = worker.run_exam(exam, "10002", "1000", submit=True)
         assert result == 1  # 答案仍已保存
 
     def test_submit_exam_raises_on_bad_statu(self) -> None:
@@ -492,7 +492,7 @@ class TestExamWorkerSubmit:
         exam = _make_exam()
 
         try:
-            worker._submit_exam(exam, "394787", 5)
+            worker._submit_exam(exam, "10002", 5)
             assert False, "Should have raised ZhsError"
         except ZhsError:
             pass

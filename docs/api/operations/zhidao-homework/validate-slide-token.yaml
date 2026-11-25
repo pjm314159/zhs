@@ -1,0 +1,70 @@
+tags: [知到-作业]
+summary: 上报验证码 validate（作业风控解锁）
+operationId: homeworkValidateSlideToken
+description: |
+  `doHomework` 返回 `code: "-12"`（`msg` 为"弹出滑块验证"）后，先过易盾点选验证码，
+  再把易盾 `validate` 上报给作业服务端换取 `pass: true`。
+
+  - 与视频的 `validateSlideToken` **同名不同域/路径**：作业在 `studentexam-api` 域，
+    路径 `/studentExam/gateway/t/v1/answer/validateSlideToken`，使用 `exam_key` 加密，
+    **不发送** `dateFormate`；
+  - `token` 为易盾 `check` 返回的裸 `validate` 二次组装后的值
+    （`CN31_{aes(裸validate + "::" + fp)}_v_i_1`），不是作业 ID，也无法由 ID 编码得到；
+  - `chapterId` 字段实际填的是 **examId**（字符串），不是数字型章节 ID；
+  - `checkType` 固定 `1`；
+  - 实测验证码答错时前端**不会**发起本请求，只有验证通过才回调。
+
+  `pass=true` 后即可正常 `saveStudentAnswer`；`pass=false` 需重新验证。
+x-zhs-service: homework
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-25
+x-zhs-crypto:
+  key: exam_key
+  iv: 1g3qqdh4jvbskb9x
+  cipherField: secretStr
+  plaintextIn: json
+  plainSchema:
+    type: object
+    required: [recruitId, token, checkType, chapterId]
+    properties:
+      recruitId:
+        type: string
+        description: 招募 ID
+      token:
+        type: string
+        description: 易盾 validate 二次组装后的值（`CN31_..._v_i_1`）
+      checkType:
+        type: integer
+        description: 固定 1
+      chapterId:
+        type: string
+        description: 实际为 examId（字符串），不是数字型章节 ID
+  example:
+    recruitId: '<recruitId>'
+    token: <validate>
+    checkType: 1
+    chapterId: <examId>
+  rawExample: |
+    {
+      "secretStr": "<AES加密后的base64密文>"
+    }
+responses:
+  '200':
+    description: 成功（`status == "200"`，是否通过看 `pass`）
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            currentTime:
+              type: integer
+              format: int64
+            msg:
+              type: string
+            pass:
+              type: boolean
+              description: true=验证通过；false=未通过（需重新验证）
+            status:
+              type: string
+              description: '"200" 仅表示请求成功，验证结果看 `pass`'

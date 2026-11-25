@@ -25,6 +25,8 @@ dependencies = [
     "tomli-w>=1.2.0",        # config的toml
     "python-pptx>=1.0",      # PPT 本地文本提取（python-pptx）
     "beautifulsoup4>=4.12",  # HTML 标签剥离与实体转义（题目文本清洗）
+    "opencv-python-headless>=4.10",  # 验证码滑块缺口识别
+    "numpy>=2.0",            # 验证码滑块图像数组运算
 ]
 
 # 项目链接
