@@ -152,3 +152,11 @@ def test_trigger_metadata() -> None:
     assert (slide_trigger.width, slide_trigger.type_code) == (400, 2)
     assert click_trigger.captcha_id == yidun.CAPTCHA_CLICK
     assert slide_trigger.captcha_id == yidun.CAPTCHA_SLIDE
+
+
+def test_trigger_width_override() -> None:
+    """页面自定义宽度（如登录页 452px）优先于默认值"""
+    trigger = CaptchaTrigger(kind="slide", referer="r", width_override=452)
+    assert trigger.width == 452
+    assert trigger.type_code == 2
+    assert trigger.captcha_id == yidun.CAPTCHA_SLIDE

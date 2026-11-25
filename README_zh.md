@@ -4,7 +4,7 @@
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课、Hike 职教云课、AI 智慧课程三类课程的自动学习。核心能力包括：扫码登录、视频进度模拟、弹窗答题、AI 自动作业与考试。
+ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课、Hike 职教云课、AI 智慧课程三类课程的自动学习。核心能力包括：扫码登录、账号密码登录、视频进度模拟、弹窗答题、AI 自动作业与考试。
 
 > 如果我的项目对你有帮助，欢迎 star ⭐
 
@@ -13,6 +13,7 @@ ZHS 是一个针对智慧树平台的自动学习工具，支持知到共享课�
 - **三类课程全覆盖**：知到（Zhidao）/ Hike 职教云 / AI 智慧课程
 - **命令式 CLI**：`zhs init / login / play / homework / exam / fetch / cache` 子命令清晰分离，`zhs --version`（或 `-v`）查看版本号
 - **扫码登录**：自动保存 Cookie，避免重复登录
+- **账号密码登录**：配置 `[login]` 后可用 `--method password` 登录，Cookie 失效可自动重登
 - **视频自动刷课**：模拟真人观看（随机暂停、随机延迟、进度条显示）
 - **弹窗答题**：视频内弹窗题目自动选择正确答案
 - **作业自动作答**：知到作业 + AI 课程作业，支持 LLM 答题与答案缓存
@@ -93,6 +94,23 @@ zhs login
 
 ```bash
 zhs login --show-in-terminal
+```
+
+#### 账号密码登录
+
+```bash
+zhs login --method password -u <账号> -p <密码>
+```
+
+`-u` 与 `-p` 必须同时提供或都不提供；都不提供时使用 `~/.zhs/config.toml` 的 `[login] account/password`，仍为空则交互输入。账号密码登录需要启用验证码自动求解（`[captcha] enabled = true` 且 `fp` 有效），一次命令只提交一次，不重试。
+
+也可以在配置中开启自动登录：Cookie 缺失或失效时，用 `[login]` 中保存的账号密码自动登录一次。
+
+```toml
+[login]
+account = ""
+password = ""
+auto_login = false
 ```
 
 ### 3. 获取课程列表
@@ -178,7 +196,7 @@ zhs exam --type ai
 | 命令 | 说明 |
 |------|------|
 | `zhs init` | 初始化 `~/.zhs/` 目录与默认配置 |
-| `zhs login` | 扫码登录并保存 Cookie |
+| `zhs login` | 登录并保存 Cookie（扫码 / 账号密码） |
 | `zhs play` | 刷视频（支持知到 / Hike / AI，支持 `--url`） |
 | `zhs homework` | 写作业（知到作业 + AI 课程作业，支持 `--url`） |
 | `zhs exam` | AI 课程考试（支持 `--url` 直接做某个考试） |

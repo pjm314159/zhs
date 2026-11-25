@@ -13,8 +13,10 @@ import json
 import sys
 from typing import Any
 
+import httpx
 import typer
 from loguru import logger
+from pydantic import ValidationError
 
 from zhs.api.session_auth import SessionStatus, verify_session
 from zhs.config import AppConfig, ConfigManager
@@ -105,7 +107,11 @@ def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -
     from zhs.utils.display import msg_done, msg_error
 
     config_mgr = ConfigManager()
-    config = config_mgr.load()
+    try:
+        config = config_mgr.load()
+    except ValidationError as exc:
+        print(msg_error(f"配置错误：{_config_validation_message(exc)}"))
+        return None
 
     if proxy:
         parse_proxy(config, proxy)
@@ -121,20 +127,61 @@ def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -
 
     session = ZhsSession(config)
 
-    if not try_restore_cookies(session, config):
-        print(msg_error("未登录，请先运行 zhs login 登录"))
+    has_cookies = try_restore_cookies(session, config)
+    if has_cookies:
+        status = verify_session(session)
+        if status is SessionStatus.UNAVAILABLE:
+            print(msg_error("登录状态校验失败：接口不可用，请检查网络后重试"))
+            return None
+        if status is not SessionStatus.EXPIRED:
+            print(msg_done("登录状态有效"))
+            return config, session
+
+    if not config.login.auto_login:
+        if has_cookies:
+            print(msg_error("登录状态已过期，请重新运行 zhs login 登录"))
+        else:
+            print(msg_error("未登录，请先运行 zhs login 登录"))
         return None
 
-    status = verify_session(session)
-    if status is SessionStatus.UNAVAILABLE:
-        print(msg_error("登录状态校验失败：接口不可用，请检查网络后重试"))
-        return None
-    if status is SessionStatus.EXPIRED:
-        print(msg_error("登录状态已过期，请重新运行 zhs login 登录"))
+    if not _auto_login(session, config):
         return None
 
     print(msg_done("登录状态有效"))
     return config, session
+
+
+def _config_validation_message(exc: ValidationError) -> str:
+    """只取校验消息，避免 pydantic 把输入值（可能含密码）带进终端输出"""
+    errors = exc.errors()
+    if not errors:
+        return "配置校验失败"
+    return str(errors[0].get("msg", "配置校验失败")).removeprefix("Value error, ")
+
+
+def _auto_login(session: ZhsSession, config: AppConfig) -> bool:
+    """用配置的账号密码自动登录一次（不重试），失败返回 False"""
+    from zhs.exceptions import LoginFailed
+    from zhs.login import LoginManager, SecretPassword
+    from zhs.utils.display import msg_done, msg_error, msg_info
+
+    print(msg_info("登录状态失效，正在使用配置的账号密码自动登录"))
+    try:
+        result = LoginManager(session, config).login_with_password(
+            config.login.account, SecretPassword(config.login.password)
+        )
+    except LoginFailed as exc:
+        print(msg_error(f"自动登录失败：{exc}"))
+        return False
+
+    save_login_cookies(config, result.cookies)
+
+    if verify_session(session) is not SessionStatus.OK:
+        print(msg_error("自动登录后登录状态校验失败，请手动运行 zhs login"))
+        return False
+
+    print(msg_done("自动登录成功"))
+    return True
 
 
 def try_restore_cookies(session: ZhsSession, config: AppConfig) -> bool:
@@ -184,15 +231,21 @@ def do_login(
 
     logger.info("登录成功")
 
-    # 保存 cookies
-    if config.save_cookies and result.cookies:
-        from zhs.utils.cookie import cookies_to_list
-        from zhs.utils.path import get_data_dir
+    save_login_cookies(config, result.cookies)
 
-        cookies_path = get_data_dir() / "cookies.json"
-        with open(cookies_path, "w", encoding="utf-8") as f:
-            json.dump(cookies_to_list(result.cookies), f, indent=2, ensure_ascii=False)
-        logger.info(f"Cookie 已保存到 {cookies_path}")
+
+def save_login_cookies(config: AppConfig, cookies: httpx.Cookies | None) -> None:
+    """保存登录后 cookies 到数据目录（save_cookies=false 或 cookies 为空时跳过）"""
+    if not config.save_cookies or not cookies:
+        return
+
+    from zhs.utils.cookie import cookies_to_list
+    from zhs.utils.path import get_data_dir
+
+    cookies_path = get_data_dir() / "cookies.json"
+    with open(cookies_path, "w", encoding="utf-8") as f:
+        json.dump(cookies_to_list(cookies), f, indent=2, ensure_ascii=False)
+    logger.info(f"Cookie 已保存到 {cookies_path}")
 
 
 def init_llm(config: AppConfig) -> Any:
@@ -268,6 +321,7 @@ __all__ = [
     "load_config_and_session",
     "check_captcha_config",
     "parse_proxy",
+    "save_login_cookies",
     "setup_logger",
     "try_restore_cookies",
 ]

@@ -1,12 +1,13 @@
 """登录集成测试 — 扫码登录、Cookie 恢复与持久化"""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from zhs.config import AppConfig
-from zhs.login import LoginManager
+from zhs.login import LoginManager, SecretPassword
 from zhs.session import ZhsSession
 from zhs.utils.cookie import cookies_to_list, list_to_cookies
 from zhs.utils.path import get_data_dir
@@ -94,4 +95,24 @@ class TestQRLogin:
 
         assert Path(qr_path).exists()
         assert Path(qr_path).stat().st_size > 0
+        session.close()
+
+
+class TestPasswordLogin:
+    """账号密码登录（凭据从环境变量读取，需 [captcha] 已启用）"""
+
+    @pytest.mark.manual_login
+    def test_password_login_full_flow(self, app_config: AppConfig) -> None:
+        """P-01: 账号密码登录完整流程（ZHS_LOGIN_ACCOUNT / ZHS_LOGIN_PASSWORD）"""
+        account = os.getenv("ZHS_LOGIN_ACCOUNT", "")
+        password = os.getenv("ZHS_LOGIN_PASSWORD", "")
+        if not account or not password:
+            pytest.skip("未设置 ZHS_LOGIN_ACCOUNT / ZHS_LOGIN_PASSWORD")
+
+        session = ZhsSession(app_config)
+        login_mgr = LoginManager(session, app_config)
+        result = login_mgr.login_with_password(account, SecretPassword(password))
+
+        assert result.success is True
+        assert result.uuid
         session.close()

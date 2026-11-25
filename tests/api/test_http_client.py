@@ -78,11 +78,11 @@ class TestCookies:
         client.cookies = httpx.Cookies()
         client.cookies.set(
             "CASLOGC",
-            "%7B%22uuid%22%3A%22Xe6arnRO%22%2C%22userId%22%3A892074277%7D",
+            "%7B%22uuid%22%3A%22demoUuid%22%2C%22userId%22%3A100000001%7D",
             domain="zhihuishu.com",
         )
         client.parse_uuid()
-        assert client.uuid == "Xe6arnRO"
+        assert client.uuid == "demoUuid"
 
     def test_exit_record_set(self, client: HttpClient) -> None:
         """Cookie 设置时自动添加 exitRecod_{uuid}=2"""

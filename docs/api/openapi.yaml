@@ -30,6 +30,7 @@ info:
     | ai_analysis | `ai-course-assistant-api.zhihuishu.com` |
     | newbase | `newbase.zhihuishu.com` |
     | passport | `passport.zhihuishu.com` |
+    | user | `user.zhihuishu.com` |
     | yidun | `c.dun.163.com` |
 
     ### 加密
@@ -54,7 +55,7 @@ security: []
 
 tags:
   - name: 登录
-    description: 扫码登录、CAS 换票、登录态探活
+    description: 扫码登录、账号密码登录、CAS 换票、登录态探活
   - name: 课程列表
     description: 知到共享课与 AI 课程列表
   - name: 知到-视频
@@ -75,13 +76,21 @@ paths:
     get:
       $ref: './operations/login/login-page.yaml'
 
-  /qrCodeLogin/getLoginQrImg:
+  /zhsuser/qrCodeLogin/getLoginQrImg:
     get:
       $ref: './operations/login/qr-image.yaml'
 
-  /qrCodeLogin/getLoginQrInfo:
+  /zhsuser/qrCodeLogin/getLoginQrInfo:
     get:
       $ref: './operations/login/qr-info.yaml'
+
+  /zhsuser/login/account:
+    post:
+      $ref: './operations/login/password-login.yaml'
+
+  /zhsuser/login/code/skipSet/{uuid}:
+    post:
+      $ref: './operations/login/skip-set.yaml'
 
   /login/gologin:
     get:
@@ -364,6 +373,25 @@ components:
         请求时把业务参数序列化为 JSON 后加密，放入 `secretStr`。本域不发送 `dateFormate`。
 
         页面上的 Request 是**解密后**的参数；**原始加密报文**见每个接口的「原始报文（加密后）」代码块。
+    'AES-128-CBC (login_key)':
+      type: apiKey
+      in: header
+      name: Body
+      description: |
+        **AES-128-CBC 加密**（密钥 `login_key`）
+
+        | 项 | 值 |
+        | --- | --- |
+        | 密钥 | `bdas85990328dfpl` |
+        | IV | `563216db1e1744c7` |
+        | 密文字段 | 无；整个 request body 即 base64 字符串 |
+        | 明文位置 | `{account, password, validate}` |
+        | 时间戳 | 无 |
+
+        与其它加密接口的差别：body 是**带双引号的 JSON 字符串**（如 `"ZHVtbXk="`），
+        不是 `{"secretStr": ...}`，也不发送 `dateFormate`；IV 为该接口专用。
+
+        页面上的 Request 是**解密后**的参数；**原始加密报文**见「原始报文（加密后）」代码块。
     'AES-128-CBC (ai_key)':
       type: apiKey
       in: query

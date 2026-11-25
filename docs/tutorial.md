@@ -157,7 +157,7 @@ ZHS 的 AI 答题按课程类型分成两条链路：
 
 ## 3. 登录
 
-ZHS 仅支持**扫码登录**，使用 `zhs login` 命令：
+ZHS 支持**扫码登录**（默认）与**账号密码登录**，使用 `zhs login` 命令：
 
 ```bash
 zhs login
@@ -183,7 +183,18 @@ zhs login --show-in-terminal
 zhs login --image-path /path/to/qrcode.png
 ```
 
-### 3.3 通过代理登录
+### 3.3 账号密码登录
+
+```bash
+zhs login --method password -u <账号> -p <密码>
+```
+
+- `-u` 与 `-p` 必须同时提供或都不提供；都不提供时使用 `[login] account/password`，仍为空则交互输入。
+- 需要启用验证码自动求解：`[captcha] enabled = true` 且 `fp` 有效，否则直接报错。
+- 一次命令只提交一次，不重试。
+- 配置 `[login] auto_login = true` 后，Cookie 缺失或失效时会自动用配置的账号密码登录一次。
+
+### 3.4 通过代理登录
 
 ```bash
 zhs login --proxy http://127.0.0.1:7890
@@ -200,7 +211,7 @@ ZHS 使用命令式 CLI 接口，所有命令通过 `zhs <command>` 调用：
 | 命令 | 用途 | 示例 |
 |------|------|------|
 | `zhs init` | 初始化数据目录与配置 | `zhs init` |
-| `zhs login` | 扫码登录 | `zhs login` |
+| `zhs login` | 登录（扫码 / 账号密码） | `zhs login` |
 | `zhs play` | 刷视频（知到/Hike/AI） | `zhs play -c 1000008156` |
 | `zhs homework` | 写作业（知到/AI） | `zhs homework -c 1000008156` |
 | `zhs exam` | AI 课程考试 | `zhs exam --ai-course 1001 --ai-class 2001` |

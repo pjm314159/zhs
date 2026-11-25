@@ -545,3 +545,97 @@ API 参考：`.temp/questions_bank.md`
 - 文案：`captcha/__init__.py` docstring、`service.py`（"OpenCV 不可用"）、`slider.py`（RuntimeError）去掉 extra 说法
 - 校验：`uv sync --dev` 安装 cv2 5.1.0 / numpy 2.5.5，`slider.available() == True`；干净 venv 安装 wheel 后 `import cv2, numpy` 成功、`zhs --version` 正常
 - Test：ruff check/format、mypy（169 files）、pytest 全量 1281 passed；分支 `feat/captcha`
+
+### 扫码登录接口迁移到新版端点（`user.zhihuishu.com/zhsuser`）✅
+- 背景：登录中心改版，扫码接口由 `passport.zhihuishu.com/qrCodeLogin/*` 迁移为 `user.zhihuishu.com/zhsuser/qrCodeLogin/*`；实测旧接口仍在、响应结构（`img`/`qrToken`/`status`/`oncePassword`/`uuid`）与未扫码状态 `-1` 完全一致
+- Red：`tests/test_login.py` 4 个用例改 mock 新域名后报 `RESPX ... not mocked`；`tests/test_config.py::test_default_values` 因 `UrlConfig` 无 `user` 字段失败
+- Green：`UrlConfig` 新增 `user`；`LoginManager.login_with_qr` 改用 `{urls.user}/zhsuser/qrCodeLogin/*`；`config.toml.example` 增加 `user`
+- 未改动：轮询间隔 0.5s、`status` 分支（-1/0/1/2/3）、`passport/login?pwd=` 换票链路
+- Test：pytest 全量 1281 passed；ruff check/format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P1 — 配置层 ✅
+- Red：`tests/test_config.py` 新增 `TestLoginConfig`（默认值 / 自定义值 / `auto_login=true` 缺账号或密码抛 `ValidationError`）、`TestCryptoConfig.test_default_values` 增加 `login_key`/`login_iv` 断言、`test_load_login_section`、`test_save_preserves_login` → 导入 `LoginConfig` 失败（ImportError）
+- Green：
+  - `src/zhs/config.py` 新增 `LoginConfig`（`account` / `password` / `auto_login`，`auto_login=true` 时账号或密码为空直接校验失败）
+  - `CryptoConfig` 增加 `login_key = "bdas85990328dfpl"`、`login_iv = "563216db1e1744c7"`（登录接口 AES-128-CBC 专用）
+  - `AppConfig` 增加 `login` 段；`ConfigManager._flatten_toml` / `_unflatten_config` 支持 `[login]` 读写
+  - `config.toml.example` 增加 `[login]` 段与两项登录密钥（占位为空，不含真实账号密码）
+- Test：`tests/test_config.py` 61 passed
+- Refactor：改动文件 ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P2 — PassportLoginApi ✅
+- Red：`tests/api/test_passport_login_api.py` 15 用例（body 为带引号密文串且解回 `{account,password,validate}`、登录 headers、`status` 归一化含 int/str/未知值、`rt` 字段映射、HTTP 500 包装、`skipSet` 两种路径、日志不含密码）→ `ModuleNotFoundError: zhs.api.passport_login_api`
+- Green：新增 `src/zhs/api/passport_login_api.py`
+  - `AccountLoginStatus`（`1`/`2`/`-12`/`-5`/`-13`/`ACCOUNT_DISABLED`/`UNKNOWN`，`_missing_` 兜底未知值）
+  - `AccountLoginResult`（`status`/`msg`/`pwd`/`uuid`/`cache_id`）
+  - `login_by_password`：`_encrypt_body` 用 `login_key`+`login_iv` 加密并二次 `json.dumps`，body 为裸字符串；Header `Content-Type`/`Origin`/`Referer` 固定登录页
+  - `skip_set(identifier)`：`rt.uuid` 与 `rt.cacheId` 共用，body 固定 `null`，identifier 先做格式校验
+  - HTTP/解析异常统一 `raise LoginFailed(...) from e`；不重试、不判成功、不落盘、不输出密码
+- Test：`tests/api/test_passport_login_api.py` 15 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P3 — LoginManager 编排 ✅
+- Red：`tests/test_login.py` 新增 `TestSecretPassword`（repr/str 脱敏、json 序列化仍为原文）与 `TestPasswordLogin`（成功换票、`status=2` 用 cacheId 续登、`status=1` 缺 pwd 回落 uuid、`-5`/`ACCOUNT_DISABLED` 提示、验证码未启用直接拒绝且零请求、验证码求解失败零请求、日志不含密码、`status=2` 缺 cacheId 不换票）→ `ImportError: SecretPassword`
+- Green：`src/zhs/login.py`
+  - `SecretPassword(str)`：`__repr__`/`__str__` 均返回 `***`，加密与 JSON 序列化仍使用原文
+  - `ensure_password_login_ready`：`[captcha] enabled` 必须为 true 且 `fp` 格式合法，否则 `LoginFailed`，不静默跳过
+  - `login_with_password`：前置校验 → 求解一次登录滑块（`referer=https://login.zhihuishu.com/`）→ 提交 → `status=2` 用 `cacheId` 续登（正常分支，不提示）→ 非 OK 按 `STATUS_HINTS` 报错 → 换票
+  - 抽取 `_complete_login_with_once_password`，扫码与密码登录共用换票落 cookies
+  - 不重试：一次命令只提交一次
+- Test：`tests/test_login.py` 21 passed；pytest 全量 1312 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P5 — CLI `zhs login --method password` ✅
+- Red：`tests/cli/test_main.py::TestLoginSubcommand` 新增 6 组用例（`-u`/`-p` 同时提供、仅提供其一报错、回落 `[login]` 配置、配置为空交互补齐且密码隐藏输入、失败退出码 1、未知 `--method` 退出码 2、qr 拒绝 `-u/-p`、输出不含密码）→ 命令无 `--method/-u/-p` 选项，`AttributeError: _save_login_cookies`
+- Green：
+  - `src/zhs/__main__.py::login` 增加 `--method qr|password`、`-u/--account`、`-p/--password`；默认仍为扫码
+  - `_resolve_login_credentials`：`-u`/`-p` 必须同时提供或都不提供；都不提供时回落 `[login]`，缺失项用 `typer.prompt` 补齐（密码 `hide_input=True`）
+  - 密码统一包装为 `SecretPassword`，`LoginFailed` 打印错误并以退出码 1 退出，不打印密码
+  - `src/zhs/cli/bootstrap.py` 抽取 `save_login_cookies`，`do_login` 与密码登录共用
+- Test：`tests/cli` 235 passed（含原有登录/扫码用例）
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P6 — Cookie 失效自动登录 ✅
+- Red：`tests/cli/test_bootstrap.py::TestLoadConfigAndSession` 新增 6 用例（无 cookies 自动登录并保存、EXPIRED 重登后继续、`auto_login=false` 保持原提示、配置错误不泄露密码、失败只尝试一次、重登后校验仍失效报错）→ 自动登录未被调用（`call_count == 0`）
+- Green：`src/zhs/cli/bootstrap.py`
+  - `load_config_and_session` 捕获 `ValidationError`，仅输出校验消息（`_config_validation_message`），不带 pydantic 的 `input_value`（避免密码进终端）
+  - 无 cookies / `verify_session=EXPIRED` 且 `login.auto_login=true` → `_auto_login` 用 `[login]` 账号密码（`SecretPassword` 包装）登录一次 → 保存 cookies → 再校验；失败或仍失效直接退出，不循环
+  - `auto_login=false` 保持原“请运行 zhs login”提示；`UNAVAILABLE` 仍提示检查网络
+- Test：`tests/cli/test_bootstrap.py` 55 passed；pytest 全量 1326 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P7 — 文档同步与全量校验 ✅
+- 文档：
+  - `docs/spec.md`：登录系统拆为「扫码 / 账号密码 / Cookie 与自动登录」，补充登录协议、`status=2` 正常分支、验证码硬性前置与风控约束；`zhs login` 参数表增加 `--method` / `-u` / `-p`
+  - `docs/design.md`：`LoginManager` 增加 `SecretPassword` / `login_with_password` / `_solve_login_captcha` / `_complete_login_with_once_password`，新增密码登录流程图与 `PassportLoginApi` 设计
+  - `docs/test.md`：补充 `TestSecretPassword` / `TestPasswordLogin` / `TestPassportLoginApi` / `TestAutoLogin` 用例清单
+  - `README.md` / `README_zh.md` / `docs/tutorial.md`：补充账号密码登录、`[login]` 配置与 `auto_login` 说明
+  - `tests/integration/test_login_integration.py`：新增密码登录集成用例（凭据仅从 `ZHS_LOGIN_ACCOUNT` / `ZHS_LOGIN_PASSWORD` 环境变量读取，不写入代码）
+- Test：pytest 全量 1326 passed（integration 默认 deselected）
+- Refactor：`ruff check src/ tests/`、`ruff format --check src/ tests/`、`mypy src/ tests/`（171 files）全部通过；分支 `feat/password-login`
+
+### 修复：登录页滑块验证码始终未通过 ✅
+- 现象：日志 `验证码未通过（第 1~3/3 次）: error=0 msg=ok`，`/api/v3/check` 返回 `data.result=False`
+- 根因：登录页 JS `initNECaptchaWithFallback({captchaId:"75f9…", width:"452px"})` 以 452px 渲染滑块，而 `CaptchaTrigger` 固定按 `SLIDE_WIDTH=400` 提交 `fetch`/`check`；缺口坐标按 400 缩放后与 452 不一致，易盾判定位置错误
+- 修复：
+  - `CaptchaTrigger` 新增 `width_override`，`width` 优先取页面自定义宽度
+  - `LoginManager` 使用 `LOGIN_CAPTCHA_WIDTH = 452` 构造登录滑块 trigger
+- 验证：真实登录页独立复跑 4/4 `result=True`；`LoginManager._solve_login_captcha()` 返回 validate 长度 531
+- Test：新增 `test_trigger_width_override`，`test_success_solves_captcha_and_saves_cookies` 断言 `trigger.width == 452`
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+### 测试加固：密码登录凭据来源规则 ✅
+- 规则：`zhs login --method password` 不传 `-u/-p` 时，`[login] account/password` **都非空**则直接使用、不进入交互；配置项为空才交互补齐
+- 变更：`tests/cli/test_main.py::test_password_login_falls_back_to_config` 增加 `typer.prompt` 未被调用断言（与 `test_password_login_prompts_when_config_empty` 共同锁定两条分支）
+- Test：密码登录相关 6 passed；ruff / mypy 通过
+
+### 隐私数据审计与匿名化 ✅
+- 审计范围：全部已跟踪文件 + 全部 Git 提交历史
+- 结论：
+  - 真实账号/密码/易盾 `fp`/API Key/题库 token：**未出现在**任何已跟踪文件与提交历史中；`.zhs/`、`.temp/` 均被 `.gitignore` 忽略且从未被跟踪
+  - 发现历史遗留的真实个人标识：`uuid` 与 `userId`（出现在 `tests/api/test_http_client.py`、`tests/test_session.py`、`tests/api/test_session_auth.py`、`tests/test_logger.py`、`docs/design.md`、`docs/test.md`）
+- 处理：当前工作区全部替换为占位值（`demoUuid` / `100000001`），并全量复跑 CI
+- 遗留：上述占位前的真实值仍存在于历史提交中，如需彻底清除需重写历史（破坏性操作，待确认）
+- CI：pytest 1327 passed；ruff check / format、mypy（171 files）通过
+
+

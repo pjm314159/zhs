@@ -893,6 +893,80 @@ class TestLoginManager:
 
     def test_cookie_restore(self, session: ZhsSession, tmp_path: Path) -> None:
         """Cookie 恢复登录"""
+
+
+class TestSecretPassword:
+    def test_repr_and_str_are_masked(self) -> None:
+        """repr/str/f-string 均为 ***，避免日志泄露"""
+
+    def test_real_value_survives_json_serialization(self) -> None:
+        """json.dumps 仍输出真实密码（加密与提交必须用原文）"""
+
+
+class TestPasswordLogin:
+    def test_success_solves_captcha_and_saves_cookies(self) -> None:
+        """滑块求解 → 提交 → oncePassword 换票，cookies 落会话"""
+
+    def test_school_unverified_uses_cache_id(self) -> None:
+        """status=2 用 cacheId 续登，属正常路径不报错"""
+
+    def test_ok_without_pwd_falls_back_to_uuid(self) -> None:
+        """status=1 且无 rt.pwd → skipSet(uuid)"""
+
+    def test_failure_status_raises_with_hint(self) -> None:
+        """-5 / ACCOUNT_DISABLED 等按 STATUS_HINTS 提示"""
+
+    def test_captcha_disabled_rejects_without_request(self) -> None:
+        """captcha 未启用直接 LoginFailed，零 HTTP 请求"""
+
+    def test_captcha_solve_failed_raises_without_request(self) -> None:
+        """验证码求解失败 → LoginFailed，不提交账号密码"""
+
+    def test_status2_without_cache_id_fails_before_passport(self) -> None:
+        """status=2 缺 cacheId 直接失败，不换票"""
+
+    def test_password_not_logged(self) -> None:
+        """DEBUG 级日志中不出现密码原文"""
+
+
+class TestPassportLoginApi:
+    def test_body_is_quoted_encrypted_json_string(self) -> None:
+        """body 为带双引号的密文串，可解回 {account,password,validate}，无 secretStr/dateFormate"""
+
+    def test_sends_login_headers(self) -> None:
+        """Content-Type / Origin / Referer 固定为登录页"""
+
+    def test_status_normalized(self) -> None:
+        """int/str/未知 status 归一化为 AccountLoginStatus"""
+
+    def test_maps_rt_fields(self) -> None:
+        """rt.pwd / uuid / cacheId 映射到结果"""
+
+    def test_http_error_wrapped(self) -> None:
+        """HTTP 错误包装为 LoginFailed"""
+
+    def test_posts_json_null(self) -> None:
+        """skipSet 路径支持 uuid 与 cacheId，body 为 null"""
+
+
+class TestAutoLogin:
+    def test_auto_login_when_no_cookies(self) -> None:
+        """无 cookies + auto_login=true → 登录一次并保存 cookies"""
+
+    def test_auto_login_when_session_expired(self) -> None:
+        """verify_session=EXPIRED → 重登后继续"""
+
+    def test_auto_login_disabled_keeps_relogin_hint(self) -> None:
+        """auto_login=false 保持原提示，不调用登录"""
+
+    def test_auto_login_config_error_does_not_leak_password(self) -> None:
+        """配置错误只输出校验消息，不含 pydantic input_value"""
+
+    def test_auto_login_failure_attempts_once(self) -> None:
+        """自动登录失败只尝试一次"""
+
+    def test_auto_login_then_verify_still_expired_fails(self) -> None:
+        """重登后仍失效 → 报错退出，不循环"""
 ```
 
 ### 4.6 zhidao/video.py
@@ -1586,10 +1660,10 @@ class TestSensitiveFilter:
 
     def test_normal_text_unchanged(self) -> None:
         """普通文本不被脱敏"""
-        text = "登录成功: uuid=Xe6arnRO"
+        text = "登录成功: uuid=demoUuid"
         for pattern in _SENSITIVE_PATTERNS:
             text = pattern.sub(r"\1***", text)
-        assert text == "登录成功: uuid=Xe6arnRO"
+        assert text == "登录成功: uuid=demoUuid"
 ```
 
 ---

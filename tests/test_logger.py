@@ -179,8 +179,8 @@ class TestSensitiveFilter:
 
     def test_normal_text_unchanged(self) -> None:
         """普通文本不被脱敏"""
-        result = self._redact("登录成功: uuid=Xe6arnRO")
-        assert result == "登录成功: uuid=Xe6arnRO"
+        result = self._redact("登录成功: uuid=demoUuid")
+        assert result == "登录成功: uuid=demoUuid"
 
     def test_patcher_integrated(self, tmp_path: Path) -> None:
         """filter 与 loguru 集成后，日志消息自动脱敏"""
@@ -202,13 +202,13 @@ class TestSensitiveFilter:
 
         # 写入包含敏感信息的日志
         logger.info("登录信息: token=abc123def")
-        logger.info("普通消息: uuid=Xe6arnRO")
+        logger.info("普通消息: uuid=demoUuid")
 
         # 读取日志文件验证
         content = log_file.read_text(encoding="utf-8")
         assert "token=***" in content
         assert "abc123def" not in content
-        assert "uuid=Xe6arnRO" in content
+        assert "uuid=demoUuid" in content
 
 
 # ---------------------------------------------------------------------------

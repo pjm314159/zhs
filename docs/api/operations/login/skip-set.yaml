@@ -1,0 +1,71 @@
+tags: [登录]
+summary: 免选择续登（skipSet）
+operationId: skipSetLogin
+x-zhs-service: user
+x-zhs-status: confirmed
+x-zhs-evidence:
+  capturedAt: 2026-11-25
+description: |
+  路径末段既可是 `uuid` 也可是 `cacheId`，用于两种场景，成功都返回
+  `{"status": 1, "rt": {"pwd": "<oncePassword>"}}`：
+
+  | 路径参数来源 | 场景 |
+  | --- | --- |
+  | `rt.uuid` | `login/account` 返回 `status=1` 且带 `rt.uuid`（确认登录） |
+  | `rt.cacheId` | `login/account` 返回 `status=2`（仅未完成学校认证，续登取 oncePassword） |
+
+  Body 固定为 JSON `null`，`Content-Type: application/json;charset=UTF-8`。
+parameters:
+  - name: uuid
+    in: path
+    required: true
+    description: "`rt.uuid` 或 `rt.cacheId`"
+    schema:
+      type: string
+  - name: Content-Type
+    in: header
+    required: true
+    description: 固定为 `application/json;charset=UTF-8`
+    schema:
+      type: string
+      default: application/json;charset=UTF-8
+  - name: Origin
+    in: header
+    required: true
+    description: 固定为 `https://login.zhihuishu.com`
+    schema:
+      type: string
+      default: https://login.zhihuishu.com
+requestBody:
+  required: true
+  content:
+    application/json:
+      schema:
+        type: 'null'
+      examples:
+        body:
+          summary: 固定为 null
+          value: null
+responses:
+  '200':
+    description: 续登结果
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            status:
+              type: integer
+              description: 1=成功
+            msg:
+              type: string
+            rt:
+              type: object
+              properties:
+                pwd:
+                  type: string
+                  description: 一次性密码（oncePassword）
+                uuid:
+                  type: string
+                cacheId:
+                  type: string
