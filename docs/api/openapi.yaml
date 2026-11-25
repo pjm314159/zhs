@@ -163,6 +163,10 @@ paths:
     post:
       $ref: './operations/zhidao-homework/do-homework.yaml'
 
+  /studentExam/gateway/t/v1/answer/validateSlideToken:
+    post:
+      $ref: './operations/zhidao-homework/validate-slide-token.yaml'
+
   /studentExam/gateway/t/v1/student/lookHomework:
     post:
       $ref: './operations/zhidao-homework/look-homework.yaml'
