@@ -574,4 +574,15 @@ API 参考：`.temp/questions_bank.md`
 - Test：`tests/api/test_passport_login_api.py` 15 passed
 - Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
 
+### 账户密码登录 P3 — LoginManager 编排 ✅
+- Red：`tests/test_login.py` 新增 `TestSecretPassword`（repr/str 脱敏、json 序列化仍为原文）与 `TestPasswordLogin`（成功换票、`status=2` 用 cacheId 续登、`status=1` 缺 pwd 回落 uuid、`-5`/`ACCOUNT_DISABLED` 提示、验证码未启用直接拒绝且零请求、验证码求解失败零请求、日志不含密码、`status=2` 缺 cacheId 不换票）→ `ImportError: SecretPassword`
+- Green：`src/zhs/login.py`
+  - `SecretPassword(str)`：`__repr__`/`__str__` 均返回 `***`，加密与 JSON 序列化仍使用原文
+  - `ensure_password_login_ready`：`[captcha] enabled` 必须为 true 且 `fp` 格式合法，否则 `LoginFailed`，不静默跳过
+  - `login_with_password`：前置校验 → 求解一次登录滑块（`referer=https://login.zhihuishu.com/`）→ 提交 → `status=2` 用 `cacheId` 续登（正常分支，不提示）→ 非 OK 按 `STATUS_HINTS` 报错 → 换票
+  - 抽取 `_complete_login_with_once_password`，扫码与密码登录共用换票落 cookies
+  - 不重试：一次命令只提交一次
+- Test：`tests/test_login.py` 21 passed；pytest 全量 1312 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
 
