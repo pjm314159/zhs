@@ -564,16 +564,25 @@ class ZhsSession:
 from zhs.session import ZhsSession
 from zhs.config import AppConfig
 
+class SecretPassword(str):
+    """密码包装：repr/str 均为 ***，加密与 JSON 序列化仍用原文"""
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
+
 class LoginResult:
     """登录结果"""
     success: bool
     uuid: str | None
     cookies: httpx.Cookies | None
 
-class LoginManager:
-    """登录管理器（仅扫码登录）"""
+def ensure_password_login_ready(config: AppConfig) -> None:
+    """密码登录硬性前置：captcha.enabled=true 且 fp 有效，否则 LoginFailed"""
 
-    def __init__(self, session: ZhsSession, config: AppConfig) -> None: ...
+class LoginManager:
+    """登录管理器（扫码 + 账号密码）"""
+
+    def __init__(self, session: ZhsSession, config: AppConfig) -> None:
+        self._api = PassportLoginApi(session._http, config.crypto)
 
     def login_with_qr(
         self,
@@ -581,6 +590,10 @@ class LoginManager:
         image_path: str = "",
         _max_retries: int = 5,
     ) -> LoginResult: ...
+
+    def login_with_password(self, account: str, password: SecretPassword) -> LoginResult: ...
+    def _solve_login_captcha(self) -> str: ...
+    def _complete_login_with_once_password(self, once_password: str) -> LoginResult: ...
 
     def try_restore_cookies(self, cookies_path: Path) -> bool: ...
     def save_cookies(self, cookies_path: Path) -> None: ...
@@ -610,9 +623,30 @@ stateDiagram-v2
     LoginDone --> [*]
 ```
 
+**登录流程（账号密码）**：
+
+```mermaid
+flowchart TD
+    A[ensure_password_login_ready] -->|captcha 未启用/fp 无效| X[LoginFailed]
+    A --> B[CaptchaService.solve 滑块, referer=login.zhihuishu.com]
+    B -->|求解失败| X
+    B --> C[PassportLoginApi.login_by_password]
+    C -->|status=2| D[skip_set cacheId 续登]
+    C -->|status=1| E[rt.pwd]
+    D --> E
+    C -->|其它 status| X2[LoginFailed + STATUS_HINTS]
+    E --> F[_complete_login_with_once_password]
+    F --> G[passport/login?pwd= 换票]
+    G --> H[落 cookies / verify_session]
+```
+
 **设计要点**：
-- **仅扫码登录**：已删除账号密码登录
+- **两种登录方式**：默认扫码；`--method password` 使用账号密码，产物（cookies）完全一致
 - `login_with_qr` 增加 `_max_retries` 参数防止二维码过期时无限递归
+- `status=2` 仅表示未完成学校认证：用 `rt.cacheId` 调 `skipSet` 续登，属正常登录路径（不提示、不当作失败），登录后全部功能可用
+- `status=1` 但缺 `rt.pwd` 时回落 `skipSet(rt.uuid)`；失败状态集中由 `STATUS_HINTS` 转成用户提示
+- 密码登录**不重试**：一次命令只提交一次，避免风控；密码不进入任何日志（`SecretPassword`）
+- 换票逻辑抽取为 `_complete_login_with_once_password`，扫码与密码共用
 - `gologin` 返回 HTML 不解析 JSON
 - Cookie 恢复由 CLI 的 `try_restore_cookies()` 负责（纯本地读取）；登录态由 `verify_session()` 校验：先用 `CASTGC` 经 CAS 换票建立 `onlineservice-api` 域的 `SESSION`，再用 `getLoginUserInfo` 能否取到用户信息判定，不再依赖课程列表
 
@@ -620,6 +654,38 @@ stateDiagram-v2
 - `SessionStatus` 三态：`OK` / `EXPIRED` / `UNAVAILABLE`；`SessionVerifier` 与稳定入口 `verify_session(session)`
 - `_establish_session()`：`passport/cas/login?service=<getLoginUserInfo>` 取 302 + ticket，跟随 ticket 让 CAS 校验并种下 `onlineservice-api` 域的 `SESSION`（短时会话，不写入 `cookies.json`）
 - 判据只看 `result.uuid` / `result.username`，不解析 `code`，其它响应默认失败；4xx → `EXPIRED`，5xx / 网络异常 → `UNAVAILABLE`
+
+**账户密码登录 API（`src/zhs/api/passport_login_api.py`）**：
+
+```python
+class AccountLoginStatus(StrEnum):
+    OK = "1"
+    SCHOOL_UNVERIFIED = "2"      # 仅未完成学校认证，正常分支
+    NEED_SECOND_CAPTCHA = "-12"
+    WEAK_PASSWORD = "-5"
+    ABNORMAL_LOGIN = "-13"
+    DISABLED = "ACCOUNT_DISABLED"
+    UNKNOWN = "unknown"          # _missing_ 兜底
+
+class AccountLoginResult(BaseModel):
+    status: AccountLoginStatus
+    msg: str = ""
+    pwd: str = ""       # oncePassword
+    uuid: str = ""
+    cache_id: str = ""
+
+class PassportLoginApi:
+    def __init__(self, http: HttpClient, crypto: CryptoConfig) -> None: ...
+    def login_by_password(self, account: str, password: str, validate: str) -> AccountLoginResult: ...
+    def skip_set(self, identifier: str) -> AccountLoginResult: ...   # uuid 或 cacheId
+    def _encrypt_body(self, payload: dict[str, str]) -> str: ...
+```
+
+- 只做协议：不重试、不碰验证码、不落盘、不判定成功与否
+- `_encrypt_body` 是唯一承载协议差异的地方：`Cipher(login_key, login_iv)` → Base64 → 二次 `json.dumps`（带双引号字符串），不套 `secretStr`、不发 `dateFormate`
+- Header 固定 `Content-Type: application/json;charset=UTF-8` 与登录页 `Origin` / `Referer`
+- `skip_set` body 为 `null`，`identifier` 先做格式校验；HTTP/解析异常统一 `raise LoginFailed(...) from e`
+
 
 ### 2.6 cache/ — 统一缓存子包（SQLite 存储）
 

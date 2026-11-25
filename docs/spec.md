@@ -8,7 +8,7 @@ ZHS 是一个智慧树（zhihuishu.com）自动学习工具，支持三类课程
 - **Hike 职教云课**：视频进度模拟、资源树遍历
 - **AI 智慧课程**：视频进度模拟、作业自动作答、考试自动作答、AI 解析
 
-核心能力：扫码登录、视频进度模拟、弹窗答题、AI 自动作业与考试、PPT 转文本、多 LLM 后端、代理支持。全部基于同步 httpx + threading 实现，无 asyncio。
+核心能力：扫码登录、账号密码登录、视频进度模拟、弹窗答题、AI 自动作业与考试、PPT 转文本、多 LLM 后端、代理支持。全部基于同步 httpx + threading 实现，无 asyncio。
 
 ## 2. 模块架构
 
@@ -19,7 +19,7 @@ src/zhs/
 ├── config.py            # 配置管理（TOML，AppConfig + ConfigManager）
 ├── crypto.py            # AES-128-CBC / ev 编码 / Hike 签名 / WatchPoint
 ├── session.py           # HTTP 会话管理（同步 httpx，多种加密查询方法）
-├── login.py             # 扫码登录
+├── login.py             # 扫码登录 / 账号密码登录
 ├── exceptions.py        # 全局异常定义（含 ApiUnavailableError / RateLimitError）
 ├── logger.py            # loguru 日志配置（filter 脱敏）
 ├── reporter.py          # 进度报告器（ConsoleReporter / ProgressReporter）
@@ -85,14 +85,14 @@ src/zhs/
 ### 3.1 配置管理
 
 - **配置文件**：`~/.zhs/config.toml`（TOML 格式，支持注释）
-- **配置结构**：`AppConfig` 顶层 + 多个嵌套子配置（`VideoConfig` / `HomeworkConfig` / `ExamConfig` / `DisplayConfig` / `ProxyConfig` / `QRConfig` / `AIConfig` / `CryptoConfig` / `UrlConfig`）
+- **配置结构**：`AppConfig` 顶层 + 多个嵌套子配置（`VideoConfig` / `HomeworkConfig` / `ExamConfig` / `DisplayConfig` / `ProxyConfig` / `QRConfig` / `AIConfig` / `CryptoConfig` / `UrlConfig` / `LoginConfig`）
 - **配置迁移**：`ConfigManager.migrate(json_path)` 支持从旧版 JSON 配置迁移到 TOML
 - **CLI 参数覆盖**：CLI 参数优先级高于配置文件（如 `--speed` 覆盖 `video.*_speed`，`--homework-threshold` 覆盖 `homework.threshold`）
 - **默认配置**：见 [config.toml.example](../config.toml.example)
 
 ### 3.2 登录系统
 
-#### 3.2.1 扫码登录（唯一登录方式）
+#### 3.2.1 扫码登录（默认方式）
 
 - 从 `qrCodeLogin/getLoginQrImg` 获取二维码图片和 `qrToken`
 - 支持两种二维码显示方式：
@@ -106,7 +106,18 @@ src/zhs/
   - `2`：二维码过期，自动重新获取（递归，带 `_max_retries` 防止无限递归）
   - `3`：用户取消登录
 
-#### 3.2.2 Cookie 持久化
+#### 3.2.2 账号密码登录
+
+- 入口：`zhs login --method password`（默认方式仍为 `qr`）
+- 参数：`-u/--account` 与 `-p/--password` 必须同时提供或都不提供；都不提供时回落 `[login] account/password`，仍为空则交互输入（密码隐藏输入）
+- 协议：`POST user.zhihuishu.com/zhsuser/login/account`，body 为**带双引号的 JSON 字符串**（裸密文，不套 `secretStr`、不发 `dateFormate`），明文 `{account, password, validate}` 用 `login_key` / `login_iv`（AES-128-CBC / PKCS#7 + Base64）加密
+- 验证码：**硬性前置**，要求 `[captcha] enabled = true` 且 `fp` 有效；登录页滑块与视频滑块同协议，`referer` 为 `https://login.zhihuishu.com/`。不满足直接报错，不静默跳过
+- 响应：`status` 为整数，`1` 成功（`rt.pwd` 为 oncePassword）；`2` 仅表示**未完成学校认证**，用 `rt.cacheId` 调 `skipSet/{cacheId}` 续登后与成功等价（全部功能可用，不提示）；`-12` 二次验证码 / `-5` 密码过简 / `-13` 异常登录 / `ACCOUNT_DISABLED` 禁用均为失败
+- 成功后续：`passport/login?pwd=<oncePassword>` 换票落 cookies，与扫码登录同一出口
+- 风控：一次命令只提交一次，不重试
+- 日志：密码不得出现在任何日志与异常输出中（`SecretPassword` 的 `repr`/`str` 均为 `***`）
+
+#### 3.2.3 Cookie 持久化与自动登录
 
 - 将 cookies 序列化为 JSON 列表保存到 `~/.zhs/cookies.json`
 - 启动时先尝试从 `cookies.json` 本地恢复会话（只读取文件，不发请求）
@@ -114,6 +125,7 @@ src/zhs/
 - 判据仍是「能取到用户信息（`result.uuid` / `result.username`）即视为有效，其余情况默认会话失效」；不解析 `code`，不以课程列表等业务数据是否为空作为判据
 - 校验结果分三类：有效 / 会话失效（提示重新登录）/ 接口不可用（提示检查网络）
 - 设置 cookies 时自动解析 `uuid`（从 `CASLOGC` cookie 的 JSON 中提取），并设置 `exitRecod_{uuid}=2`
+- **自动登录**：`[login] auto_login = true` 且配置了 `account` / `password` 时，无 cookies 或会话失效会自动用账号密码登录一次（同样要求 `[captcha]` 启用且 `fp` 有效）；失败或重登后仍失效则直接退出，不循环重试。`auto_login = true` 但账号或密码为空视为配置错误，启动即报错
 
 ### 3.3 知到（Zhidao）共享课程
 
@@ -446,10 +458,13 @@ zhs init
 
 #### 3.11.2 zhs login
 
-扫码登录智慧树。
+登录智慧树（默认扫码，可用账户密码）。
 
 | 参数 | 说明 |
 |------|------|
+| `--method qr\|password` | 登录方式，默认 `qr`（扫码） |
+| `-u, --account` | 账号（需与 `-p` 同时提供，仅 `password`） |
+| `-p, --password` | 密码（需与 `-u` 同时提供，仅 `password`） |
 | `--show-in-terminal` | 终端显示二维码 |
 | `--image-path PATH` | 二维码保存路径 |
 | `--proxy URL` | 代理 |

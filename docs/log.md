@@ -604,4 +604,14 @@ API 参考：`.temp/questions_bank.md`
 - Test：`tests/cli/test_bootstrap.py` 55 passed；pytest 全量 1326 passed
 - Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
 
+### 账户密码登录 P7 — 文档同步与全量校验 ✅
+- 文档：
+  - `docs/spec.md`：登录系统拆为「扫码 / 账号密码 / Cookie 与自动登录」，补充登录协议、`status=2` 正常分支、验证码硬性前置与风控约束；`zhs login` 参数表增加 `--method` / `-u` / `-p`
+  - `docs/design.md`：`LoginManager` 增加 `SecretPassword` / `login_with_password` / `_solve_login_captcha` / `_complete_login_with_once_password`，新增密码登录流程图与 `PassportLoginApi` 设计
+  - `docs/test.md`：补充 `TestSecretPassword` / `TestPasswordLogin` / `TestPassportLoginApi` / `TestAutoLogin` 用例清单
+  - `README.md` / `README_zh.md` / `docs/tutorial.md`：补充账号密码登录、`[login]` 配置与 `auto_login` 说明
+  - `tests/integration/test_login_integration.py`：新增密码登录集成用例（凭据仅从 `ZHS_LOGIN_ACCOUNT` / `ZHS_LOGIN_PASSWORD` 环境变量读取，不写入代码）
+- Test：pytest 全量 1326 passed（integration 默认 deselected）
+- Refactor：`ruff check src/ tests/`、`ruff format --check src/ tests/`、`mypy src/ tests/`（171 files）全部通过；分支 `feat/password-login`
+
 

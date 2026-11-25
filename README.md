@@ -6,7 +6,7 @@
 
 **[中文文档](README_zh.md)**
 
-ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types of courses: Zhidao shared courses, Hike vocational education courses, and AI smart courses. Core capabilities include: QR code login, video progress simulation, popup quiz answering, AI auto homework and exams.
+ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types of courses: Zhidao shared courses, Hike vocational education courses, and AI smart courses. Core capabilities include: QR code login, account/password login, video progress simulation, popup quiz answering, AI auto homework and exams.
 
 > If this project helps you, please consider giving it a star ⭐
 
@@ -15,6 +15,7 @@ ZHS is an auto-learning tool for the Zhihuishu platform, supporting three types 
 - **Three Course Types Supported**: Zhidao / Hike / AI Smart Courses
 - **Command-line Interface**: Clear subcommand separation with `zhs init / login / play / homework / exam / fetch / cache`, plus `zhs --version` (`-v`) to print the version
 - **QR Code Login**: Auto-saves cookies to avoid repeated logins
+- **Account/Password Login**: `zhs login --method password` with optional auto re-login when cookies expire
 - **Auto Video Watching**: Simulates human viewing behavior (random pauses, random delays, progress bar display)
 - **Popup Quiz Answering**: Automatically selects correct answers for popup questions during video playback
 - **Auto Homework**: Zhidao homework + AI course homework, supports LLM answering and answer caching
@@ -95,6 +96,23 @@ To display the QR code directly in terminal:
 
 ```bash
 zhs login --show-in-terminal
+```
+
+#### Account / Password Login
+
+```bash
+zhs login --method password -u <account> -p <password>
+```
+
+`-u` and `-p` must be provided together or omitted together; when omitted, `[login] account/password` from `~/.zhs/config.toml` is used, and missing values are prompted interactively. Password login requires captcha solving (`[captcha] enabled = true` with a valid `fp`) and submits only once (no retry).
+
+You can also enable auto login: when cookies are missing or expired, ZHS logs in once with the configured credentials.
+
+```toml
+[login]
+account = ""
+password = ""
+auto_login = false
 ```
 
 ### 3. Fetch Course List
@@ -180,7 +198,7 @@ zhs exam --type ai
 | Command | Description |
 |---------|-------------|
 | `zhs init` | Initialize `~/.zhs/` directory and default configuration |
-| `zhs login` | QR code login and save cookies |
+| `zhs login` | Login and save cookies (QR code / account-password) |
 | `zhs play` | Watch videos (supports Zhidao / Hike / AI, supports `--url`) |
 | `zhs homework` | Complete homework (Zhidao + AI course homework, supports `--url`) |
 | `zhs exam` | AI course exams (supports `--url` for specific exams) |
