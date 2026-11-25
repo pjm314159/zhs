@@ -45,7 +45,7 @@ from zhs.cli.services.play_service import run_all as _run_all
 from zhs.cli.services.play_service import run_hike as _run_hike
 from zhs.cli.services.play_service import run_zhidao as _run_zhidao
 from zhs.config import AppConfig, ConfigManager
-from zhs.exceptions import SliderVerificationRequired
+from zhs.exceptions import CaptchaRequired, SliderVerificationRequired
 from zhs.login import LoginManager
 from zhs.session import ZhsSession
 
@@ -321,9 +321,11 @@ def homework(
                 else:
                     logger.warning(f"暂不支持 {resolved.type} 课程的作业功能")
                     print(f"暂不支持 {resolved.type} 课程的作业功能")
-            except SliderVerificationRequired:
-                # 滑块验证：服务端状态，后续课程也会失败，立即停止
-                raise
+            except (SliderVerificationRequired, CaptchaRequired):
+                # 验证码是课程级风控：跳过该课程，继续下一门
+                logger.warning(f"课程 {c} 触发验证码，跳过该课程")
+                print(f"课程 {c} 需要验证码，已跳过")
+                continue
             except Exception as e:
                 logger.error(f"课程 {c} 作业处理失败: {e}")
                 print(f"课程 {c} 作业处理失败: {e}")

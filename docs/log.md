@@ -467,3 +467,25 @@ API 参考：`.temp/questions_bank.md`
 - 实测（2026-11-25 16:33，智慧课程《大学生心理健康》）：`-12` 触发后 `ev_len=96`（5 个 ID）→ 易盾 `check` error=0 → `validateSlideToken` 返回 `pass=true` → 日志 `验证码已通过，重试当前视频`，重试心跳不再被拦；修复前同一路径因回传 132 字符 `sdsew` 返回 `-1 参数解码发生错误`
 - 文档：`docs/api/operations/zhidao-video/validate-slide-token.yaml` 删除错误的“普通课程沿用失败心跳 ev”表格，改为统一 5 段规则并注明 `sdsew` 不可直接回传；`ev` 长度随 ID 位数变化（抓包样本 78 字符）。同批修正 `docs/api/operations/yidun/{getconf,get-captcha,check-captcha}.yaml`：`referer` 实测可省略（`getconf`/`get` 缺失时仍 `error=0`），`required` 改为 `false`
 - Refactor: ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 41 — 作业/考试接口 code="-12" 验证码漏检修复 ✅
+- 背景（2026-11-25 真机抓包）：知到作业 `doHomework` 风控响应为 `{"msg": "弹出滑块验证", "rt": {...}, "code": "-12", "status": "200"}`。`STRATEGIES["homework"]` / `["zhidao_exam"]` 只检查 `status == "200"` 且 `check_captcha=False`，会把 `-12` 误判为成功继续答题；旧实现的验证码判断绑定 `check_field`（视频 `check_field=code` 恰好命中，作业为 `status` 永远命不中）
+- Red：`tests/api/test_encrypted_query.py` 新增 6 用例（homework / zhidao_exam 策略 `check_captcha=True`、`code="-12"` 字符串与 int `-12` 均抛 `CaptchaRequired`、`ai_exam` 等未开启检查的策略仍抛 `ApiError`）→ 5 失败（`DID NOT RAISE CaptchaRequired` / `check_captcha is False`）
+- Green：`src/zhs/api/encrypted_query.py`
+  - `_check_result` 验证码判断改为固定看 `code` 字段：`str(result.get("code")) == "-12"`（兼容 int -12 与 str "-12"），不再依赖 `check_field`
+  - `STRATEGIES["homework"]` / `["zhidao_exam"]` 打开 `check_captcha=True`
+  - 模块 docstring / `QueryStrategy.check_captcha` / `query()` Raises 说明同步
+- Test：`tests/api/test_encrypted_query.py` 34 passed；pytest 全量 1269 passed
+- 文档（提交 12c6260）：新增 `docs/api/operations/zhidao-homework/validate-slide-token.yaml`（作业验证码上报接口，载荷 `{recruitId, token, checkType, chapterId}`，`chapterId` 实为 examId，判据 `pass`）；`do-homework.yaml` 响应补 `code` / `msg` 与 `-12` 说明；覆盖率 63 → 64；`docs/design.md` 异常说明补作业/考试形态
+- 说明：作业验证码 token 来自易盾点选验证码，无法由 ID 生成。本次仅保证 `-12` 可被识别抛出；`saveStudentAnswer` 阶段的 `CaptchaRequired`（消息含"验证"）会被 `worker._save_answer` 现有逻辑映射为 `SliderVerificationRequired` 并提示人工验证，`doHomework` 阶段则由上层记录失败后继续下一份作业
+- Refactor：ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 42 — 作业验证码按课程级中止（不再只跳过当前章节/单题）✅
+- 背景：验证码（`code="-12"`）实测为**课程级**风控。原实现 `run_zhidao_homework` 把 `SliderVerificationRequired` 向上抛（整个知到作业队列全停），而 `CaptchaRequired` 落入通用 `except Exception` 只记"处理失败"后**继续做下一份作业**（章节级继续），两者语义都不符合"退出当前课程"
+- Red：`tests/cli/services/test_homework_service.py` 新增 3 用例（验证码/滑块触发后本课程剩余作业不再执行且不抛异常；某课程触发后继续下一门课程）→ 2 失败（`assert 3 == 1`、`SliderVerificationRequired` 冒泡）
+- Green
+  - `src/zhs/cli/services/homework_service.py`：`run_zhidao_homework` 捕获 `(SliderVerificationRequired, CaptchaRequired)` → warning 日志 + 输出"需要验证码，跳过本课程剩余作业" + `return`（退出当前课程）；`run_all_zhidao_homework` 捕获两者 → 输出"验证码拦截，跳过课程: X" 并 `continue`（继续下一门课程）；`run_all_homework` 删除"验证码立即终止全部作业"的分支
+  - `src/zhs/__main__.py`（`zhs homework -c` 多课程模式）：同样由 `raise` 改为 `continue`，输出"课程 X 需要验证码，已跳过"
+- Test：`tests/cli/services/test_homework_service.py` + `tests/cli/test_main.py` 66 passed；pytest 全量 1272 passed
+- 说明：`-c` 单课程 / `--url` 单作业模式同样只影响该课程；AI 课程作业不受知到验证码影响（原逻辑已隔离）。分支 `feat/captcha`
+- Refactor：本轮改动文件的 ruff check / format --check / mypy 通过（`src/zhs/captcha/*` 的既有 format/mypy 问题不在本次范围）

@@ -194,7 +194,7 @@ class RateLimitError(ZhsError):
 **设计要点**：
 - 所有自定义异常继承 `ZhsError`，便于上层统一捕获
 - `ApiError` 携带 `code` 和 `message`，用于 API 错误码透传
-- `CaptchaRequired` 对应知到视频 API 的 `code=-12`
+- `CaptchaRequired` 对应验证码信号 `code=-12`（知到视频为 int `-12`；作业/考试为 str `"-12"`，此时 `status` 仍为 `"200"`），判断固定看 `code` 字段
 - `SliderVerificationRequired` 对应作业 API 的滑块验证响应
 - `ApiUnavailableError` / `RateLimitError` 用于网络层与限流场景，便于上层重试或降级
 - **已删除** `InvalidCookies`（不再使用，会话失效由 `verify_session()` 返回 `SessionStatus.EXPIRED` 处理；`try_restore_cookies()` 只负责本地文件恢复）

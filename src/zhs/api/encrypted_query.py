@@ -9,7 +9,7 @@ ai_exam_submit / ai_task_query / homework_query）抽象为策略表 + 统一 qu
 - check_field: 检查字段（"code" / "status"）
 - ok_value: 期望值
 - content_type: "form" / "json"
-- check_captcha: 是否检查 -12（知到视频 API 专属）
+- check_captcha: 是否检查验证码信号（固定看 ``code`` 字段，兼容 int -12 / str "-12"）
 - has_response_body: 是否有 JSON 返回体（ai_exam_submit 无）
 """
 
@@ -32,7 +32,7 @@ class QueryStrategy:
         check_field: 检查字段（"code" / "status"）
         ok_value: 期望值
         content_type: "form" / "json"
-        check_captcha: 是否检查 -12（知到视频 API 专属）
+        check_captcha: 是否检查验证码信号（固定看 ``code`` 字段，兼容 int -12 / str "-12"）
         has_response_body: 是否有 JSON 返回体（False 时仅检查 HTTP 状态码）
         default_method: 默认 HTTP 方法（hike 为 GET，其他为 POST）
     """
@@ -54,8 +54,8 @@ STRATEGIES: dict[str, QueryStrategy] = {
     "hike":         QueryStrategy("",          False, "status", 200,   "form",  default_method="GET"),
     "ai_exam":      QueryStrategy("exam_key",  True,  "code",   0,     "form"),
     "ai_task":      QueryStrategy("ai_key",    True,  "code",   200,   "json"),
-    "homework":     QueryStrategy("exam_key",  False, "status", "200", "form"),
-    "zhidao_exam":  QueryStrategy("exam_key",  False, "status", "200", "form"),
+    "homework":     QueryStrategy("exam_key",  False, "status", "200", "form",  check_captcha=True),
+    "zhidao_exam":  QueryStrategy("exam_key",  False, "status", "200", "form",  check_captcha=True),
     "ai_exam_submit": QueryStrategy("exam_key", True, "code",   0,     "form", has_response_body=False),
 }
 # fmt: on
@@ -102,7 +102,7 @@ class EncryptedQuery:
 
         Raises:
             KeyError: 未知策略名
-            CaptchaRequired: 知到视频 API 返回 -12
+            CaptchaRequired: 策略开启 check_captcha 时，响应 ``code`` 为 -12（int 或 str）
             ApiError: 响应码不匹配策略期望值
             httpx.HTTPStatusError: HTTP 状态码非 2xx
         """
@@ -189,7 +189,8 @@ class EncryptedQuery:
         """检查响应码"""
         actual = result.get(strategy.check_field, strategy.ok_value)
 
-        if strategy.check_captcha and actual == -12:
+        # 验证码信号固定看 code 字段：视频为 int -12，作业/考试为 str "-12"（status 仍为 "200"）
+        if strategy.check_captcha and str(result.get("code")) == "-12":
             raise CaptchaRequired("服务端要求验证码", response=result, payload=payload, url=url)
 
         if actual != strategy.ok_value:

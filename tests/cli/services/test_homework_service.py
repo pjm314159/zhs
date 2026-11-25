@@ -16,6 +16,7 @@ from zhs.cli.services.homework_service import (
     run_homework_from_url,
     run_zhidao_homework,
 )
+from zhs.exceptions import CaptchaRequired, SliderVerificationRequired
 
 
 def _make_config() -> MagicMock:
@@ -200,6 +201,52 @@ class TestRunZhidaoHomework:
         captured = capsys.readouterr()
         assert "失败" in captured.out
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            CaptchaRequired("服务端要求验证码"),
+            SliderVerificationRequired("需要滑块验证"),
+        ],
+        ids=["captcha", "slider"],
+    )
+    @patch("zhs.cli.bootstrap.init_llm")
+    @patch("zhs.zhidao.homework.worker.HomeworkWorker")
+    @patch("zhs.cache.zhidao_cache.ZhidaoHomeworkCache")
+    @patch("zhs.zhidao.homework.scanner.HomeworkScanner")
+    def test_verification_exits_current_course(
+        self,
+        mock_scanner_cls: MagicMock,
+        mock_cache_cls: MagicMock,
+        mock_worker_cls: MagicMock,
+        mock_init_llm: MagicMock,
+        exc: Exception,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """验证码是课程级风控：跳过本课程剩余作业，不向上抛异常"""
+        session = MagicMock()
+        config = _make_config()
+
+        items = [MagicMock() for _ in range(3)]
+        for i, item in enumerate(items, start=1):
+            item.exam_name = f"作业{i}"
+            item.state = 1
+            item.score = 0
+        mock_scanner = MagicMock()
+        mock_scanner_cls.return_value = mock_scanner
+        mock_scanner.scan_homework.return_value = items
+        mock_scanner.filter_pending.return_value = items
+
+        mock_worker = MagicMock()
+        mock_worker_cls.return_value = mock_worker
+        mock_worker.run_homework.side_effect = exc
+
+        run_zhidao_homework(session, config, "12345", 67890)  # 不应抛异常
+
+        assert mock_worker.run_homework.call_count == 1  # 剩余作业不再执行
+        captured = capsys.readouterr()
+        assert "验证码" in captured.out
+        assert "跳过" in captured.out
+
 
 class TestRunAllZhidaoHomework:
     """run_all_zhidao_homework"""
@@ -288,6 +335,37 @@ class TestRunAllZhidaoHomework:
 
         captured = capsys.readouterr()
         assert "课程失败" in captured.out
+
+    @patch("zhs.cli.services.homework_service.run_zhidao_homework")
+    @patch("zhs.zhidao.course.ZhidaoCourseManager")
+    def test_captcha_continues_next_course(
+        self,
+        mock_mgr_cls: MagicMock,
+        mock_run_zhidao: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """验证码是课程级：某门课程触发后跳过该课程，继续下一门课程"""
+        session = MagicMock()
+        config = _make_config()
+
+        courses = []
+        for i, name in enumerate(["课程A", "课程B"], start=1):
+            c = MagicMock()
+            c.recruit_id = 12340 + i
+            c.course_id = 67890 + i
+            c.course_name = name
+            courses.append(c)
+
+        mock_mgr = MagicMock()
+        mock_mgr_cls.return_value = mock_mgr
+        mock_mgr.get_course_list.return_value = courses
+        mock_run_zhidao.side_effect = [CaptchaRequired("服务端要求验证码"), None]
+
+        run_all_zhidao_homework(session, config)  # 不应抛异常
+
+        assert mock_run_zhidao.call_count == 2
+        captured = capsys.readouterr()
+        assert "验证码" in captured.out
 
     @patch("zhs.zhidao.course.ZhidaoCourseManager")
     def test_calls_exam_sso_login(self, mock_mgr_cls: MagicMock) -> None:
