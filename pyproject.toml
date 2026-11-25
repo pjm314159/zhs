@@ -27,6 +27,13 @@ dependencies = [
     "beautifulsoup4>=4.12",  # HTML 标签剥离与实体转义（题目文本清洗）
 ]
 
+# 可选依赖：验证码求解（滑块缺口识别需要 OpenCV）
+[project.optional-dependencies]
+captcha = [
+    "opencv-python-headless>=4.10",
+    "numpy>=2.0",
+]
+
 # 项目链接
 [project.urls]
 Homepage = "https://github.com/pjm314159/zhs"

@@ -205,3 +205,23 @@ homework = "https://studentexam-api.zhihuishu.com"
 taurusexam = "https://taurusexam-api.zhihuishu.com"
 ai_analysis = "https://ai-course-assistant-api.zhihuishu.com"
 newbase = "https://newbase.zhihuishu.com"
+
+# ============================================================
+# 验证码求解（可选，默认关闭）
+# ============================================================
+
+[captcha]
+# 关闭时 -12 走原有链路，不发起任何易盾请求
+enabled = false
+# IRisk 设备指纹，约 190 字符，尾段为 :13位毫秒时间戳；enabled=true 时必填
+fp = ""
+# 点选识图模型（需要支持图片输入），enabled=true 时必填
+api_key = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+# 单次识图超时（秒）
+timeout = 120.0
+# 单次触发最多重取题次数
+max_retry = 3
+# 非空则把题目图片落盘，排查用
+save_challenge_dir = ""
