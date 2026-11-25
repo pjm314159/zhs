@@ -99,7 +99,7 @@ class ZhidaoExamApi:
         此时返回空字符串（doExam/saveStudentAnswer 允许 schoolId 为空）。
 
         Returns:
-            学校 ID 字符串（如 "625"），未绑定时返回 ""
+            学校 ID 字符串（如 "1000"），未绑定时返回 ""
         """
         url = f"{self._hw_base}/studentExam/gateway/t/v1/exam/getLoginSchoolInfo"
         result = self._query.query("homework", url, {})

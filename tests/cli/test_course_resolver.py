@@ -38,20 +38,20 @@ class TestResolveCourseId:
     def test_zhidao_explicit_type_finds_rac_id(self) -> None:
         """显式 zhidao + session → 反查 recruitAndCourseId"""
         mock_course = MagicMock()
-        mock_course.course_id = 1000008156
+        mock_course.course_id = 123456
         mock_course.secret = "encrypted_rac_id"
         mock_mgr = MagicMock()
         mock_mgr.find_course.return_value = mock_course
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            result = resolve_course_id("1000008156", "zhidao", session)
+            result = resolve_course_id("123456", "zhidao", session)
 
         assert result.type == "zhidao"
-        assert result.course_id == 1000008156
+        assert result.course_id == 123456
         assert result.rac_id == "encrypted_rac_id"
         # 只查一次课程列表（不再二次反查 rac_id）
-        mock_mgr.find_course.assert_called_once_with(1000008156)
+        mock_mgr.find_course.assert_called_once_with(123456)
 
     def test_zhidao_not_found_raises(self) -> None:
         """知到 courseId 不在列表中 → ValueError"""
@@ -68,7 +68,7 @@ class TestResolveCourseId:
     def test_zhidao_without_session_raises(self) -> None:
         """知到课程但无 session → ValueError"""
         with pytest.raises(ValueError, match="知到课程需 session"):
-            resolve_course_id("1000008156", "zhidao")
+            resolve_course_id("123456", "zhidao")
 
     def test_zhidao_non_digit_rejected(self) -> None:
         """显式 zhidao + 非数字（recruitAndCourseId）→ ValueError 提示改用 --url"""
@@ -85,14 +85,14 @@ class TestResolveCourseId:
         """顶层 courseId 为 0 时，用 courseInfo.courseId 反查 rac_id"""
         mock_course = MagicMock()
         mock_course.course_id = 0
-        mock_course.course_info.course_id = 1000008156
+        mock_course.course_info.course_id = 123456
         mock_course.secret = "rac_secret"
         mock_mgr = MagicMock()
         mock_mgr.find_course.return_value = mock_course
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            result = resolve_course_id("1000008156", "zhidao", session)
+            result = resolve_course_id("123456", "zhidao", session)
 
         assert result.type == "zhidao"
         assert result.rac_id == "rac_secret"
@@ -112,7 +112,7 @@ class TestResolveCourseId:
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            result = resolve_course_id("1000008156", "zhidao", session)
+            result = resolve_course_id("123456", "zhidao", session)
 
         assert result.recruit_id == 789
 
@@ -126,7 +126,7 @@ class TestResolveCourseId:
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            result = resolve_course_id("1000008156", "zhidao", session)
+            result = resolve_course_id("123456", "zhidao", session)
 
         assert result.recruit_id is None
         assert result.rac_id == "rac_secret"
@@ -134,14 +134,14 @@ class TestResolveCourseId:
     def test_auto_detect_zhidao_with_session(self) -> None:
         """自动检测 + session → 纯数字匹配 zhidao 列表"""
         mock_course = MagicMock()
-        mock_course.course_id = 1000008156
+        mock_course.course_id = 123456
         mock_course.secret = "rac_secret"
         mock_mgr = MagicMock()
         mock_mgr.find_course.return_value = mock_course
         session = MagicMock()
 
         with patch("zhs.zhidao.course.ZhidaoCourseManager", return_value=mock_mgr):
-            result = resolve_course_id("1000008156", session=session)
+            result = resolve_course_id("123456", session=session)
 
         assert result.type == "zhidao"
         assert result.rac_id == "rac_secret"

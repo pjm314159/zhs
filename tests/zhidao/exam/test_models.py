@@ -9,16 +9,16 @@ class TestExamInfo:
     def test_from_api_data(self) -> None:
         """从 API 响应数据构造（驼峰转蛇形）"""
         data = {
-            "id": "edJddjZE",
+            "id": "exam0001",
             "state": 1,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "eAqdKONe",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0001",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -29,15 +29,15 @@ class TestExamInfo:
             "submitTime": None,
         }
         info = ExamInfo.from_api(data)
-        assert info.id == "edJddjZE"
+        assert info.id == "exam0001"
         assert info.state == 1
         assert info.score is None
         assert info.achieve_count == 0
         assert info.fa_student_exam_remain_count == 1
-        assert info.course_id == 1000083416
-        assert info.course_name == "思想道德与法治"
-        assert info.exam_id == "eAqdKONe"
-        assert info.exam_name == "思想道德与法治教程考试"
+        assert info.course_id == 654321
+        assert info.course_name == "测试课程"
+        assert info.exam_id == "exam0001"
+        assert info.exam_name == "测试考试"
         assert info.problem_num == 80
         assert info.total_score == "100"
         assert info.limit_time == 90
@@ -50,16 +50,16 @@ class TestExamInfo:
     def test_from_api_with_score(self) -> None:
         """已提交考试（带得分）"""
         data = {
-            "id": "edJddjZE",
+            "id": "exam0001",
             "state": 1,
             "score": "76",
             "achieveCount": 1,
             "achieve": 0,
             "faStudentExamRemainCount": 0,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "eAqdKONe",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0001",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -103,16 +103,16 @@ class TestExamInfo:
     def test_from_api_none_achieve_count(self) -> None:
         """achieveCount=null 时转为 0（API 未答题时返回 null）"""
         data = {
-            "id": "y7VmgR3D",
+            "id": "exam0002",
             "state": 1,
             "score": None,
             "achieveCount": None,  # API 返回 null
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "e9XlgxDw",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0003",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -124,23 +124,23 @@ class TestExamInfo:
         }
         info = ExamInfo.from_api(data)
         assert info.achieve_count == 0  # null → 0
-        assert info.id == "y7VmgR3D"
-        assert info.exam_name == "思想道德与法治教程考试"
+        assert info.id == "exam0002"
+        assert info.exam_name == "测试考试"
 
     def test_is_in_progress_by_progress_type(self) -> None:
         """progressType=2 表示已开考未提交"""
         data = {
-            "id": "y7VmgR3D",
+            "id": "exam0002",
             "state": 1,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
+            "courseId": 654321,
+            "courseName": "测试课程",
             "courseType": 1,
-            "examId": "e9XlgxDw",
-            "examName": "思想道德与法治教程考试",
+            "examId": "exam0003",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -159,16 +159,16 @@ class TestExamInfo:
     def test_not_in_progress_by_progress_type(self) -> None:
         """progressType=0 表示未开考"""
         data = {
-            "id": "edJddjZE",
+            "id": "exam0001",
             "state": 1,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "eAqdKONe",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0001",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -186,16 +186,16 @@ class TestExamInfo:
     def test_state_2_is_in_progress(self) -> None:
         """state=2 表示已开考未提交"""
         data = {
-            "id": "y7VmgR3D",
+            "id": "exam0002",
             "state": 2,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "e9XlgxDw",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0003",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -213,16 +213,16 @@ class TestExamInfo:
     def test_is_started_by_student_start_time(self) -> None:
         """studentStartTime 不为空表示已开考"""
         data = {
-            "id": "y7VmgR3D",
+            "id": "exam0002",
             "state": 1,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "e9XlgxDw",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0003",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -239,16 +239,16 @@ class TestExamInfo:
     def test_not_started_when_all_empty(self) -> None:
         """studentStartTime=null, progressType=0, state=1 表示未开考"""
         data = {
-            "id": "edJddjZE",
+            "id": "exam0001",
             "state": 1,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "eAqdKONe",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0001",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,

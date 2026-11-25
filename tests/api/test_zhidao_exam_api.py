@@ -24,16 +24,16 @@ EXAM_LIST_RESPONSE = {
     "msg": "请求成功",
     "rt": [
         {
-            "id": "edJddjZE",
+            "id": "exam0001",
             "state": 1,
             "score": None,
             "achieveCount": 0,
             "achieve": 0,
             "faStudentExamRemainCount": 1,
-            "courseId": 1000083416,
-            "courseName": "思想道德与法治",
-            "examId": "eAqdKONe",
-            "examName": "思想道德与法治教程考试",
+            "courseId": 654321,
+            "courseName": "测试课程",
+            "examId": "exam0001",
+            "examName": "测试考试",
             "problemNum": 80,
             "totalScore": "100",
             "limitTime": 90,
@@ -77,10 +77,10 @@ class TestGetStudentFinalExam:
             respx.post("https://taurusexam-api.zhihuishu.com/taurusExam/gateway/t/v1/student/getStudentFinalExam").mock(
                 return_value=httpx.Response(200, json=EXAM_LIST_RESPONSE)
             )
-            result = api.get_student_final_exam(course_id=1000083416, recruit_id="394787", flag=1)
+            result = api.get_student_final_exam(course_id=654321, recruit_id="10002", flag=1)
             assert isinstance(result, list)
             assert len(result) == 1
-            assert result[0]["examId"] == "eAqdKONe"
+            assert result[0]["examId"] == "exam0001"
 
     def test_empty_rt(self, api: ZhidaoExamApi) -> None:
         """无考试时返回空数组"""
@@ -89,7 +89,7 @@ class TestGetStudentFinalExam:
             respx.post("https://taurusexam-api.zhihuishu.com/taurusExam/gateway/t/v1/student/getStudentFinalExam").mock(
                 return_value=httpx.Response(200, json=resp)
             )
-            result = api.get_student_final_exam(course_id=1000083416, recruit_id="394787", flag=1)
+            result = api.get_student_final_exam(course_id=654321, recruit_id="10002", flag=1)
             assert result == []
 
     def test_raises_on_error_status(self, api: ZhidaoExamApi) -> None:
@@ -101,7 +101,7 @@ class TestGetStudentFinalExam:
                 return_value=httpx.Response(200, json={"status": "-1", "msg": "请求失败"})
             )
             with pytest.raises(ApiError):
-                api.get_student_final_exam(course_id=1000083416, recruit_id="394787", flag=1)
+                api.get_student_final_exam(course_id=654321, recruit_id="10002", flag=1)
 
 
 class TestGetSaveAnswerLockResult:
@@ -122,7 +122,7 @@ class TestGetSaveAnswerLockResult:
             respx.post(f"{self.HW_BASE}/studentExam/gateway/t/v1/answer/getSaveAnswerLockResult").mock(
                 return_value=httpx.Response(200, json=self.LOCK_RESPONSE)
             )
-            state = api.get_save_answer_lock_result(exam_id="eAqdKONe", recruit_id="394787")
+            state = api.get_save_answer_lock_result(exam_id="exam0001", recruit_id="10002")
             assert state == 1
 
     def test_unlocked_returns_zero(self, api: ZhidaoExamApi) -> None:
@@ -132,7 +132,7 @@ class TestGetSaveAnswerLockResult:
             respx.post(f"{self.HW_BASE}/studentExam/gateway/t/v1/answer/getSaveAnswerLockResult").mock(
                 return_value=httpx.Response(200, json=resp)
             )
-            state = api.get_save_answer_lock_result(exam_id="eAqdKONe", recruit_id="394787")
+            state = api.get_save_answer_lock_result(exam_id="exam0001", recruit_id="10002")
             assert state == 0
 
 
@@ -146,7 +146,7 @@ SCHOOL_INFO_RESPONSE = {
     "msg": "请求成功",
     "rt": {
         "id": None,
-        "schoolId": 625,
+        "schoolId": 1000,
         "bannerPath": "https://image.zhihuishu.com/testzhs/myuni/home/201607/b82fe70e13e54f859c896120b67bedc1.png",
         "background": "#276b8f",
         "schoolPageUrl": "//school.zhihuishu.com/gdut",
@@ -161,13 +161,13 @@ class TestGetLoginSchoolInfo:
     HW_BASE = "https://studentexam-api.zhihuishu.com"
 
     def test_returns_school_id(self, api: ZhidaoExamApi) -> None:
-        """返回 rt.schoolId（str 型，如 "625"）"""
+        """返回 rt.schoolId（str 型，如 "1000"）"""
         with respx.mock:
             respx.post(f"{self.HW_BASE}/studentExam/gateway/t/v1/exam/getLoginSchoolInfo").mock(
                 return_value=httpx.Response(200, json=SCHOOL_INFO_RESPONSE)
             )
             school_id = api.get_login_school_info()
-            assert school_id == "625"
+            assert school_id == "1000"
 
     def test_returns_empty_when_rt_is_none(self, api: ZhidaoExamApi) -> None:
         """rt=null 时返回空字符串（用户未绑定学校）"""
@@ -226,9 +226,9 @@ DO_EXAM_RESPONSE = {
         "id": None,
         "score": None,
         "examBase": {
-            "id": "eAqdKONe",
-            "name": "思想道德与法治教程试卷",
-            "courseName": "思想道德与法治",
+            "id": "exam0001",
+            "name": "测试试卷",
+            "courseName": "测试课程",
             "toChapter": None,
             "explain": "单选题40道，每道1分，多选题20道，每道2分，判断题20道，每道1分。",
             "limitTime": None,
@@ -257,7 +257,7 @@ DO_EXAM_RESPONSE = {
                             "questionDatas": None,
                             "questionChildrens": None,
                             "questionScore": "1",
-                            "eid": "JaPd4nACmjOFYSCTE4kZpA==",
+                            "eid": "eid-demo-001==",
                             "comments": None,
                             "result": None,
                         }
@@ -285,15 +285,15 @@ class TestDoExam:
                 return_value=httpx.Response(200, json=DO_EXAM_RESPONSE)
             )
             result = api.do_exam(
-                recruit_id="394787",
-                exam_id="eAqdKONe",
-                student_exam_id="edJddjZE",
-                school_id="625",
-                course_id="1000083416",
+                recruit_id="10002",
+                exam_id="exam0001",
+                student_exam_id="exam0001",
+                school_id="1000",
+                course_id="654321",
             )
             assert "examBase" in result
-            assert result["examBase"]["id"] == "eAqdKONe"
-            assert result["examBase"]["workExamParts"][0]["questionDtos"][0]["eid"] == "JaPd4nACmjOFYSCTE4kZpA=="
+            assert result["examBase"]["id"] == "exam0001"
+            assert result["examBase"]["workExamParts"][0]["questionDtos"][0]["eid"] == "eid-demo-001=="
 
     def test_uses_zhidao_exam_strategy(self, api: ZhidaoExamApi) -> None:
         """使用 zhidao_exam 策略（taurusexam 域名, exam_key, 无 dateFormate, status='200'）"""
@@ -302,11 +302,11 @@ class TestDoExam:
                 return_value=httpx.Response(200, json=DO_EXAM_RESPONSE)
             )
             api.do_exam(
-                recruit_id="394787",
-                exam_id="eAqdKONe",
-                student_exam_id="edJddjZE",
-                school_id="625",
-                course_id="1000083416",
+                recruit_id="10002",
+                exam_id="exam0001",
+                student_exam_id="exam0001",
+                school_id="1000",
+                course_id="654321",
             )
             assert route.called
             body = route.calls[0].request.content.decode()
@@ -323,11 +323,11 @@ class TestDoExam:
             )
             with pytest.raises(ApiError):
                 api.do_exam(
-                    recruit_id="394787",
-                    exam_id="eAqdKONe",
-                    student_exam_id="edJddjZE",
-                    school_id="625",
-                    course_id="1000083416",
+                    recruit_id="10002",
+                    exam_id="exam0001",
+                    student_exam_id="exam0001",
+                    school_id="1000",
+                    course_id="654321",
                 )
 
 
@@ -356,11 +356,11 @@ class TestSaveStudentAnswer:
                 return_value=httpx.Response(200, json=SAVE_ANSWER_RESPONSE)
             )
             answer_item = {
-                "examId": "eAqdKONe",
-                "recruitId": "394787",
-                "stuExamId": "edJddjZE",
+                "examId": "exam0001",
+                "recruitId": "10002",
+                "stuExamId": "exam0001",
                 "eid": "vPFMpAK/PoJ5BIKaAmAoXw==",
-                "schoolId": "625",
+                "schoolId": "1000",
                 "deviceId": "",
                 "examType": 1,
                 "fromType": 3,
@@ -368,7 +368,7 @@ class TestSaveStudentAnswer:
                 "dataIds": "",
                 "questionType": 14,
             }
-            result = api.save_student_answer(answer_item, recruit_id="394787")
+            result = api.save_student_answer(answer_item, recruit_id="10002")
             assert result["statu"] == "1"
 
     def test_sends_source_field_as_plaintext(self, api: ZhidaoExamApi) -> None:
@@ -378,11 +378,11 @@ class TestSaveStudentAnswer:
                 return_value=httpx.Response(200, json=SAVE_ANSWER_RESPONSE)
             )
             answer_item = {
-                "examId": "eAqdKONe",
-                "recruitId": "394787",
-                "stuExamId": "edJddjZE",
+                "examId": "exam0001",
+                "recruitId": "10002",
+                "stuExamId": "exam0001",
                 "eid": "vPFMpAK/PoJ5BIKaAmAoXw==",
-                "schoolId": "625",
+                "schoolId": "1000",
                 "deviceId": "",
                 "examType": 1,
                 "fromType": 3,
@@ -390,7 +390,7 @@ class TestSaveStudentAnswer:
                 "dataIds": "",
                 "questionType": 14,
             }
-            api.save_student_answer(answer_item, recruit_id="394787")
+            api.save_student_answer(answer_item, recruit_id="10002")
             assert route.called
             body = route.calls[0].request.content.decode()
             assert "secretStr" in body
@@ -403,11 +403,11 @@ class TestSaveStudentAnswer:
                 return_value=httpx.Response(200, json=SAVE_ANSWER_RESPONSE)
             )
             answer_item = {
-                "examId": "eAqdKONe",
-                "recruitId": "394787",
-                "stuExamId": "edJddjZE",
+                "examId": "exam0001",
+                "recruitId": "10002",
+                "stuExamId": "exam0001",
                 "eid": "vPFMpAK/PoJ5BIKaAmAoXw==",
-                "schoolId": "625",
+                "schoolId": "1000",
                 "deviceId": "",
                 "examType": 1,
                 "fromType": 3,
@@ -415,7 +415,7 @@ class TestSaveStudentAnswer:
                 "dataIds": "",
                 "questionType": 14,
             }
-            api.save_student_answer(answer_item, recruit_id="394787")
+            api.save_student_answer(answer_item, recruit_id="10002")
             assert route.called
             body = route.calls[0].request.content.decode()
             assert "secretStr" in body
@@ -430,11 +430,11 @@ class TestSaveStudentAnswer:
                 return_value=httpx.Response(200, json={"status": "-1", "msg": "试卷已提交"})
             )
             answer_item = {
-                "examId": "eAqdKONe",
-                "recruitId": "394787",
-                "stuExamId": "edJddjZE",
+                "examId": "exam0001",
+                "recruitId": "10002",
+                "stuExamId": "exam0001",
                 "eid": "vPFMpAK/PoJ5BIKaAmAoXw==",
-                "schoolId": "625",
+                "schoolId": "1000",
                 "deviceId": "",
                 "examType": 1,
                 "fromType": 3,
@@ -443,7 +443,7 @@ class TestSaveStudentAnswer:
                 "questionType": 14,
             }
             with pytest.raises(ApiError):
-                api.save_student_answer(answer_item, recruit_id="394787")
+                api.save_student_answer(answer_item, recruit_id="10002")
 
 
 # ---------------------------------------------------------------------------
@@ -471,9 +471,9 @@ class TestSubmitExam:
                 return_value=httpx.Response(200, json=SUBMIT_RESPONSE)
             )
             result = api.submit_exam(
-                recruit_id="394787",
-                exam_id="eAqdKONe",
-                stu_exam_id="edJddjZE",
+                recruit_id="10002",
+                exam_id="exam0001",
+                stu_exam_id="exam0001",
                 achieve_count="80",
             )
             assert result["msg"] == "提交成功"
@@ -486,9 +486,9 @@ class TestSubmitExam:
                 return_value=httpx.Response(200, json=SUBMIT_RESPONSE)
             )
             api.submit_exam(
-                recruit_id="394787",
-                exam_id="eAqdKONe",
-                stu_exam_id="edJddjZE",
+                recruit_id="10002",
+                exam_id="exam0001",
+                stu_exam_id="exam0001",
                 achieve_count="80",
             )
             assert route.called
@@ -507,8 +507,8 @@ class TestSubmitExam:
             )
             with pytest.raises(ApiError):
                 api.submit_exam(
-                    recruit_id="394787",
-                    exam_id="eAqdKONe",
-                    stu_exam_id="edJddjZE",
+                    recruit_id="10002",
+                    exam_id="exam0001",
+                    stu_exam_id="exam0001",
                     achieve_count="80",
                 )

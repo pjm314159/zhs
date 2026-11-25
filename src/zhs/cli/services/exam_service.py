@@ -195,7 +195,7 @@ def run_zhidao_exam_by_course(
     通过课程列表反查 recruitId（getStudentFinalExam API 需要 recruitId + courseId）。
 
     Args:
-        course_id_str: 课程 ID（数字型字符串，如 "1000083416"）
+        course_id_str: 课程 ID（数字型字符串，如 "123456"）
         submit: 是否自动提交考试（默认 False，仅保存答案）
     """
     from zhs.utils.display import msg_error

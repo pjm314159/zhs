@@ -110,8 +110,9 @@ class TestRunZhidaoHomework:
         mock_worker_cls: MagicMock,
         mock_init_llm: MagicMock,
     ) -> None:
-        """有待处理作业时调用 worker.run_homework"""
+        """有待处理作业时调用 worker.run_homework，schoolId 取自当前登录用户"""
         session = MagicMock()
+        session.exam_get_login_school_info.return_value = "1000"
         config = _make_config()
         config.homework.threshold = 80
 
@@ -130,7 +131,7 @@ class TestRunZhidaoHomework:
 
         run_zhidao_homework(session, config, "12345", 67890)
 
-        mock_worker.run_homework.assert_called_once()
+        mock_worker.run_homework.assert_called_once_with(mock_item, "12345", "1000")
 
     @patch("zhs.cli.bootstrap.init_llm")
     @patch("zhs.zhidao.homework.worker.HomeworkWorker")

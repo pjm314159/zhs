@@ -238,9 +238,9 @@ class TestPlayCommand:
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
-        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc")
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc")
 
-        runner.invoke(app, ["play", "-c", "1000008156"])
+        runner.invoke(app, ["play", "-c", "123456"])
         mock_run_zhidao.assert_called_once()
         assert mock_run_zhidao.call_args.args[2] == "rac_abc"
 
@@ -349,16 +349,14 @@ class TestHomeworkCommand:
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
-        mock_resolve.return_value = ResolvedCourse(
-            type="zhidao", course_id=1000008156, rac_id="rac_abc", recruit_id=789
-        )
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc", recruit_id=789)
 
-        runner.invoke(app, ["homework", "-c", "1000008156"])
+        runner.invoke(app, ["homework", "-c", "123456"])
 
         mock_session.exam_sso_login.assert_called_once()
         mock_run_zhidao_homework.assert_called_once()
         assert mock_run_zhidao_homework.call_args.args[2] == "789"
-        assert mock_run_zhidao_homework.call_args.args[3] == 1000008156
+        assert mock_run_zhidao_homework.call_args.args[3] == 123456
 
     @patch("zhs.__main__._run_zhidao_homework")
     @patch("zhs.__main__._resolve_course_id")
@@ -375,9 +373,9 @@ class TestHomeworkCommand:
         mock_config = _make_mock_config()
         mock_session = MagicMock()
         mock_load.return_value = (mock_config, mock_session)
-        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=1000008156, rac_id="rac_abc")
+        mock_resolve.return_value = ResolvedCourse(type="zhidao", course_id=123456, rac_id="rac_abc")
 
-        result = runner.invoke(app, ["homework", "-c", "1000008156"])
+        result = runner.invoke(app, ["homework", "-c", "123456"])
 
         assert "缺少 recruitId" in result.output
         mock_run_zhidao_homework.assert_not_called()

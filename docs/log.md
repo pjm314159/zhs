@@ -489,3 +489,45 @@ API 参考：`.temp/questions_bank.md`
 - Test：`tests/cli/services/test_homework_service.py` + `tests/cli/test_main.py` 66 passed；pytest 全量 1272 passed
 - 说明：`-c` 单课程 / `--url` 单作业模式同样只影响该课程；AI 课程作业不受知到验证码影响（原逻辑已隔离）。分支 `feat/captcha`
 - Refactor：本轮改动文件的 ruff check / format --check / mypy 通过（`src/zhs/captcha/*` 的既有 format/mypy 问题不在本次范围）
+
+### Task 43 — 作业验证码自动求解（doHomework/saveStudentAnswer -12 → 易盾点选 → validateSlideToken → 重试）✅
+- 背景：Task 41/42 只做到"识别 `-12` 并按课程级中止"，仍需人工过码。抓包（`docs/api/operations/zhidao-homework/validate-slide-token.yaml`）显示作业侧可复用视频的易盾点选求解能力：`doHomework` 返回 `code="-12"` 后，前端过易盾点选，再把组装好的 `validate` 上报 `/studentExam/gateway/t/v1/answer/validateSlideToken` 换取 `pass=true`
+- Red：7 用例失败
+  - `tests/api/test_zhidao_homework_api.py::TestHomeworkValidateSlideToken::test_encrypts_expected_payload`（解密 `secretStr` 断言载荷 `{recruitId, token, checkType=1, chapterId=examId}` 且无 `dateFormate`）→ `AttributeError: homework_validate_slide_token`
+  - `tests/zhidao/homework/test_worker.py::TestHomeworkWorkerCaptcha` 6 用例：doHomework 求解后重试成功 / solve=None 抛出 / `pass=false` 抛出 / 重试仍 -12 只求解一次 / 保存阶段求解后重试成功 / 保存阶段失败抛 `CaptchaRequired` 而非 `SliderVerificationRequired` → 多数 `Mock object has no attribute 'homework_validate_slide_token'`，最后一条实际抛出了 `SliderVerificationRequired`（验证了现有误包装缺陷）
+- Green
+  - `src/zhs/api/zhidao_homework_api.py`：新增 `homework_validate_slide_token(recruit_id, exam_id, token)`，`homework` 策略（exam_key、无 dateFormate），字段 `chapterId` 填 examId
+  - `src/zhs/session.py`：门面新增同名方法
+  - `src/zhs/zhidao/homework/worker.py`
+    - 新增 `_with_captcha(action, item, recruit_id)`：捕获 `CaptchaRequired` → `_try_solve_captcha` → 通过则重试一次，否则 `raise`
+    - 新增 `_try_solve_captcha(exc, item, recruit_id)`：`CaptchaService.solve(CaptchaTrigger(kind="click", referer=https://onlineexamh5new.zhihuishu.com/stuExamWeb.html))` → `homework_validate_slide_token(token=solution.validate)` → 返回 `bool(result["pass"])`；任何异常/未通过均返回 False
+    - `doHomework`（`_fetch_homework_detail`）与 `saveStudentAnswer`（逐题保存）均经 `_with_captcha` 包裹；重试后仍 -12 向上抛，由 CLI 课程级中止（Task 42 已实现）
+    - `_save_answer` 显式 `except CaptchaRequired: raise`，避免消息含"验证"被误映射为 `SliderVerificationRequired`
+- Test：API + worker 46 passed；pytest 全量 1279 passed
+- 文档：`docs/design.md` worker 设计要点补验证码路径与异常映射；`docs/test.md` §4.8.3 补 `TestHomeworkWorkerCaptcha` 与 validateSlideToken 载荷校验说明
+- 未实测：真机触发作业验证码后的自动过码成功率（需风控命中，留待后续实测）
+- Refactor：改动文件 ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 44 — 修复 getStudentHomework 显式 null 字段导致整条作业被丢弃 ✅
+- 现象：真机日志大量 `scanner._get_student_homework:146 解析作业项失败: 3 validation errors for HomeworkItem`（`cpOrderNumber` / `chapterId` / `chapterRank`，`input_value=None`），对应作业被静默跳过（如「形势与政策」第一/三/四章单元测试）
+- 原因：`getStudentHomework` 对无章节绑定的作业显式返回 `null`；pydantic v2 的字段默认值只在**字段缺失**时生效，显式 `null` 仍触发 `string_type` / `int_type` 校验失败，`model_validate` 整条抛错被 `except` 捕获后丢弃
+- Red：`tests/zhidao/homework/test_models.py::TestHomeworkItem::test_api_null_fields_fall_back_to_defaults`（按真机样例构造三个字段为 null 的数据，断言解析成功且回落 `""`/`0`）→ 失败（3 validation errors）
+- Green：`src/zhs/zhidao/homework/models.py` 为 `HomeworkItem` 增加 `field_validator(mode="before")`，`cp_order_number` 的 null → `""`，`chapter_id` / `chapter_rank` 的 null → `0`（按 `info.field_name` 区分）
+- Test：`tests/zhidao/homework` 101 passed；pytest 全量 1280 passed
+- 文档：`docs/test.md` §4.8.1 补该用例
+- Refactor：ruff check / format --check / mypy 通过；分支 `feat/captcha`
+
+### Task 45 — 清除代码/测试中的真实账号数据，schoolId 改取当前登录用户 ✅
+- 背景：测试样例直接沿用了真机抓包数据，含真实 recruitId / courseId / examId / schoolId / 课程名 / 加密 eid；`run_zhidao_homework` 还在生产代码里硬编码了学校 ID
+- 替换映射（全部改为明显虚构的占位值）：
+  - recruitId `414804`/`394787`/`469646` → `10001`/`10002`/`10003`
+  - courseId `1000008156` → `123456`，`1000083416` → `654321`
+  - schoolId `625` → `1000`（含 docstring 示例）
+  - examId `wMqNNxQp`/`5kNKk0qe`/`wDOkk9dz`/`y0mBgPpw`/`eAqdKONe`/`edJddjZE`/`y7VmgR3D`/`e9XlgxDw` → `hw001`/`exam001`/`hw002`/`exam002`/`exam0001`/`exam0002`/`exam0003`
+  - 课程/考试名 `思想道德与法治*`、`形势与政策` → `测试课程`/`测试考试`/`测试试卷`/`示例课程`
+  - 加密 eid `JaPd4nAC...` → `eid-demo-001==`
+- 行为修复（Red → Green）：`src/zhs/cli/services/homework_service.py::run_zhidao_homework` 不再写死 `"625"`，改为 `session.exam_get_login_school_info()`（未绑定时空串），与 exam_service 一致
+  - Red：`test_pending_runs_worker` 增加断言 `run_homework(item, "12345", "1000")` → 实际仍传 `"625"` 失败
+  - Green：取登录学校 ID 后传入 worker
+- Test：pytest 全量 1280 passed；ruff check src/ tests/ 通过；改动文件 ruff format --check / mypy 通过（`src/zhs/captcha/*` 与 `tests/captcha` 的既有 format 问题不在本次范围）
+- Refactor：`tests/cli/test_main.py` 因字符串变短重新格式化；分支 `feat/captcha`

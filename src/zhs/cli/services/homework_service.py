@@ -146,10 +146,17 @@ def run_zhidao_homework(
     cache = ZhidaoHomeworkCache()
     worker = HomeworkWorker(session, config, cache, llm=llm, question_bank=bank)
 
+    # schoolId 取自当前登录用户（未绑定学校时为空字符串）
+    school_id = session.exam_get_login_school_info()
+    if school_id:
+        logger.info(f"学校 ID: {school_id}")
+    else:
+        logger.info("未绑定学校，schoolId 留空")
+
     for item in pending:
         try:
             logger.info(f"开始做作业: {item.exam_name} (state={item.state}, score={item.score})")
-            score_rate = worker.run_homework(item, recruit_id, "625")
+            score_rate = worker.run_homework(item, recruit_id, school_id)
             if score_rate >= config.homework.threshold:
                 tree_print(
                     msg_done(f"完成: {item.exam_name} {score_rate:.1f}%"),

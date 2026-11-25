@@ -332,9 +332,9 @@ class TestHomeworkQuery:
                 return_value=httpx.Response(200, json={"status": "200", "code": "-12", "msg": "弹出滑块验证", "rt": {}})
             )
             with pytest.raises(CaptchaRequired) as exc_info:
-                query.query("homework", "https://homework.example.com/api", data={"recruitId": "469646"})
+                query.query("homework", "https://homework.example.com/api", data={"recruitId": "10003"})
             assert exc_info.value.response["code"] == "-12"
-            assert exc_info.value.payload == {"recruitId": "469646"}
+            assert exc_info.value.payload == {"recruitId": "10003"}
 
     def test_code_minus_12_int_raises_captcha(self, query: EncryptedQuery) -> None:
         """status='200' 但 code=-12（数字）同样抛 CaptchaRequired"""
@@ -479,7 +479,7 @@ class TestExtraFields:
             query.query(
                 "homework",
                 "https://homework.example.com/api",
-                data={"recruitId": "394787"},
+                data={"recruitId": "10002"},
                 extra_fields={"source": "1"},
             )
             assert route.called
@@ -494,5 +494,5 @@ class TestExtraFields:
             iv = query._http.crypto.key_bytes("iv")
             cipher = Cipher(key, iv)
             decrypted = _json.loads(cipher.decrypt(parsed["secretStr"][0]))
-            assert decrypted == {"recruitId": "394787"}
+            assert decrypted == {"recruitId": "10002"}
             assert "source" not in decrypted
