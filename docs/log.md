@@ -595,4 +595,13 @@ API 参考：`.temp/questions_bank.md`
 - Test：`tests/cli` 235 passed（含原有登录/扫码用例）
 - Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
 
+### 账户密码登录 P6 — Cookie 失效自动登录 ✅
+- Red：`tests/cli/test_bootstrap.py::TestLoadConfigAndSession` 新增 6 用例（无 cookies 自动登录并保存、EXPIRED 重登后继续、`auto_login=false` 保持原提示、配置错误不泄露密码、失败只尝试一次、重登后校验仍失效报错）→ 自动登录未被调用（`call_count == 0`）
+- Green：`src/zhs/cli/bootstrap.py`
+  - `load_config_and_session` 捕获 `ValidationError`，仅输出校验消息（`_config_validation_message`），不带 pydantic 的 `input_value`（避免密码进终端）
+  - 无 cookies / `verify_session=EXPIRED` 且 `login.auto_login=true` → `_auto_login` 用 `[login]` 账号密码（`SecretPassword` 包装）登录一次 → 保存 cookies → 再校验；失败或仍失效直接退出，不循环
+  - `auto_login=false` 保持原“请运行 zhs login”提示；`UNAVAILABLE` 仍提示检查网络
+- Test：`tests/cli/test_bootstrap.py` 55 passed；pytest 全量 1326 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
 
