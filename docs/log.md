@@ -563,3 +563,15 @@ API 参考：`.temp/questions_bank.md`
 - Test：`tests/test_config.py` 61 passed
 - Refactor：改动文件 ruff check / format、mypy 通过；分支 `feat/password-login`
 
+### 账户密码登录 P2 — PassportLoginApi ✅
+- Red：`tests/api/test_passport_login_api.py` 15 用例（body 为带引号密文串且解回 `{account,password,validate}`、登录 headers、`status` 归一化含 int/str/未知值、`rt` 字段映射、HTTP 500 包装、`skipSet` 两种路径、日志不含密码）→ `ModuleNotFoundError: zhs.api.passport_login_api`
+- Green：新增 `src/zhs/api/passport_login_api.py`
+  - `AccountLoginStatus`（`1`/`2`/`-12`/`-5`/`-13`/`ACCOUNT_DISABLED`/`UNKNOWN`，`_missing_` 兜底未知值）
+  - `AccountLoginResult`（`status`/`msg`/`pwd`/`uuid`/`cache_id`）
+  - `login_by_password`：`_encrypt_body` 用 `login_key`+`login_iv` 加密并二次 `json.dumps`，body 为裸字符串；Header `Content-Type`/`Origin`/`Referer` 固定登录页
+  - `skip_set(identifier)`：`rt.uuid` 与 `rt.cacheId` 共用，body 固定 `null`，identifier 先做格式校验
+  - HTTP/解析异常统一 `raise LoginFailed(...) from e`；不重试、不判成功、不落盘、不输出密码
+- Test：`tests/api/test_passport_login_api.py` 15 passed
+- Refactor：ruff check / format、mypy 通过；分支 `feat/password-login`
+
+
