@@ -599,3 +599,27 @@ class TestConfigManagerMigrate:
         mgr = ConfigManager(tmp_path / "config.toml")
         cfg = mgr.migrate(json_file)
         assert cfg.display.log_level == "WARNING"
+
+
+class TestCaptchaFpLoad:
+    """captcha.fp 直接粘贴（含反斜杠）时的加载容错。"""
+
+    def test_fp_with_backslash_loads(self, tmp_path: Path) -> None:
+        """fp 含反斜杠时，双引号字面量会被自动换成单引号。"""
+        target = tmp_path / "config.toml"
+        target.write_text(
+            '[captcha]\nenabled = true\nfp = "abc\\def:1795408610061"\n',
+            encoding="utf-8",
+        )
+
+        config = ConfigManager(target).load()
+        assert config.captcha.enabled is True
+        assert config.captcha.fp == "abc\\def:1795408610061"
+
+    def test_fp_without_backslash_unchanged(self, tmp_path: Path) -> None:
+        """不含反斜杠的 fp 保持原样。"""
+        target = tmp_path / "config.toml"
+        target.write_text('[captcha]\nfp = "abc:1795408610061"\n', encoding="utf-8")
+
+        config = ConfigManager(target).load()
+        assert config.captcha.fp == "abc:1795408610061"

@@ -15,6 +15,7 @@
 """
 
 import json
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
@@ -230,6 +231,30 @@ _MIGRATE_KEYS = (
 )
 
 
+_FP_LINE = re.compile(r'^(\s*)fp\s*=\s*"([^"]*)"\s*$')
+
+
+def normalize_captcha_fp(text: str) -> str:
+    """把 ``[captcha]`` 段内的 ``fp = "..."`` 换成单引号字面量。
+
+    fp 里含反斜杠（如 ``\\+7pWT``），直接粘贴到双引号字符串会触发 TOML 转义错误。
+    单引号字面量不做转义处理，使用者可以原样粘贴。
+    """
+    lines = text.splitlines(keepends=True)
+    in_captcha = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_captcha = stripped.lower().startswith("[captcha]")
+            continue
+        if not in_captcha:
+            continue
+        match = _FP_LINE.match(line.rstrip("\n").rstrip("\r"))
+        if match and "\\" in match.group(2) and "'" not in match.group(2):
+            lines[index] = f"{match.group(1)}fp = '{match.group(2)}'\n"
+    return "".join(lines)
+
+
 class ConfigManager:
     """配置管理器：加载/保存/迁移 TOML 配置"""
 
@@ -240,8 +265,8 @@ class ConfigManager:
         """从 TOML 文件加载配置，文件不存在或字段缺失时使用默认值"""
         if not self.config_path.exists():
             return AppConfig()
-        with open(self.config_path, "rb") as f:
-            data = tomllib.load(f)
+        text = normalize_captcha_fp(self.config_path.read_text(encoding="utf-8"))
+        data = tomllib.loads(text)
         return AppConfig(**self._flatten_toml(data))
 
     def save(self, config: AppConfig) -> None:
