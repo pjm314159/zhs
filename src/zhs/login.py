@@ -53,8 +53,8 @@ class LoginManager:
         Returns:
             LoginResult 包含 success/uuid/cookies
         """
-        qr_page = f"{self._config.urls.passport}/qrCodeLogin/getLoginQrImg"
-        query_page = f"{self._config.urls.passport}/qrCodeLogin/getLoginQrInfo"
+        qr_page = f"{self._config.urls.user}/zhsuser/qrCodeLogin/getLoginQrImg"
+        query_page = f"{self._config.urls.user}/zhsuser/qrCodeLogin/getLoginQrInfo"
         login_page = f"{self._config.urls.passport}/login"
         gologin_url = f"{self._config.urls.base}/login/gologin"
 

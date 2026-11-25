@@ -71,6 +71,7 @@ class TestUrlConfig:
         u = UrlConfig()
         assert u.base == "https://onlineservice-api.zhihuishu.com"
         assert u.passport == "https://passport.zhihuishu.com"
+        assert u.user == "https://user.zhihuishu.com"
         assert u.study == "https://studyservice-api.zhihuishu.com"
         assert u.hike == "https://hike.zhihuishu.com"
         assert u.ai == "https://kg-ai-run.zhihuishu.com"

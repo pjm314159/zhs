@@ -196,6 +196,7 @@ ai_sign_prefix = "8ZflKEagfL"
 [urls]
 base = "https://onlineservice-api.zhihuishu.com"
 passport = "https://passport.zhihuishu.com"
+user = "https://user.zhihuishu.com"
 study = "https://studyservice-api.zhihuishu.com"
 hike = "https://hike.zhihuishu.com"
 ai = "https://kg-ai-run.zhihuishu.com"

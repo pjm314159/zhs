@@ -545,3 +545,10 @@ API 参考：`.temp/questions_bank.md`
 - 文案：`captcha/__init__.py` docstring、`service.py`（"OpenCV 不可用"）、`slider.py`（RuntimeError）去掉 extra 说法
 - 校验：`uv sync --dev` 安装 cv2 5.1.0 / numpy 2.5.5，`slider.available() == True`；干净 venv 安装 wheel 后 `import cv2, numpy` 成功、`zhs --version` 正常
 - Test：ruff check/format、mypy（169 files）、pytest 全量 1281 passed；分支 `feat/captcha`
+
+### 扫码登录接口迁移到新版端点（`user.zhihuishu.com/zhsuser`）✅
+- 背景：登录中心改版，扫码接口由 `passport.zhihuishu.com/qrCodeLogin/*` 迁移为 `user.zhihuishu.com/zhsuser/qrCodeLogin/*`；实测旧接口仍在、响应结构（`img`/`qrToken`/`status`/`oncePassword`/`uuid`）与未扫码状态 `-1` 完全一致
+- Red：`tests/test_login.py` 4 个用例改 mock 新域名后报 `RESPX ... not mocked`；`tests/test_config.py::test_default_values` 因 `UrlConfig` 无 `user` 字段失败
+- Green：`UrlConfig` 新增 `user`；`LoginManager.login_with_qr` 改用 `{urls.user}/zhsuser/qrCodeLogin/*`；`config.toml.example` 增加 `user`
+- 未改动：轮询间隔 0.5s、`status` 分支（-1/0/1/2/3）、`passport/login?pwd=` 换票链路
+- Test：pytest 全量 1281 passed；ruff check/format、mypy 通过；分支 `feat/password-login`

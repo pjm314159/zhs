@@ -63,7 +63,7 @@ class TestQrLoginFullFlow:
 
         # Mock getLoginQrImg
         fake_qr_img = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(
             return_value=httpx.Response(200, json={"qrToken": "test-token-123", "img": fake_qr_img})
         )
 
@@ -80,7 +80,7 @@ class TestQrLoginFullFlow:
             else:
                 return httpx.Response(200, json={"status": 1, "msg": "已确认", "oncePassword": "otp-abc"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
 
         # 收集 callback 调用
         received_images: list[bytes] = []
@@ -122,7 +122,7 @@ class TestQrExpiredRetry:
             qr_call_count += 1
             return httpx.Response(200, json={"qrToken": f"token-{qr_call_count}", "img": "aW1n"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(side_effect=qr_img_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(side_effect=qr_img_side_effect)
 
         # Mock getLoginQrInfo: 第一次过期 → 第二次成功
         info_call_count = 0
@@ -134,7 +134,7 @@ class TestQrExpiredRetry:
                 return httpx.Response(200, json={"status": 2, "msg": "二维码已过期"})
             return httpx.Response(200, json={"status": 1, "msg": "已确认", "oncePassword": "otp-retry"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
 
         callback_count = 0
 
@@ -163,11 +163,11 @@ class TestQrCancelled:
             params={"service": "https://onlineservice-api.zhihuishu.com/login/gologin"},
         ).mock(return_value=httpx.Response(200, text="<html>ok</html>"))
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(
             return_value=httpx.Response(200, json={"qrToken": "cancel-token", "img": "aW1n"})
         )
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(
             return_value=httpx.Response(200, json={"status": 3, "msg": "用户取消登录"})
         )
 
@@ -192,7 +192,7 @@ class TestQrScannedDedup:
             )
         )
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrImg").mock(
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrImg").mock(
             return_value=httpx.Response(200, json={"qrToken": "dedup-token", "img": "aW1n"})
         )
 
@@ -209,7 +209,7 @@ class TestQrScannedDedup:
             else:
                 return httpx.Response(200, json={"status": 1, "msg": "已确认", "oncePassword": "otp-dedup"})
 
-        respx.get("https://passport.zhihuishu.com/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
+        respx.get("https://user.zhihuishu.com/zhsuser/qrCodeLogin/getLoginQrInfo").mock(side_effect=qr_info_side_effect)
 
         scanned_count = 0
 

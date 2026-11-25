@@ -107,6 +107,7 @@ class UrlConfig(BaseModel):
 
     base: str = "https://onlineservice-api.zhihuishu.com"
     passport: str = "https://passport.zhihuishu.com"
+    user: str = "https://user.zhihuishu.com"
     study: str = "https://studyservice-api.zhihuishu.com"
     hike: str = "https://hike.zhihuishu.com"
     ai: str = "https://kg-ai-run.zhihuishu.com"
