@@ -76,8 +76,34 @@ def check_ai_provider(config: AppConfig) -> None:
         )
 
 
+def check_captcha_config(config: AppConfig) -> None:
+    """验证码配置自检：``enabled=true`` 时 fp 与识图参数必须可用。"""
+    cap = config.captcha
+    if not cap.enabled:
+        return
+
+    from zhs.captcha.fp import normalize_fp, validate_fp_format
+    from zhs.exceptions import ZhsError
+
+    problems = validate_fp_format(normalize_fp(cap.fp))
+    if problems:
+        raise ZhsError(
+            "captcha.enabled = true，但 fp 不可用：" + "；".join(problems) + "\n"
+            "采集方法：Chrome 打开 https://login.zhihuishu.com/（无需登录），F12 → Console 执行\n"
+            "  const raw = document.cookie.match(/(?:^|;\\s*)gdxidpyhxdE=([^;]+)/i)?.[1];\n"
+            "  console.log(raw ? decodeURIComponent(raw) : '未找到 gdxidpyhxdE');\n"
+            "把输出的整串（约 190 字符，尾段为 :13位时间戳）填入配置 [captcha] fp"
+        )
+
+    if not cap.api_key.strip() or not cap.model.strip():
+        raise ZhsError(
+            "captcha.enabled = true，但 captcha.api_key / captcha.model 未配置；点选需要支持图片输入的模型"
+        )
+
+
 def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -> tuple[AppConfig, ZhsSession] | None:
     """加载配置、创建 session、恢复 cookies 并校验会话。失败返回 None。"""
+    from zhs.exceptions import ZhsError
     from zhs.utils.display import msg_done, msg_error
 
     config_mgr = ConfigManager()
@@ -88,6 +114,12 @@ def load_config_and_session(debug: bool, console_log: bool, proxy: str | None) -
 
     setup_logger(config, debug, console_log)
     check_ai_provider(config)
+
+    try:
+        check_captcha_config(config)
+    except ZhsError as exc:
+        print(msg_error(str(exc)))
+        return None
 
     session = ZhsSession(config)
 
@@ -236,6 +268,7 @@ __all__ = [
     "init_llm",
     "init_question_bank",
     "load_config_and_session",
+    "check_captcha_config",
     "parse_proxy",
     "setup_logger",
     "try_restore_cookies",
