@@ -15,6 +15,7 @@ from zhs.config import (
     CryptoConfig,
     ExamConfig,
     HomeworkConfig,
+    LoginConfig,
     QuestionBankConfig,
     UrlConfig,
 )
@@ -36,6 +37,8 @@ class TestCryptoConfig:
         assert c.hike_salt == "o6xpt3b#Qy$Z"
         assert c.ev_key == "zzpttjd"
         assert c.ai_sign_prefix == "8ZflKEagfL"
+        assert c.login_key == "bdas85990328dfpl"
+        assert c.login_iv == "563216db1e1744c7"
 
     def test_key_bytes_video_key(self) -> None:
         c = CryptoConfig()
@@ -99,6 +102,31 @@ class TestAIConfig:
         ai = AIConfig(api_key="sk-test", model="deepseek-v4-pro")
         assert ai.api_key == "sk-test"
         assert ai.model == "deepseek-v4-pro"
+
+
+# ---------------------------------------------------------------------------
+# LoginConfig
+# ---------------------------------------------------------------------------
+
+
+class TestLoginConfig:
+    def test_default_values(self) -> None:
+        login = LoginConfig()
+        assert login.account == ""
+        assert login.password == ""
+        assert login.auto_login is False
+
+    def test_custom_values(self) -> None:
+        login = LoginConfig(account="demo-account", password="demo-password", auto_login=True)
+        assert login.account == "demo-account"
+        assert login.password == "demo-password"
+        assert login.auto_login is True
+
+    def test_auto_login_requires_credentials(self) -> None:
+        with pytest.raises(ValidationError):
+            LoginConfig(auto_login=True)
+        with pytest.raises(ValidationError):
+            LoginConfig(account="demo-account", auto_login=True)
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +344,22 @@ base = "http://localhost:8080"
         cfg = mgr.load()
         assert cfg.urls.base == "http://localhost:8080"
 
+    def test_load_login_section(self, tmp_path: Path) -> None:
+        """加载 login 子配置"""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[login]
+account = "demo-account"
+password = "demo-password"
+auto_login = true
+"""
+        )
+        cfg = ConfigManager(config_file).load()
+        assert cfg.login.account == "demo-account"
+        assert cfg.login.password == "demo-password"
+        assert cfg.login.auto_login is True
+
     def test_load_ai_section(self, tmp_path: Path) -> None:
         """加载 ai 子配置"""
         config_file = tmp_path / "config.toml"
@@ -437,6 +481,17 @@ class TestConfigManagerSave:
         mgr = ConfigManager(config_file)
         mgr.save(cfg)
         assert mgr.load().homework.skip_ai_free_exam is False
+
+    def test_save_preserves_login(self, tmp_path: Path) -> None:
+        """保存和加载保留 login 配置"""
+        config_file = tmp_path / "config.toml"
+        cfg = AppConfig(login=LoginConfig(account="demo-account", password="demo-password", auto_login=True))
+        mgr = ConfigManager(config_file)
+        mgr.save(cfg)
+        loaded = mgr.load()
+        assert loaded.login.account == "demo-account"
+        assert loaded.login.password == "demo-password"
+        assert loaded.login.auto_login is True
 
     def test_roundtrip_all_defaults(self, tmp_path: Path) -> None:
         """默认值保存后加载一致"""

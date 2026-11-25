@@ -552,3 +552,14 @@ API 参考：`.temp/questions_bank.md`
 - Green：`UrlConfig` 新增 `user`；`LoginManager.login_with_qr` 改用 `{urls.user}/zhsuser/qrCodeLogin/*`；`config.toml.example` 增加 `user`
 - 未改动：轮询间隔 0.5s、`status` 分支（-1/0/1/2/3）、`passport/login?pwd=` 换票链路
 - Test：pytest 全量 1281 passed；ruff check/format、mypy 通过；分支 `feat/password-login`
+
+### 账户密码登录 P1 — 配置层 ✅
+- Red：`tests/test_config.py` 新增 `TestLoginConfig`（默认值 / 自定义值 / `auto_login=true` 缺账号或密码抛 `ValidationError`）、`TestCryptoConfig.test_default_values` 增加 `login_key`/`login_iv` 断言、`test_load_login_section`、`test_save_preserves_login` → 导入 `LoginConfig` 失败（ImportError）
+- Green：
+  - `src/zhs/config.py` 新增 `LoginConfig`（`account` / `password` / `auto_login`，`auto_login=true` 时账号或密码为空直接校验失败）
+  - `CryptoConfig` 增加 `login_key = "bdas85990328dfpl"`、`login_iv = "563216db1e1744c7"`（登录接口 AES-128-CBC 专用）
+  - `AppConfig` 增加 `login` 段；`ConfigManager._flatten_toml` / `_unflatten_config` 支持 `[login]` 读写
+  - `config.toml.example` 增加 `[login]` 段与两项登录密钥（占位为空，不含真实账号密码）
+- Test：`tests/test_config.py` 61 passed
+- Refactor：改动文件 ruff check / format、mypy 通过；分支 `feat/password-login`
+

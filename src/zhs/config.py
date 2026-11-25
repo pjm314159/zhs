@@ -95,6 +95,8 @@ class CryptoConfig(BaseModel):
     hike_salt: str = "o6xpt3b#Qy$Z"
     ev_key: str = "zzpttjd"
     ai_sign_prefix: str = "8ZflKEagfL"
+    login_key: str = "bdas85990328dfpl"
+    login_iv: str = "563216db1e1744c7"
 
     def key_bytes(self, name: str) -> bytes:
         """将密钥名转为 bytes，如 key_bytes('video_key') → b'azp53h0kft7qi78q'"""
@@ -183,6 +185,20 @@ class CaptchaConfig(BaseModel):
     save_challenge_dir: str = Field(default="", description="验证码素材落盘目录（排查用）")
 
 
+class LoginConfig(BaseModel):
+    """登录配置（账户密码登录与自动登录）"""
+
+    account: str = Field(default="", description="登录账号")
+    password: str = Field(default="", description="登录密码（仅用于登录请求，不写入日志）")
+    auto_login: bool = Field(default=False, description="Cookie 缺失或失效时自动用配置的账号密码登录")
+
+    @model_validator(mode="after")
+    def _check_auto_login_credentials(self) -> "LoginConfig":
+        if self.auto_login and (not self.account or not self.password):
+            raise ValueError("auto_login=true 时必须同时配置 [login] account 与 password")
+        return self
+
+
 class AppConfig(BaseModel):
     """应用全局配置"""
 
@@ -203,6 +219,7 @@ class AppConfig(BaseModel):
     exam: ExamConfig = ExamConfig()
     question_bank: QuestionBankConfig = QuestionBankConfig()
     captcha: CaptchaConfig = CaptchaConfig()
+    login: LoginConfig = LoginConfig()
 
 
 # ============================================================
@@ -407,6 +424,10 @@ class ConfigManager:
         if "captcha" in data:
             result["captcha"] = CaptchaConfig(**data["captcha"])
 
+        # [login] section
+        if "login" in data:
+            result["login"] = LoginConfig(**data["login"])
+
         return result
 
     @staticmethod
@@ -445,6 +466,7 @@ class ConfigManager:
             "exam",
             "question_bank",
             "captcha",
+            "login",
         )
         for section in sections:
             if section in data:
