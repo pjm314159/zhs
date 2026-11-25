@@ -42,8 +42,12 @@ x-zhs-evidence:
 parameters:
   - name: referer
     in: query
-    required: true
-    description: 当前页面地址（URL 编码）
+    required: false
+    description: |
+      来源页地址（URL 编码）。浏览器 SDK 总会携带；`getconf` / `get` 实测可省略，
+      `check` 按同一协议处理，未单独实测。
+      普通课程为 `https://studyvideoh5.zhihuishu.com/stuStudy`，
+      智慧课程为 `https://wisdom-mooc.zhihuishu.com/study/index`。
     schema:
       type: string
       example: https://wisdom-mooc.zhihuishu.com/study/index

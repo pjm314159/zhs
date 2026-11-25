@@ -4,9 +4,13 @@ operationId: validateSlideToken
 description: |
   心跳返回 `-12` 后，先过易盾点选，再把结果上报给业务侧换取 `pass`。
 
+  - `ev` 固定为 5 个 ID 的 `crypto.encode_ev` 结果（78 字符 hex）：
+    `[recruitId, lessonId, lessonVideoId, videoId, chapterId]`；
+    普通课程与智慧课程规则一致，与学习页无关；
+  - **不能**直接回传失败心跳的 `sdsew`：那是 10 段、132 字符的 ev，
+    服务端按 5 段解析会返回 `-1 参数解码发生错误`；
   - `token` 字段**名为 token，内容实际是组装后的 validate**：`CN31_` 前缀 + `_v_i_1` 后缀，531 字符；
     易盾原始题目 token（31 字符）不是这个字段；
-  - `ev` 必须沿用**失败那次心跳**的 `ev`，由 `crypto.encode_ev` 生成，不能重算；
   - `checkType` 固定 `1`。
 
   上报成功后用原心跳 payload 重发一次即可恢复播放。
@@ -28,7 +32,7 @@ x-zhs-crypto:
         description: 组装后的 validate（`CN31_{aes(裸validate+"::"+fp)}_v_i_1`，531 字符）
       ev:
         type: string
-        description: 失败那次心跳的 ev（hex 字符串）
+        description: 78 字符 hex：encode_ev([recruitId, lessonId, lessonVideoId, videoId, chapterId])，两类课程一致
       checkType:
         type: integer
         description: 固定 1
