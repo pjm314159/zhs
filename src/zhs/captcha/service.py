@@ -64,7 +64,7 @@ class CaptchaService:
             return None
 
         if trigger.kind == "slide" and not slider.available():
-            logger.warning("未安装 zhs[captcha]，跳过滑块求解")
+            logger.warning("OpenCV 不可用，跳过滑块求解")
             return None
         if trigger.kind == "click" and (not self._cfg.api_key or not self._cfg.model):
             logger.warning("验证码识图缺少 api_key 或 model，跳过点选求解")

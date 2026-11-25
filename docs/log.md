@@ -538,3 +538,10 @@ API 参考：`.temp/questions_bank.md`
 - Green：`_try_solve_captcha` 入口先判断 `self._session.captcha.enabled()`（enabled + fp），不可用则 `logger.debug` 后返回 False；`_with_captcha` 随即 `raise`，不执行第二次 action
 - 行为确认：`enabled=false` 时 `solve()` 也不会被调用；`doHomework` 仅请求 1 次；`validateSlideToken` 不发送；控制台无验证码提示
 - Test：worker 40 passed；pytest 全量 1281 passed；ruff/mypy 通过；分支 `feat/captcha`
+
+### Task 47 — OpenCV/NumPy 由可选 extra 改为必选依赖 ✅
+- 背景：`pip install zhs` 后滑块验证码因缺少 `opencv-python-headless`/`numpy` 不可用，需额外 `zhs[captcha]`
+- 变更：`pyproject.toml` 将两者并入 `dependencies`，删除 `[project.optional-dependencies] captcha`；`uv.lock` 同步
+- 文案：`captcha/__init__.py` docstring、`service.py`（"OpenCV 不可用"）、`slider.py`（RuntimeError）去掉 extra 说法
+- 校验：`uv sync --dev` 安装 cv2 5.1.0 / numpy 2.5.5，`slider.available() == True`；干净 venv 安装 wheel 后 `import cv2, numpy` 成功、`zhs --version` 正常
+- Test：ruff check/format、mypy（169 files）、pytest 全量 1281 passed；分支 `feat/captcha`

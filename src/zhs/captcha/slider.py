@@ -31,7 +31,7 @@ def available() -> bool:
 def find_gap_x(background: Any, front: Any) -> float:
     """返回缺口左边缘在背景图中的横坐标。"""
     if not _HAS_CV:
-        raise RuntimeError("未安装 opencv，无法识别滑块缺口")
+        raise RuntimeError("OpenCV 不可用，无法识别滑块缺口")
 
     image = front
     if image.ndim == 2:
@@ -103,9 +103,7 @@ def _sample(values: list[str], target_length: int) -> list[str]:
 
 def build_data(token: str, trace: list[tuple[float, float, int, int]], distance: float, width: int) -> dict[str, Any]:
     """构造滑块 ``check`` 的 data（五个字段，均为 aes 密文）。"""
-    trace_data = [
-        codec.xor_encode(token, f"{round(x)},{round(y)},{elapsed},1") for x, y, elapsed, _ in trace
-    ]
+    trace_data = [codec.xor_encode(token, f"{round(x)},{round(y)},{elapsed},1") for x, y, elapsed, _ in trace]
     timestamps = sorted({elapsed for _, _, elapsed, _ in trace})
     position_percent = int(distance) / width * 100
     return {
