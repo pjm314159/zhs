@@ -100,6 +100,8 @@ class ZhidaoVideoPlayer:
         course = ctx.course
         course_name = course.course_info.name if course.course_info else course.course_name
         begin_time = time.time()
+        video_count = 0
+        failed_count = 0
         tv = True
         logger.info(f"play_course: {course_name}, chapters={len(ctx.chapters)}")
         self._print_with_progress(f"{course_tag('zhidao')} 新课程: {course_name}", enabled=tv)
@@ -120,6 +122,7 @@ class ZhidaoVideoPlayer:
                         )
                         return
                     captcha_solved = False
+                    video_count += 1
                     while True:
                         try:
                             self.play_video(rac_id, video.video_id, ctx)
@@ -150,6 +153,7 @@ class ZhidaoVideoPlayer:
                         except KeyboardInterrupt:
                             raise
                         except Exception as exc:
+                            failed_count += 1
                             self._clear_progress()
                             logger.error(
                                 "Video failed: {} (racId={}, videoId={}) - {}",
@@ -164,6 +168,24 @@ class ZhidaoVideoPlayer:
         cost = time.time() - begin_time
         self._clear_progress()
 
+        if not video_count:
+            logger.info("play_course skipped: {} (no videos)", course_name)
+            tree_print(msg_skip(f"跳过课程: {course_name}（无视频）"), depth=1, enabled=tv)
+            return
+        if failed_count:
+            logger.warning(
+                "play_course incomplete: {} ({}/{} videos failed, {:.1f}s)",
+                course_name,
+                failed_count,
+                video_count,
+                cost,
+            )
+            tree_print(
+                msg_warn(f"课程未完成: {course_name}（{failed_count}/{video_count} 个视频失败，{cost:.1f}s）"),
+                depth=1,
+                enabled=tv,
+            )
+            return
         logger.info("play_course done: {} ({:.1f}s)", course_name, cost)
         tree_print(msg_done(f"完成课程: {course_name} ({cost:.1f}s)"), depth=1, enabled=tv)
 

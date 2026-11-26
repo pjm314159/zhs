@@ -629,6 +629,35 @@ class TestPlayCourse:
             player.play_course("ABC123", ctx)
             mock_play.assert_called_once_with("ABC123", 100, ctx)
 
+    @pytest.mark.parametrize(
+        ("outcomes", "summary"),
+        [
+            ([], "无视频"),
+            ([None], "完成课程: 测试课程"),
+            ([ValueError("bad video")], "1/1 个视频失败"),
+            ([ValueError("bad video"), None], "1/2 个视频失败"),
+        ],
+    )
+    def test_summary_reflects_video_results(
+        self, mock_session: ZhsSession, outcomes: list[Exception | None], summary: str
+    ) -> None:
+        ctx = _make_context()
+        template = ctx.videos[100]
+        videos = [template.model_copy(update={"video_id": 100 + i}) for i in range(len(outcomes))]
+        ctx.chapters[0].video_lessons[0].video_small_lessons = videos
+        ctx.videos = {video.video_id: video for video in videos}
+        player = ZhidaoVideoPlayer(mock_session)
+        with (
+            patch.object(player, "play_video", side_effect=outcomes) as play,
+            patch("zhs.zhidao.video.tree_print") as printer,
+        ):
+            player.play_course("ABC123", ctx)
+
+        assert [call.args[1] for call in play.call_args_list] == [video.video_id for video in videos]
+        messages = [call.args[0] for call in printer.call_args_list]
+        assert summary in messages[-1]
+        assert any("完成课程:" in message for message in messages) == (outcomes == [None])
+
     def test_stops_course_once_when_budget_exhausted(self, mock_session: ZhsSession) -> None:
         """配额用完后整门课停止，只提示一次，不再逐个视频打印「跳过(时间限制)」"""
         ctx = _make_context()
