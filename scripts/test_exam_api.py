@@ -102,7 +102,7 @@ def test_open_exam_detail(session: ZhsSession) -> None:
     student_id = int(task.get("userId", 0))
     task_id = str(task.get("id", ""))
 
-    print(f"\n--- 调用 openExamDetail ---")
+    print("\n--- 调用 openExamDetail ---")
     print(f"  classId={class_id}")
     print(f"  courseId={course_id}")
     print(f"  examTestId={exam_test_id}")
@@ -125,14 +125,14 @@ def test_open_exam_detail(session: ZhsSession) -> None:
     try:
         result = session.ai_task_query(url, data)
         detail = result.get("data", {})
-        print(f"\nopenExamDetail 响应:")
+        print("\nopenExamDetail 响应:")
         print(json.dumps(detail, ensure_ascii=False, indent=2))
 
         # 关键字段
         is_look = detail.get("isLookAnswer")
         is_allow = detail.get("isAllowShowDetail")
         score = detail.get("score")
-        print(f"\n关键字段:")
+        print("\n关键字段:")
         print(f"  isLookAnswer = {is_look} ({'可查看答案' if is_look == 1 else '不可查看'})")
         print(f"  isAllowShowDetail = {is_allow} ({'可查看详情' if is_allow == 1 else '不可查看'})")
         print(f"  score = {score}")
@@ -165,7 +165,7 @@ def test_get_answer_sheet(session: ZhsSession) -> None:
     try:
         result = session.ai_exam_query(url, data, method="GET")
         sheet_data = result.get("data", {})
-        print(f"\ngetAnswerSheetInformation 响应:")
+        print("\ngetAnswerSheetInformation 响应:")
         print(json.dumps(sheet_data, ensure_ascii=False, indent=2))
 
         # 统计正确率

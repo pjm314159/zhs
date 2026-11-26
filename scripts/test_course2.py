@@ -1,12 +1,12 @@
 """真实测试：完整播放第二门课程的一个视频"""
 import sys
-import traceback
 import time as _time
+import traceback
 from pathlib import Path
 
 from zhs.config import ConfigManager
-from zhs.login import LoginManager
 from zhs.logger import setup_logging
+from zhs.login import LoginManager
 from zhs.session import ZhsSession
 from zhs.zhidao.course import ZhidaoCourseManager
 from zhs.zhidao.video import ZhidaoVideoPlayer
