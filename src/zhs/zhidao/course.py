@@ -78,6 +78,13 @@ class ZhidaoCourseManager:
                 return c
         return None
 
+    def start_kg_exam(self, rac_id: str, knowledge_id: str) -> dict[str, Any]:
+        """按课程列表中的招募记录启动 KG 测验，无需加载视频目录。"""
+        course = next((c for c in self.get_course_list() if c.secret == rac_id), None)
+        if course is None:
+            raise ValueError("课程列表中未找到指定的 recruitAndCourseId")
+        return self._session.kg_exam_start(course.recruit_id or 0, extract_course_id(course), knowledge_id)
+
     def get_context(self, rac_id: str, force: bool = False) -> ZhidaoContext:
         """获取知到课程上下文
 
