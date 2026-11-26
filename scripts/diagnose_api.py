@@ -4,8 +4,8 @@ import sys
 from pathlib import Path
 
 from zhs.config import ConfigManager
-from zhs.login import LoginManager
 from zhs.logger import setup_logging
+from zhs.login import LoginManager
 from zhs.session import ZhsSession
 from zhs.zhidao.course import ZhidaoCourseManager
 
@@ -63,7 +63,7 @@ def main() -> None:
     print(f"  差异: {server_time - target.study_total_time if isinstance(server_time, int) else 'N/A'}s")
 
     # 完整返回
-    print(f"\n  prelearningNote 完整 studiedLessonDto:")
+    print("\n  prelearningNote 完整 studiedLessonDto:")
     print(json.dumps(dto, indent=2, ensure_ascii=False))
 
     session.close()

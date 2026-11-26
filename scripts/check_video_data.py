@@ -4,9 +4,10 @@ import sys
 from pathlib import Path
 
 from zhs.config import ConfigManager
-from zhs.login import LoginManager
 from zhs.logger import setup_logging
+from zhs.login import LoginManager
 from zhs.session import ZhsSession
+from zhs.zhidao.course import ZhidaoCourseManager
 
 config = ConfigManager().load()
 setup_logging(config)
@@ -20,7 +21,6 @@ if not login_mgr.try_restore_cookies(cookies_path) or not session.uuid:
     sys.exit(1)
 
 # 获取课程列表
-from zhs.zhidao.course import ZhidaoCourseManager
 course_mgr = ZhidaoCourseManager(session)
 courses = course_mgr.get_course_list()
 rac_id = courses[0].secret

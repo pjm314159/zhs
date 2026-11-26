@@ -1,12 +1,12 @@
 """真实测试：完整播放一个中等长度视频（验证 watchState 变为 1）"""
 import sys
-import traceback
 import time as _time
+import traceback
 from pathlib import Path
 
 from zhs.config import ConfigManager
-from zhs.login import LoginManager
 from zhs.logger import setup_logging
+from zhs.login import LoginManager
 from zhs.session import ZhsSession
 from zhs.zhidao.course import ZhidaoCourseManager
 from zhs.zhidao.video import ZhidaoVideoPlayer

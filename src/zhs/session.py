@@ -187,6 +187,22 @@ class ZhsSession:
             raise ApiError(code=code, message=result.get("message", ""))
         return result
 
+    def kg_exam_start(self, recruit_id: int, course_id: int, knowledge_id: str) -> dict[str, Any]:
+        """启动指定知识点的章节测验。GET 字段 knowledeId 是接口实际拼写。"""
+        if type(course_id) is not int or course_id <= 0:
+            raise ValueError("KG 测验需要正数 courseId")
+        if type(recruit_id) is not int or recruit_id <= 0 or not knowledge_id.strip():
+            raise ValueError("KG 测验需要有效的 recruitId 和知识点 ID")
+        result = self._query.query(
+            "aistudy",
+            f"{self.urls.aistudy}/gateway/t/v1/exam/start",
+            {"recruitId": str(recruit_id), "courseId": course_id, "knowledeId": knowledge_id},
+        )
+        paper = result.get("data")
+        if not isinstance(paper, dict):
+            raise ValueError("KG 测验未返回试卷对象")
+        return paper
+
     def hike_query(
         self,
         url: str,

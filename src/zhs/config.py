@@ -111,6 +111,7 @@ class UrlConfig(BaseModel):
     passport: str = "https://passport.zhihuishu.com"
     user: str = "https://user.zhihuishu.com"
     study: str = "https://studyservice-api.zhihuishu.com"
+    aistudy: str = "https://aistudy.zhihuishu.com"
     hike: str = "https://hike.zhihuishu.com"
     ai: str = "https://kg-ai-run.zhihuishu.com"
     ai_task: str = "https://kg-run-student.zhihuishu.com"

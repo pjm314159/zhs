@@ -59,7 +59,9 @@ def main() -> None:
     result = []
     result.append(f"Video: {video.name}")
     result.append(f"Before: {before}s/{video.video_sec}s, state={before_state}")
-    result.append(f"After: {v2.study_total_time}s/{v2.video_sec}s, state={v2.watch_state}" if v2 else "After: not found")
+    result.append(
+        f"After: {v2.study_total_time}s/{v2.video_sec}s, state={v2.watch_state}" if v2 else "After: not found"
+    )
     result.append(f"Elapsed: {elapsed:.1f}s")
     result.append(f"Error: {error}" if error else "Error: None")
     if v2 and v2.watch_state == 1:

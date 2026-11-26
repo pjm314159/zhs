@@ -45,11 +45,13 @@ class QueryStrategy:
     check_captcha: bool = False
     has_response_body: bool = True
     default_method: str = "POST"
+    extra_ok_values: tuple[int | str, ...] = ()
 
 
 # 策略表（替代 7 个方法）
 # fmt: off
 STRATEGIES: dict[str, QueryStrategy] = {
+    "aistudy":      QueryStrategy("video_key", True, "code", 200, default_method="GET", extra_ok_values=("200",)),
     "zhidao":       QueryStrategy("video_key", True,  "code",   0,     "form",  check_captcha=True),
     "hike":         QueryStrategy("",          False, "status", 200,   "form",  default_method="GET"),
     "ai_exam":      QueryStrategy("exam_key",  True,  "code",   0,     "form"),
@@ -151,6 +153,7 @@ class EncryptedQuery:
             check_captcha=strategy.check_captcha,
             has_response_body=strategy.has_response_body,
             default_method=strategy.default_method,
+            extra_ok_values=strategy.extra_ok_values if ok_value_override is None else (),
         )
 
     def _build_form_data(
@@ -193,7 +196,7 @@ class EncryptedQuery:
         if strategy.check_captcha and str(result.get("code")) == "-12":
             raise CaptchaRequired("服务端要求验证码", response=result, payload=payload, url=url)
 
-        if actual != strategy.ok_value:
+        if actual != strategy.ok_value and actual not in strategy.extra_ok_values:
             code = int(actual) if isinstance(actual, str) and actual.isdigit() else actual
             message = result.get("message", result.get("msg", ""))
             raise ApiError(code=code if isinstance(code, int) else -1, message=message)

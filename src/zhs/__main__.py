@@ -16,6 +16,8 @@
 所有从 cli 子包导入的函数均以带下划线前缀的别名暴露在模块命名空间。
 """
 
+import json
+
 import typer
 from loguru import logger
 
@@ -208,6 +210,31 @@ def _resolve_login_credentials(
     if not resolved_password:
         resolved_password = str(typer.prompt("密码", hide_input=True))
     return resolved_account, SecretPassword(resolved_password)
+
+
+# ---------------------------------------------------------------------------
+# zhs kg-exam-start
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def kg_exam_start(course: str, knowledge_id: str) -> None:
+    """启动 KG 章节测验并输出试卷，不提交答案。COURSE 为 recruitAndCourseId。"""
+    from zhs.exceptions import ZhsError
+    from zhs.zhidao.course import ZhidaoCourseManager
+
+    loaded = _load_config_and_session(False, False, None)
+    if loaded is None:
+        raise typer.Exit(1)
+    _, session = loaded
+    try:
+        paper = ZhidaoCourseManager(session).start_kg_exam(course, knowledge_id)
+        typer.echo(json.dumps(paper, ensure_ascii=False))
+    except (ValueError, ZhsError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
